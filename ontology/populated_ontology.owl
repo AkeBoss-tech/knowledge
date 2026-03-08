@@ -1,0 +1,1169 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xml:base="http://example.org/rutgers_ontology.owl"
+         xmlns="http://example.org/rutgers_ontology.owl#">
+
+<owl:Ontology rdf:about="http://example.org/rutgers_ontology.owl"/>
+
+<owl:ObjectProperty rdf:about="#isPartOf">
+  <rdfs:domain rdf:resource="#Municipality"/>
+  <rdfs:domain rdf:resource="#County"/>
+  <rdfs:range rdf:resource="#State"/>
+  <rdfs:range rdf:resource="#County"/>
+  <owl:inverseOf rdf:resource="#hasPart"/>
+</owl:ObjectProperty>
+
+<owl:ObjectProperty rdf:about="#hasPart">
+  <owl:inverseOf rdf:resource="#isPartOf"/>
+</owl:ObjectProperty>
+
+<owl:ObjectProperty rdf:about="#locatedIn">
+  <rdfs:domain rdf:resource="#Individual"/>
+  <rdfs:domain rdf:resource="#Municipality"/>
+  <rdfs:domain rdf:resource="#County"/>
+  <rdfs:range rdf:resource="#Municipality"/>
+  <rdfs:range rdf:resource="#State"/>
+  <rdfs:range rdf:resource="#County"/>
+</owl:ObjectProperty>
+
+<owl:DatatypeProperty rdf:about="#hasName">
+  <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#FunctionalProperty"/>
+  <rdfs:domain rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+  <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+</owl:DatatypeProperty>
+
+<owl:DatatypeProperty rdf:about="#hasPopulation">
+  <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#FunctionalProperty"/>
+  <rdfs:domain rdf:resource="#Municipality"/>
+  <rdfs:domain rdf:resource="#State"/>
+  <rdfs:domain rdf:resource="#County"/>
+  <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#integer"/>
+</owl:DatatypeProperty>
+
+<owl:DatatypeProperty rdf:about="#hasFIPS">
+  <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#FunctionalProperty"/>
+  <rdfs:domain rdf:resource="#State"/>
+  <rdfs:domain rdf:resource="#County"/>
+  <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+</owl:DatatypeProperty>
+
+<owl:DatatypeProperty rdf:about="#hasIncome">
+  <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#FunctionalProperty"/>
+  <rdfs:domain rdf:resource="#Individual"/>
+  <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#decimal"/>
+</owl:DatatypeProperty>
+
+<owl:Class rdf:about="#Municipality">
+  <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+</owl:Class>
+
+<owl:Class rdf:about="#County">
+  <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+</owl:Class>
+
+<owl:Class rdf:about="#State">
+  <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+</owl:Class>
+
+<owl:Class rdf:about="#Individual">
+  <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+</owl:Class>
+
+<owl:NamedIndividual rdf:about="#State_42">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Pennsylvania</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">42</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">13002700</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_06">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">California</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">06</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">39538223</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_54">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">West Virginia</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">54</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1793716</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_49">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Utah</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">49</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3271616</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_36">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">20201249</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36001">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Albany County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36001</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">314848</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36003">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Allegany County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36003</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">46456</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36005">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Bronx County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36005</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1472654</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36007">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Broome County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36007</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">198683</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36009">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Cattaraugus County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36009</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">77042</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36011">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Cayuga County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36011</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">76248</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36013">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Chautauqua County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36013</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">127657</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36015">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Chemung County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36015</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">84148</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36017">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Chenango County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36017</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">47220</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36019">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Clinton County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36019</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">79843</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36021">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Columbia County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36021</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">61570</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36023">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Cortland County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36023</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">46809</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36025">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Delaware County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36025</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">44308</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36027">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Dutchess County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36027</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">295911</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36029">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Erie County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36029</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">954236</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36031">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Essex County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36031</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">37381</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36033">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Franklin County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36033</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">47555</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36035">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Fulton County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36035</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">53324</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36037">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Genesee County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36037</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">58388</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36039">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Greene County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36039</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">47931</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36041">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Hamilton County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36041</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5107</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36043">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Herkimer County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36043</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">60139</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36045">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Jefferson County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36045</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">116721</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36047">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Kings County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36047</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">2736074</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36049">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Lewis County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36049</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">26582</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36051">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Livingston County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36051</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">61834</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36053">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Madison County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36053</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">68016</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36055">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Monroe County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36055</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">759443</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36057">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Montgomery County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36057</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">49532</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36059">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Nassau County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36059</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1395774</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36061">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">New York County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36061</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1694251</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36063">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Niagara County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36063</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">212666</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36065">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Oneida County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36065</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">232125</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36067">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Onondaga County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36067</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">476516</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36069">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Ontario County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36069</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">112458</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36071">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Orange County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36071</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">401310</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36073">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Orleans County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36073</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">40343</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36075">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Oswego County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36075</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">117525</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36077">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Otsego County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36077</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">58524</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36079">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Putnam County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36079</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">97668</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36081">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Queens County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36081</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">2405464</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36083">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Rensselaer County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36083</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">161130</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36085">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Richmond County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36085</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">495747</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36087">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Rockland County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36087</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">338329</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36089">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">St. Lawrence County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36089</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">108505</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36091">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Saratoga County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36091</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">235509</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36093">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Schenectady County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36093</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">158061</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36095">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Schoharie County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36095</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">29714</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36097">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Schuyler County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36097</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">17898</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36099">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Seneca County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36099</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">33814</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36101">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Steuben County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36101</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">93584</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36103">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Suffolk County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36103</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1525920</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36105">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Sullivan County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36105</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">78624</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36107">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Tioga County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36107</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">48455</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36109">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Tompkins County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36109</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">105740</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36111">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Ulster County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36111</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">181851</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36113">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Warren County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36113</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">65737</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36115">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Washington County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36115</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">61302</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36117">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Wayne County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36117</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">91283</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36119">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Westchester County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36119</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1004457</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36121">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Wyoming County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36121</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">40531</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_36123">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_36"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Yates County, New York</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">36123</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">24774</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_11">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">District of Columbia</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">11</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">689545</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_02">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Alaska</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">02</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">733391</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_12">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Florida</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">12</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">21538187</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_45">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">South Carolina</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">45</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5118425</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_38">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">North Dakota</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">38</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">779094</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_23">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Maine</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">23</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1362359</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_13">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Georgia</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">13</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">10711908</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_01">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Alabama</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">01</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5024279</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_33">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">New Hampshire</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">33</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1377529</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_41">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Oregon</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">41</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">4237256</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_56">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Wyoming</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">56</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">576851</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_04">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Arizona</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">04</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">7151502</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_22">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Louisiana</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">22</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">4657757</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_18">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Indiana</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">18</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">6785528</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_16">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Idaho</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">16</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1839106</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_09">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Connecticut</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">09</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3605944</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_15">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Hawaii</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">15</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1455271</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_17">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Illinois</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">17</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">12812508</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_25">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Massachusetts</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">25</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">7029917</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_48">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Texas</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">48</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">29145505</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_30">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Montana</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">30</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1084225</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_31">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Nebraska</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">31</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1961504</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_39">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Ohio</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">39</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">11799448</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_08">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Colorado</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">08</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5773714</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_34">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">9288994</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34001">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Atlantic County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34001</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">274534</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34003">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Bergen County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34003</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">955732</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34005">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Burlington County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34005</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">461860</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34007">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Camden County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34007</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">523485</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34009">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Cape May County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34009</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">95263</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34011">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Cumberland County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34011</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">154152</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34013">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Essex County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34013</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">863728</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34015">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Gloucester County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34015</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">302294</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34017">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Hudson County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34017</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">724854</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34019">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Hunterdon County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34019</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">128947</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34021">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Mercer County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34021</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">387340</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34023">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Middlesex County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34023</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">863162</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34025">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Monmouth County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34025</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">643615</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34027">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Morris County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34027</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">509285</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34029">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Ocean County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34029</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">637229</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34031">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Passaic County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34031</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">524118</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34033">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Salem County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34033</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">64837</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34035">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Somerset County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34035</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">345361</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34037">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Sussex County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34037</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">144221</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34039">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Union County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34039</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">575345</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#County_34041">
+  <rdf:type rdf:resource="#County"/>
+  <isPartOf rdf:resource="#State_34"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Warren County, New Jersey</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">34041</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">109632</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_24">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Maryland</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">24</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">6177224</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_51">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Virginia</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">51</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">8631393</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_50">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Vermont</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">50</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">643077</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_37">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">North Carolina</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">37</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">10439388</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_05">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Arkansas</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">05</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3011524</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_53">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Washington</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">53</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">7705281</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_20">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Kansas</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">20</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">2937880</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_40">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Oklahoma</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">40</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3959353</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_55">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Wisconsin</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">55</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5893718</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_28">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Mississippi</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">28</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">2961279</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_29">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Missouri</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">29</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">6154913</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_26">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Michigan</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">26</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">10077331</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_44">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Rhode Island</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">44</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">1097379</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_27">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Minnesota</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">27</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">5706494</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_19">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Iowa</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">19</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3190369</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_35">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">New Mexico</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">35</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">2117522</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_32">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Nevada</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">32</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3104614</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_10">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Delaware</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">10</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">989948</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_72">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Puerto Rico</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">72</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">3285874</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_21">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Kentucky</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">21</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">4505836</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_46">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">South Dakota</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">46</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">886667</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#State_47">
+  <rdf:type rdf:resource="#State"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Tennessee</hasName>
+  <hasFIPS rdf:datatype="http://www.w3.org/2001/XMLSchema#string">47</hasFIPS>
+  <hasPopulation rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">6910840</hasPopulation>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#ind_1">
+  <rdf:type rdf:resource="#Individual"/>
+  <locatedIn rdf:resource="#Municipality_Hoboken"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Alice</hasName>
+  <hasIncome rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">85000.0</hasIncome>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Municipality_Hoboken">
+  <rdf:type rdf:resource="#Municipality"/>
+  <isPartOf rdf:resource="#County_34017"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Hoboken</hasName>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#ind_2">
+  <rdf:type rdf:resource="#Individual"/>
+  <locatedIn rdf:resource="#Municipality_Jersey_City"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Bob</hasName>
+  <hasIncome rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">92000.0</hasIncome>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Municipality_Jersey_City">
+  <rdf:type rdf:resource="#Municipality"/>
+  <isPartOf rdf:resource="#County_34017"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Jersey City</hasName>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#ind_3">
+  <rdf:type rdf:resource="#Individual"/>
+  <locatedIn rdf:resource="#Municipality_Newark"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Charlie</hasName>
+  <hasIncome rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">75000.0</hasIncome>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Municipality_Newark">
+  <rdf:type rdf:resource="#Municipality"/>
+  <isPartOf rdf:resource="#County_34013"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Newark</hasName>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#ind_4">
+  <rdf:type rdf:resource="#Individual"/>
+  <locatedIn rdf:resource="#Municipality_Albany"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Dave</hasName>
+  <hasIncome rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">88000.0</hasIncome>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Municipality_Albany">
+  <rdf:type rdf:resource="#Municipality"/>
+  <isPartOf rdf:resource="#County_36001"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Albany</hasName>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#ind_5">
+  <rdf:type rdf:resource="#Individual"/>
+  <locatedIn rdf:resource="#Municipality_Syracuse"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Eve</hasName>
+  <hasIncome rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">82000.0</hasIncome>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Municipality_Syracuse">
+  <rdf:type rdf:resource="#Municipality"/>
+  <isPartOf rdf:resource="#County_36067"/>
+  <hasName rdf:datatype="http://www.w3.org/2001/XMLSchema#string">Syracuse</hasName>
+</owl:NamedIndividual>
+
+
+</rdf:RDF>
