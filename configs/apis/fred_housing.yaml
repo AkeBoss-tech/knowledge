@@ -10,7 +10,7 @@ foreach:
   inject_fields: [abbr, fips]
 
 params:
-  api_key: ${FRED_API_KEY}
+  api_key: a33d718b48462edc6d9ac57bacc49037
   file_type: json
   observation_start: "1975-01-01"
 response_format: json
