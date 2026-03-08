@@ -1,0 +1,34 @@
+uri: http://example.org/rutgers_ontology.owl
+
+classes:
+  - name: State
+  - name: County
+  - name: Municipality
+  - name: Individual
+
+object_properties:
+  - name: isPartOf
+    domain: [County, Municipality]
+    range: [State, County]
+    inverse: hasPart
+  - name: locatedIn
+    domain: [Individual, Municipality, County]
+    range: [Municipality, County, State]
+
+data_properties:
+  - name: hasName
+    domain: [Thing]
+    range: str
+    functional: true
+  - name: hasPopulation
+    domain: [State, County, Municipality]
+    range: int
+    functional: true
+  - name: hasFIPS
+    domain: [State, County]
+    range: str
+    functional: true
+  - name: hasIncome
+    domain: [Individual]
+    range: float
+    functional: true

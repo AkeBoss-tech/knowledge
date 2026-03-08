@@ -1,0 +1,51 @@
+ontology: configs/ontology/core.yaml
+
+output_owl: ontology/populated_ontology.owl
+db: ontology/onto.db
+
+steps:
+  - name: load_states
+    api: census_states
+    class: State
+    uri: "State_{fips}"
+    properties:
+      hasName: "{name}"
+      hasFIPS: "{fips}"
+      hasPopulation: "{population}"
+
+  - name: load_counties
+    api: census_counties
+    class: County
+    uri: "County_{full_fips}"
+    properties:
+      hasName: "{name}"
+      hasFIPS: "{full_fips}"
+      hasPopulation: "{population}"
+    relationships:
+      - property: isPartOf
+        target_class: State
+        target_uri: "State_{state_fips}"
+
+  - name: load_individuals
+    api: sample_individuals
+    class: Individual
+    uri: "{id}"
+    properties:
+      hasName: "{name}"
+      hasIncome: "{income}"
+    relationships:
+      - property: locatedIn
+        target_class: Municipality
+        target_uri: "Municipality_{municipality}"
+        create_if_missing: true
+        create_with_properties:
+          hasName: "{municipality}"
+
+  - name: link_municipalities_to_counties
+    api: municipality_map
+    class: Municipality
+    uri: "Municipality_{municipality}"
+    relationships:
+      - property: isPartOf
+        target_class: County
+        target_uri: "County_{county_fips}"
