@@ -72,6 +72,21 @@ def test_mcp_graph_entities_calls_project(monkeypatch):
     assert payload["limit"] == 5
 
 
+def test_mcp_vector_search_calls_project(monkeypatch):
+    class _Project:
+        def vector_search(self, query, *, limit=10):
+            return {"query": query, "hits": [{"path": "topics/brief.md"}], "limit": limit}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.vector_search("robotics planning", 3)
+
+    payload = json.loads(result)
+    assert payload["query"] == "robotics planning"
+    assert payload["hits"][0]["path"] == "topics/brief.md"
+    assert payload["limit"] == 3
+
+
 def test_mcp_integrity_assumptions_calls_project(monkeypatch):
     class _Project:
         def integrity_assumptions(self):

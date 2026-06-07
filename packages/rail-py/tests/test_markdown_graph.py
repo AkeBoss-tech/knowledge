@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 
 import rail
-from rail.markdown_graph import build_markdown_graph, export_graph, filter_documents, filter_edges, filter_entities
+from rail.markdown_graph import (
+    build_markdown_graph,
+    check_markdown_graph,
+    export_graph,
+    filter_documents,
+    filter_edges,
+    filter_entities,
+    validate_markdown_graph,
+)
 
 
 def _write_project(root: Path) -> None:
@@ -148,3 +156,45 @@ def test_project_hydrate_markdown_graph_mode(tmp_path: Path):
     assert result["status"] == "hydrated"
     assert result["mode"] == "markdown_graph"
     assert result["graph"]["counts"]["documents"] == 2
+
+
+def test_graph_validate_and_check_report_freshness(tmp_path: Path):
+    _write_project(tmp_path)
+
+    validation = validate_markdown_graph(tmp_path)
+    assert validation["ok"] is True
+    missing = check_markdown_graph(tmp_path)
+    assert missing["ok"] is False
+    assert missing["status"] == "missing"
+
+    build_markdown_graph(tmp_path, write=True)
+    fresh = check_markdown_graph(tmp_path)
+    assert fresh["ok"] is True
+    assert fresh["status"] == "fresh"
+
+
+def test_capture_can_write_graph_frontmatter_and_search_rag(tmp_path: Path):
+    _write_project(tmp_path)
+    project = rail.local(path=tmp_path)
+
+    captured = project.capture(
+        "PDDLStream remains a useful baseline for robotics planning.",
+        title="PDDLStream capture",
+        topics=["robotics"],
+        entities=["PDDLStream"],
+        entity_type="Package",
+    )
+    assert captured["status"] == "captured"
+
+    graph = project.graph_build(write=False)
+    assert any(node.get("label") == "PDDLStream" for node in graph["nodes"])
+
+    indexed = project.vector_build()
+    assert indexed["chunks"] >= 1
+
+    vector_hits = project.vector_search("robotics planning baseline", limit=3)
+    assert vector_hits["hits"]
+
+    rag = project._backend.knowledge.search("robotics planning baseline", limit=3, rag=True, explain=True)
+    assert rag["vector_hits"]
+    assert rag["rag"]["database"] == ".krail/vector.sqlite"

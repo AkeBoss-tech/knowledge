@@ -385,6 +385,75 @@ def write_graph(project_path: Path, graph: dict[str, Any], config: MarkdownGraph
     return written
 
 
+def _semantic_graph(graph: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: graph.get(key)
+        for key in ["mode", "config", "counts", "nodeTypeCounts", "entityTypeCounts", "documents", "nodes", "edges", "warnings"]
+    }
+
+
+def validate_markdown_graph(project_path: str | Path) -> dict[str, Any]:
+    root = Path(project_path).resolve()
+    graph = build_markdown_graph(root, write=False)
+    errors: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = list(graph.get("warnings") or [])
+    slug_labels: dict[str, set[str]] = {}
+
+    for doc in graph.get("documents", []):
+        if not doc.get("title"):
+            errors.append({"path": doc.get("path", ""), "error": "frontmatter title is missing"})
+        if not doc.get("kind"):
+            errors.append({"path": doc.get("path", ""), "error": "frontmatter kind is missing"})
+
+    node_ids = {node.get("id") for node in graph.get("nodes", [])}
+    for node in graph.get("nodes", []):
+        if node.get("nodeType") == "entity":
+            slug_labels.setdefault(node.get("id", ""), set()).add(str(node.get("label") or ""))
+    for node_id, labels in slug_labels.items():
+        if len(labels) > 1:
+            warnings.append({"path": "", "warning": f"entity slug collision for {node_id}: {sorted(labels)}"})
+
+    for edge in graph.get("edges", []):
+        if edge.get("from") not in node_ids:
+            errors.append({"path": edge.get("source", ""), "error": f"edge has missing from node: {edge.get('from')}"})
+        if edge.get("to") not in node_ids:
+            errors.append({"path": edge.get("source", ""), "error": f"edge has missing to node: {edge.get('to')}"})
+        if not edge.get("type"):
+            errors.append({"path": edge.get("source", ""), "error": "edge relation type is missing"})
+
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "counts": graph.get("counts", {}),
+    }
+
+
+def check_markdown_graph(project_path: str | Path) -> dict[str, Any]:
+    root = Path(project_path).resolve()
+    config = load_config(root)
+    graph_path = root / config.json_path
+    validation = validate_markdown_graph(root)
+    if not graph_path.exists():
+        return {
+            "ok": False,
+            "status": "missing",
+            "path": config.json_path,
+            "validation": validation,
+            "message": "graph artifact is missing; run `krail graph build`.",
+        }
+    stored = json.loads(graph_path.read_text(encoding="utf-8"))
+    rebuilt = build_markdown_graph(root, write=False)
+    stale = _semantic_graph(stored) != _semantic_graph(rebuilt)
+    return {
+        "ok": validation["ok"] and not stale,
+        "status": "stale" if stale else "fresh",
+        "path": config.json_path,
+        "validation": validation,
+        "message": "graph artifact is stale; run `krail graph build`." if stale else "graph artifact is fresh.",
+    }
+
+
 def load_or_build_graph(project_path: str | Path) -> dict[str, Any]:
     root = Path(project_path).resolve()
     config = load_config(root)

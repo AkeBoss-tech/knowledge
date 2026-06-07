@@ -38,7 +38,7 @@ def cmd_init(args: argparse.Namespace):
 
 def cmd_search(project: rail.Project, args: argparse.Namespace):
     if hasattr(project._backend, "knowledge"):
-        _print_json(project._backend.knowledge.search(args.query, limit=args.limit, explain=args.explain))
+        _print_json(project._backend.knowledge.search(args.query, limit=args.limit, explain=args.explain, rag=args.rag))
     else:
         _print_json(project.search(args.query))
 
@@ -56,6 +56,10 @@ def cmd_capture(project: rail.Project, args: argparse.Namespace):
             url=args.url,
             kind=args.type,
             workflow=args.workflow,
+            title=args.title,
+            topics=args.topic,
+            entities=args.entity,
+            entity_type=args.entity_type,
         )
     )
 
@@ -104,6 +108,16 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
 def cmd_graph(project: rail.Project, args: argparse.Namespace):
     if args.graph_command == "build":
         _print_json(project.graph_build(write=not args.no_write))
+    elif args.graph_command == "validate":
+        result = project.graph_validate()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
+    elif args.graph_command == "check":
+        result = project.graph_check()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
     elif args.graph_command == "entities":
         _print_json(project.graph_entities(entity_type=args.type, limit=args.limit))
     elif args.graph_command == "edges":
@@ -127,6 +141,12 @@ def cmd_graph(project: rail.Project, args: argparse.Namespace):
             _print_json({"status": "written", "format": args.format, "path": str(output)})
         else:
             print(result["content"], end="")
+
+def cmd_vector(project: rail.Project, args: argparse.Namespace):
+    if args.vector_command == "build":
+        _print_json(project.vector_build())
+    elif args.vector_command == "search":
+        _print_json(project.vector_search(args.query, limit=args.limit))
 
 def cmd_query(project: rail.Project, args: argparse.Namespace):
     if args.command == "sql":
@@ -237,6 +257,7 @@ def main():
     s_parser.add_argument("query", help="Search query")
     s_parser.add_argument("--limit", type=int, default=10)
     s_parser.add_argument("--explain", action="store_true", help="Explain local ranking signals")
+    s_parser.add_argument("--rag", action="store_true", help="Use the local SQLite vector index for RAG-style retrieval")
 
     # Think
     t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
@@ -251,6 +272,10 @@ def main():
     c_parser.add_argument("--stdin", action="store_true", help="Read capture text from stdin")
     c_parser.add_argument("--type", default="note", help="Capture type")
     c_parser.add_argument("--workflow", help="Workflow hint for later triage")
+    c_parser.add_argument("--title", help="Frontmatter title")
+    c_parser.add_argument("--topic", action="append", help="Frontmatter topic; can be repeated")
+    c_parser.add_argument("--entity", action="append", help="Frontmatter entity; can be repeated")
+    c_parser.add_argument("--entity-type", help="Entity type for captured entities")
 
     # Doctor
     subparsers.add_parser("doctor", help="Check local project health")
@@ -310,6 +335,8 @@ def main():
     graph_subs = graph_parser.add_subparsers(dest="graph_command")
     gb = graph_subs.add_parser("build", help="Build graph artifacts from markdown frontmatter")
     gb.add_argument("--no-write", action="store_true", help="Return the graph without writing artifacts")
+    graph_subs.add_parser("validate", help="Validate markdown graph frontmatter")
+    graph_subs.add_parser("check", help="Fail-style check for stale graph artifacts")
     ge = graph_subs.add_parser("entities", help="List markdown-derived entities")
     ge.add_argument("--type", help="Filter by entity type")
     ge.add_argument("--limit", type=int, default=100)
@@ -326,6 +353,14 @@ def main():
     gx = graph_subs.add_parser("export", help="Export the current graph as json, mermaid, or summary")
     gx.add_argument("--format", choices=["json", "mermaid", "summary"], default="json")
     gx.add_argument("--output", help="Write export content to a file instead of stdout")
+
+    # Vector / RAG
+    vector_parser = subparsers.add_parser("vector", help="Build and query the local SQLite vector database")
+    vector_subs = vector_parser.add_subparsers(dest="vector_command")
+    vector_subs.add_parser("build", help="Build .krail/vector.sqlite from local project documents")
+    vs = vector_subs.add_parser("search", help="Search local vector chunks")
+    vs.add_argument("query")
+    vs.add_argument("--limit", type=int, default=10)
 
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
@@ -429,6 +464,8 @@ def main():
         cmd_workflow(project, args)
     elif args.command == "graph":
         cmd_graph(project, args)
+    elif args.command == "vector":
+        cmd_vector(project, args)
     elif args.command == "query":
         cmd_query(project, args)
     elif args.command == "hydrate":

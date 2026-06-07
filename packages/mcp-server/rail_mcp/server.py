@@ -158,6 +158,18 @@ def graph_build(write: bool = True) -> str:
 
 
 @mcp.tool()
+def graph_validate() -> str:
+    """Validate markdown graph frontmatter and relation structure."""
+    return _json(_get_project().graph_validate())
+
+
+@mcp.tool()
+def graph_check() -> str:
+    """Check whether committed markdown graph artifacts are fresh."""
+    return _json(_get_project().graph_check())
+
+
+@mcp.tool()
 def graph_entities(entity_type: str = "", limit: int = 100) -> str:
     """
     List entities derived from markdown frontmatter.
@@ -220,6 +232,24 @@ def graph_export(format: str = "json") -> str:
         format: One of json, mermaid, or summary.
     """
     return _json(_get_project().graph_export(export_format=format))
+
+
+@mcp.tool()
+def vector_build() -> str:
+    """Build the local SQLite vector database at .krail/vector.sqlite."""
+    return _json(_get_project().vector_build())
+
+
+@mcp.tool()
+def vector_search(query: str, limit: int = 10) -> str:
+    """
+    Search the local SQLite vector database for semantically similar chunks.
+
+    Args:
+        query: Search query.
+        limit: Maximum chunks to return.
+    """
+    return _json(_get_project().vector_search(query, limit=limit))
 
 
 @mcp.tool()
