@@ -513,6 +513,7 @@ Create a durable local workflow spec:
 ```bash
 krail --local workflow templates
 krail --local workflow init weekly_research_review --template weekly_research_review
+krail --local workflow init source_refresh --template source_refresh
 krail --local workflow show weekly_research_review
 krail --local workflow validate weekly_research_review
 krail --local workflow execute weekly_research_review --dry-run
@@ -582,6 +583,58 @@ Agent sessions include a `session_result.template.json`. Agents should write
 
 This is the main design point: agents should do work through auditable tasks and
 work orders, not loose invisible chat sessions.
+
+## Source Dependencies
+
+KRAIL can track which markdown documents depend on which sources.
+
+Declare dependencies in:
+
+```text
+sources/dependencies.yaml
+```
+
+Example:
+
+```yaml
+documents:
+  - path: topics/robotics/task-and-motion-planning.md
+    depends_on:
+      - id: github:RobotLocomotion/drake
+        type: github_repo
+        url: https://github.com/RobotLocomotion/drake
+        role: implementation
+        refresh: daily
+      - id: arxiv:2512.08206
+        type: arxiv
+        url: https://arxiv.org/abs/2512.08206
+        role: primary_paper
+        refresh: weekly
+```
+
+Commands:
+
+```bash
+krail --local sources validate
+krail --local sources list
+krail --local sources check
+krail --local sources changed
+krail --local sources affected
+```
+
+Snapshots are stored in:
+
+```text
+research_plan/state/source_snapshots.json
+```
+
+The first check records baseline hashes. Later checks mark changed sources and
+`sources affected` maps those changes back to dependent markdown documents.
+Dependency edges are also included in the markdown graph as:
+
+```text
+Document depends_on Source
+```
 
 ## MCP
 
@@ -968,11 +1021,21 @@ krail --local workflow list
 krail --local workflow run weekly_literature_refresh --dry-run
 krail --local workflow templates
 krail --local workflow init weekly_research_review --template weekly_research_review
+krail --local workflow init source_refresh --template source_refresh
 krail --local workflow show weekly_research_review
 krail --local workflow validate weekly_research_review
 krail --local workflow execute weekly_research_review --dry-run
 krail --local workflow runs
 krail --local workflow status <run_id>
+```
+
+Sources:
+
+```bash
+krail --local sources validate
+krail --local sources list
+krail --local sources check
+krail --local sources affected
 ```
 
 Ontology/hydration:

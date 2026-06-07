@@ -29,12 +29,19 @@ jobs:
             packages/rail-py/tests/test_bootstrap.py \
             packages/rail-py/tests/test_markdown_graph.py \
             packages/rail-py/tests/test_cli.py \
+            packages/rail-py/tests/test_source_dependencies.py \
+            packages/rail-py/tests/test_workflows.py \
             packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
-            packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project
+            packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
+            packages/mcp-server/tests/test_server.py::test_mcp_sources_affected_passes_source_ids \
+            packages/mcp-server/tests/test_server.py::test_mcp_sources_check_calls_project
       - name: Fresh example smoke
         run: |
           krail --version
           krail --local --path examples/minimal-project doctor
+          krail --local --path examples/minimal-project sources validate
+          krail --local --path examples/minimal-project sources check
+          krail --local --path examples/minimal-project sources affected
           krail --local --path examples/minimal-project graph build
           krail --local --path examples/minimal-project graph check
           krail --local --path examples/minimal-project vector build

@@ -1,0 +1,15 @@
+documents:
+  - path: topics/brief.md
+    depends_on:
+      - id: local:research-question
+        type: local_file
+        path: specs/research_question.yaml
+        role: project_spec
+        refresh: manual
+  - path: research_plan/current_plan.md
+    depends_on:
+      - id: local:synthetic-observations
+        type: local_file
+        path: topics/data/observations.csv
+        role: dataset
+        refresh: manual

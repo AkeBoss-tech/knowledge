@@ -140,6 +140,32 @@ def test_mcp_workflow_status_calls_project(monkeypatch):
     assert payload["status"] == "done"
 
 
+def test_mcp_sources_affected_passes_source_ids(monkeypatch):
+    class _Project:
+        def sources_affected(self, *, source_ids=None):
+            return {"source_ids": source_ids, "affected_documents": []}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.sources_affected(json.dumps(["github:demo/repo"]))
+
+    payload = json.loads(result)
+    assert payload["source_ids"] == ["github:demo/repo"]
+
+
+def test_mcp_sources_check_calls_project(monkeypatch):
+    class _Project:
+        def sources_check(self, *, write=True):
+            return {"write": write, "changed_sources": []}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.sources_check(False)
+
+    payload = json.loads(result)
+    assert payload == {"write": False, "changed_sources": []}
+
+
 def test_mcp_integrity_assumptions_calls_project(monkeypatch):
     class _Project:
         def integrity_assumptions(self):

@@ -38,6 +38,7 @@ def test_bootstrap_future_project_creates_workspace_scaffold(tmp_path):
     assert (root / "research_plan/state/conflicts.json").exists()
     assert (root / "research_plan/state/artifact_lineage.json").exists()
     assert (root / "research_plan/state/verification_runs.json").exists()
+    assert (root / "sources/dependencies.yaml").exists()
     assert (root / "agents/prompts/planner.md").exists()
     assert (root / "skills/repo-contract.md").exists()
     assert (root / "skills/web-research.md").exists()
@@ -91,6 +92,9 @@ def test_bootstrap_future_project_creates_workspace_scaffold(tmp_path):
     setup_script = (root / "scripts/setup-workspace.sh").read_text(encoding="utf-8")
     assert "packages/rail-py" in setup_script
     assert "rail --help" in setup_script
+
+    dependency_manifest = yaml.safe_load((root / "sources/dependencies.yaml").read_text(encoding="utf-8"))
+    assert dependency_manifest["documents"][0]["path"] == "topics/brief.md"
 
 
 def test_bootstrap_future_project_supports_markdown_graph_mode(tmp_path):

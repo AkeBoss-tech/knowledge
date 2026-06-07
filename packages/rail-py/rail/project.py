@@ -272,6 +272,31 @@ class Project:
             raise RuntimeError("vector commands require local mode")
         return self._backend.knowledge.vector_search(query, limit=limit)
 
+    def sources_validate(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("sources commands require local mode")
+        return self._backend.knowledge.sources_validate()
+
+    def sources_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("sources commands require local mode")
+        return self._backend.knowledge.sources_list()
+
+    def sources_check(self, *, write: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("sources commands require local mode")
+        return self._backend.knowledge.sources_check(write=write)
+
+    def sources_changed(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("sources commands require local mode")
+        return self._backend.knowledge.sources_changed()
+
+    def sources_affected(self, *, source_ids: list[str] | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("sources commands require local mode")
+        return self._backend.knowledge.sources_affected(source_ids=source_ids)
+
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("ci commands require local mode")
