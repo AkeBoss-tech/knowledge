@@ -21,6 +21,7 @@ krail --local --path examples/minimal-project search "employment index" --rag --
 
 ```bash
 PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
+  packages/rail-py/tests/test_bootstrap.py \
   packages/rail-py/tests/test_markdown_graph.py \
   packages/rail-py/tests/test_cli.py \
   packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \

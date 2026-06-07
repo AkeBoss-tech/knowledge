@@ -41,7 +41,9 @@ fi
 
 echo ""
 echo "Done. Next steps:"
-echo "  make run          # API :8000"
-echo "  rail --help       # CLI"
+echo "  source .venv/bin/activate"
+echo "  krail --version"
+echo "  krail --local --path examples/minimal-project doctor"
+echo "  krail --local --path examples/minimal-project search \"employment index\" --rag --explain"
 echo ""
 echo "Agent CLIs: ./scripts/install-agent-clis.sh"
