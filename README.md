@@ -68,6 +68,7 @@ Ready now:
 - knowledge pack activation
 - capture inbox
 - deterministic local file search
+- local SQLite vector database for RAG-style retrieval
 - deterministic `think` envelope
 - local project doctor checks
 - markdown-frontmatter graph build/query/export
@@ -80,8 +81,8 @@ Ready now:
 Not ready yet:
 
 - real LLM synthesis inside `think`
-- vector search or reranking
-- graph-aware retrieval/reranking inside `search` and `think`
+- model-backed embeddings and reranking
+- deeper graph-aware retrieval/reranking inside `search` and `think`
 - full workflow scheduler
 - remote permission scopes
 - pack installation from external repos
@@ -231,6 +232,7 @@ KRAIL separates retrieval from synthesis.
 
 ```bash
 krail --local search "customer onboarding workflow"
+krail --local search "customer onboarding workflow" --rag --explain
 krail --local think "what changed in onboarding this week?"
 ```
 
@@ -253,6 +255,21 @@ krail --local think "what changed in onboarding this week?"
 Current `think` is intentionally conservative. It does not fake LLM synthesis.
 It uses search hits and tells you what is missing. The next step is to wire
 provider-backed synthesis into this envelope.
+
+## Local RAG
+
+KRAIL can build a local SQLite vector database for RAG-style retrieval:
+
+```bash
+krail --local vector build
+krail --local vector search "dual-arm planning benchmark"
+krail --local search "dual-arm planning benchmark" --rag --explain
+```
+
+The first implementation uses deterministic hashed embeddings and stores chunks
+in `.krail/vector.sqlite`. This keeps the system offline and dependency-light.
+Future embedding providers can replace the local hash encoder while keeping the
+same command surface.
 
 ## Markdown Graphs
 
@@ -287,6 +304,8 @@ Build artifacts:
 
 ```bash
 krail --local graph build
+krail --local graph validate
+krail --local graph check
 ```
 
 By default this writes:
@@ -294,6 +313,10 @@ By default this writes:
 - `research_plan/graph/graph.json`
 - `research_plan/graph/graph.mmd`
 - `research_plan/graph/summary.md`
+
+`graph validate` reports malformed frontmatter or relation structure.
+`graph check` is CI-oriented: it exits non-zero when graph artifacts are missing
+or stale.
 
 Query graph metadata:
 
@@ -486,10 +509,14 @@ Common tools:
 - `capture`
 - `doctor`
 - `graph_build`
+- `graph_validate`
+- `graph_check`
 - `graph_entities`
 - `graph_edges`
 - `graph_docs`
 - `graph_export`
+- `vector_build`
+- `vector_search`
 - `pack_active`
 - `list_agents`
 - `create_task`
@@ -757,7 +784,7 @@ Phase 7: interfaces
 ## Known Limitations
 
 - `think` is not LLM-backed yet.
-- `search` is deterministic local keyword search, not hybrid retrieval.
+- `search --rag` is local hybrid retrieval, but embeddings are hashed rather than model-backed.
 - Agent dispatch can launch local CLI tools, but sandboxing is still mostly the
   responsibility of those tools and the operator.
 - Workflows are currently stubs that create tasks from pack workflow IDs.
@@ -777,6 +804,7 @@ Capture:
 
 ```bash
 krail --local capture "note"
+krail --local capture "PDDLStream baseline note" --topic robotics --entity PDDLStream --entity-type Package
 krail --local capture --file ./notes.md
 krail --local capture --url https://example.com --workflow add_new_paper
 ```
@@ -785,13 +813,23 @@ Search and think:
 
 ```bash
 krail --local search "query" --explain
+krail --local search "query" --rag --explain
 krail --local think "question"
+```
+
+Vector/RAG:
+
+```bash
+krail --local vector build
+krail --local vector search "query"
 ```
 
 Markdown graph:
 
 ```bash
 krail --local graph build
+krail --local graph validate
+krail --local graph check
 krail --local graph entities --type Package
 krail --local graph edges --entity PDDLStream
 krail --local graph docs --topic dual-arm-planning

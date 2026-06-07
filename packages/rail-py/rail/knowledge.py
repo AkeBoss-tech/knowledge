@@ -15,12 +15,15 @@ import yaml
 
 from rail.markdown_graph import (
     build_markdown_graph,
+    check_markdown_graph,
     export_graph,
     filter_documents,
     filter_edges,
     filter_entities,
     load_or_build_graph,
+    validate_markdown_graph,
 )
+from rail.vector_store import LocalVectorStore
 
 
 DEFAULT_PACKS: dict[str, dict[str, Any]] = {
@@ -33,6 +36,12 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
             "Package",
             "Dataset",
             "Benchmark",
+            "FailureMode",
+            "ProjectIdea",
+            "ExecutionFramework",
+            "RobotSystem",
+            "GeometryTechnique",
+            "TaskFamily",
             "Claim",
             "Limitation",
             "OpenProblem",
@@ -42,6 +51,9 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
             "Paper INTRODUCES Method",
             "Package IMPLEMENTS Method",
             "Paper EVALUATES_ON Benchmark",
+            "Benchmark EXPOSES FailureMode",
+            "Method REQUIRES GeometryTechnique",
+            "ProjectIdea BUILDS_ON Package",
             "Claim SUPPORTED_BY EvidenceChunk",
             "Experiment TESTS Claim",
         ],
@@ -148,6 +160,10 @@ _STOPWORDS = {
 }
 
 
+def _yaml_scalar(value: str) -> str:
+    return json.dumps(value)
+
+
 @dataclass
 class SearchHit:
     path: str
@@ -182,6 +198,7 @@ class KnowledgeRuntime:
 
     def _iter_docs(self) -> list[Path]:
         ignored_parts = {".git", ".krail", ".rail", "__pycache__", ".pytest_cache", ".venv"}
+        ignored_prefixes = ("research_plan/graph/", "docs/data/")
         suffixes = {".md", ".txt", ".yaml", ".yml", ".json", ".csv"}
         docs: list[Path] = []
         for path in self.project_path.rglob("*"):
@@ -189,13 +206,23 @@ class KnowledgeRuntime:
                 continue
             if any(part in ignored_parts for part in path.parts):
                 continue
+            rel = path.relative_to(self.project_path).as_posix()
+            if rel.startswith(ignored_prefixes):
+                continue
             if path.suffix.lower() in suffixes:
                 docs.append(path)
         return sorted(docs)
 
     @staticmethod
     def _terms(query: str) -> list[str]:
-        return [term.lower() for term in _WORD_RE.findall(query) if len(term) > 1 and term.lower() not in _STOPWORDS]
+        terms: list[str] = []
+        for raw in _WORD_RE.findall(query):
+            parts = [raw, *re.split(r"[_.-]+", raw)]
+            for part in parts:
+                term = part.lower()
+                if len(term) > 1 and term not in _STOPWORDS:
+                    terms.append(term)
+        return sorted(set(terms))
 
     @staticmethod
     def _title_for(path: Path, text: str) -> str:
@@ -215,7 +242,7 @@ class KnowledgeRuntime:
         start = max(min(pos for pos in positions if pos >= 0) - 80, 0)
         return normalized[start : start + 260].strip()
 
-    def search(self, query: str, *, limit: int = 10, explain: bool = False) -> dict[str, Any]:
+    def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = False) -> dict[str, Any]:
         terms = self._terms(query)
         hits: list[SearchHit] = []
         if not terms:
@@ -241,17 +268,71 @@ class KnowledgeRuntime:
             hits.append(SearchHit(rel, title, score, matched, self._snippet(text, terms)))
 
         hits.sort(key=lambda hit: (-hit.score, hit.path))
-        result: dict[str, Any] = {"query": query, "hits": [hit.to_dict() for hit in hits[:limit]]}
+        lexical_hits = [hit.to_dict() for hit in hits[:limit]]
+        result: dict[str, Any] = {"query": query, "hits": lexical_hits}
+        if rag:
+            vector = self.vector_search(query, limit=limit)
+            result["vector_hits"] = vector.get("hits", [])
+            result["hits"] = self._merge_search_hits(lexical_hits, vector.get("hits", []), limit=limit)
+            result["rag"] = {"database": vector.get("database"), "embedding": vector.get("embedding"), "status": vector.get("status", "ok")}
+        graph = self._graph_context(query, limit=5)
+        if graph:
+            result["graph_context"] = graph
         if explain:
             result["explain"] = {
-                "mode": "local_keyword",
-                "signals": ["term_frequency", "title_match", "path_match", "typed_wikilink_count"],
-                "note": "Vector, graph, freshness, and integrity boosts are planned but not wired into this local search yet.",
+                "mode": "local_hybrid" if rag else "local_keyword_graph",
+                "signals": ["term_frequency", "title_match", "path_match", "typed_wikilink_count", "markdown_graph_context", "local_vector_cosine" if rag else "vector_optional"],
+                "note": "RAG mode uses a local SQLite vector store with deterministic hashed embeddings. Model-backed embeddings can replace this later.",
             }
         return result
 
+    @staticmethod
+    def _merge_search_hits(lexical_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for hit in lexical_hits:
+            key = hit["path"]
+            merged[key] = {**hit, "lexical_score": hit.get("score", 0), "vector_score": 0, "score": hit.get("score", 0)}
+        for hit in vector_hits:
+            key = hit["path"]
+            current = merged.get(key, {"path": key, "title": hit.get("title"), "matched_terms": [], "snippet": hit.get("snippet", "")})
+            lexical_score = float(current.get("lexical_score") or 0)
+            vector_score = float(hit.get("score") or 0)
+            current.update(
+                {
+                    "title": current.get("title") or hit.get("title"),
+                    "snippet": current.get("snippet") or hit.get("snippet", ""),
+                    "lexical_score": lexical_score,
+                    "vector_score": vector_score,
+                    "score": round(lexical_score + vector_score * 10, 3),
+                }
+            )
+            merged[key] = current
+        return sorted(merged.values(), key=lambda item: (-float(item.get("score") or 0), item["path"]))[:limit]
+
+    def _graph_context(self, query: str, *, limit: int = 5) -> dict[str, Any] | None:
+        graph = load_or_build_graph(self.project_path)
+        terms = set(self._terms(query))
+        if not terms:
+            return None
+        entities = [
+            node for node in graph.get("nodes", [])
+            if node.get("nodeType") == "entity" and terms.intersection(set(self._terms(str(node.get("label") or ""))))
+        ][:limit]
+        if not entities:
+            return None
+        entity_ids = {entity["id"] for entity in entities}
+        edges = [
+            edge for edge in graph.get("edges", [])
+            if edge.get("from") in entity_ids or edge.get("to") in entity_ids
+        ][:limit]
+        docs = [
+            doc for doc in graph.get("documents", [])
+            if any(entity.get("label") in set(doc.get("entities", [])) for entity in entities)
+        ][:limit]
+        return {"entities": entities, "edges": edges, "documents": docs, "graphGeneratedAt": graph.get("generatedAt")}
+
     def think(self, query: str, *, limit: int = 5) -> dict[str, Any]:
-        search = self.search(query, limit=limit, explain=True)
+        search = self.search(query, limit=limit, explain=True, rag=True)
         hits = search["hits"]
         evidence = [
             {"path": hit["path"], "title": hit["title"], "snippet": hit["snippet"], "score": hit["score"]}
@@ -270,9 +351,11 @@ class KnowledgeRuntime:
             "query": query,
             "answer": answer,
             "evidence": evidence,
+            "graph_context": search.get("graph_context"),
+            "vector_hits": search.get("vector_hits", []),
             "confidence": confidence,
             "gaps": [
-                "No vector index or reranker is wired in yet.",
+                "Vector retrieval currently uses local hashed embeddings, not model embeddings.",
                 "No source freshness or claim-evidence scoring is applied yet.",
                 "LLM synthesis is intentionally not faked in this local skeleton.",
             ],
@@ -292,6 +375,10 @@ class KnowledgeRuntime:
         url: str | None = None,
         kind: str = "note",
         workflow: str | None = None,
+        title: str | None = None,
+        topics: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
     ) -> dict[str, Any]:
         content_parts: list[str] = []
         if text:
@@ -311,13 +398,24 @@ class KnowledgeRuntime:
         path.parent.mkdir(parents=True, exist_ok=True)
         header = [
             "---",
-            f"type: {kind}",
+            f"title: {_yaml_scalar(title or kind.title())}",
+            f"kind: {_yaml_scalar(kind)}",
+            f"type: {_yaml_scalar(kind)}",
             f"captured_at: {_dt.datetime.now(_dt.UTC).isoformat()}",
         ]
+        if topics:
+            header.append("topics:")
+            header.extend(f"  - {_yaml_scalar(topic)}" for topic in topics)
+        if entities:
+            header.append("entities:")
+            header.extend(f"  - {_yaml_scalar(entity)}" for entity in entities)
+            if entity_type:
+                header.append("entity_metadata:")
+                header.extend([f"  - name: {_yaml_scalar(entity)}\n    entity_type: {_yaml_scalar(entity_type)}" for entity in entities])
         if url:
-            header.append(f"url: {url}")
+            header.append(f"url: {_yaml_scalar(url)}")
         if workflow:
-            header.append(f"workflow: {workflow}")
+            header.append(f"workflow: {_yaml_scalar(workflow)}")
         header.extend(["---", ""])
         path.write_text("\n".join(header) + body.strip() + "\n", encoding="utf-8")
         return {"status": "captured", "path": str(path.relative_to(self.project_path)), "type": kind}
@@ -437,6 +535,12 @@ class KnowledgeRuntime:
     def graph_build(self, *, write: bool = True) -> dict[str, Any]:
         return build_markdown_graph(self.project_path, write=write)
 
+    def graph_validate(self) -> dict[str, Any]:
+        return validate_markdown_graph(self.project_path)
+
+    def graph_check(self) -> dict[str, Any]:
+        return check_markdown_graph(self.project_path)
+
     def graph_entities(self, *, entity_type: str | None = None, limit: int = 100) -> dict[str, Any]:
         graph = load_or_build_graph(self.project_path)
         return filter_entities(graph, entity_type=entity_type, limit=limit)
@@ -466,6 +570,17 @@ class KnowledgeRuntime:
     def graph_export(self, *, export_format: str = "json") -> dict[str, Any]:
         graph = load_or_build_graph(self.project_path)
         return {"format": export_format, "content": export_graph(graph, export_format)}
+
+    def vector_build(self) -> dict[str, Any]:
+        return LocalVectorStore(self.project_path).build(self._iter_docs())
+
+    def vector_search(self, query: str, *, limit: int = 10) -> dict[str, Any]:
+        store = LocalVectorStore(self.project_path)
+        result = store.search(query, limit=limit)
+        if result.get("status") == "missing_index":
+            self.vector_build()
+            result = store.search(query, limit=limit)
+        return result
 
     @property
     def tasks_dir(self) -> Path:

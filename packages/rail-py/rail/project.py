@@ -71,6 +71,10 @@ class Project:
         url: str | None = None,
         kind: str = "note",
         workflow: str | None = None,
+        title: str | None = None,
+        topics: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
     ) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("capture requires local mode")
@@ -80,6 +84,10 @@ class Project:
             url=url,
             kind=kind,
             workflow=workflow,
+            title=title,
+            topics=topics,
+            entities=entities,
+            entity_type=entity_type,
         )
 
     def doctor(self) -> dict:
@@ -165,6 +173,16 @@ class Project:
             raise RuntimeError("graph commands require local mode")
         return self._backend.knowledge.graph_build(write=write)
 
+    def graph_validate(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_validate()
+
+    def graph_check(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_check()
+
     def graph_entities(self, *, entity_type: str | None = None, limit: int = 100) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")
@@ -198,6 +216,16 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")
         return self._backend.knowledge.graph_export(export_format=export_format)
+
+    def vector_build(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("vector commands require local mode")
+        return self._backend.knowledge.vector_build()
+
+    def vector_search(self, query: str, *, limit: int = 10) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("vector commands require local mode")
+        return self._backend.knowledge.vector_search(query, limit=limit)
 
     def series(self, series_id: str) -> "pd.DataFrame":
         import pandas as pd
