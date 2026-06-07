@@ -34,6 +34,7 @@ The runtime provides:
 - `capture`: add notes, URLs, files, or stdin into a predictable inbox
 - `pack`: activate project/domain packs
 - `doctor`: inspect project health
+- `graph`: build and query markdown-frontmatter graphs
 - `agent`: run local CLI agents as auditable workers
 - `task`: create and dispatch repo-backed tasks
 - `workflow`: turn pack-defined workflow IDs into tasks
@@ -69,6 +70,7 @@ Ready now:
 - deterministic local file search
 - deterministic `think` envelope
 - local project doctor checks
+- markdown-frontmatter graph build/query/export
 - local CLI runner discovery
 - repo-backed tasks, work orders, and session records
 - dry-run and full dispatch to local CLIs
@@ -79,7 +81,7 @@ Not ready yet:
 
 - real LLM synthesis inside `think`
 - vector search or reranking
-- graph-aware retrieval and auto-linking
+- graph-aware retrieval/reranking inside `search` and `think`
 - full workflow scheduler
 - remote permission scopes
 - pack installation from external repos
@@ -144,6 +146,15 @@ Search raw evidence:
 krail --local search "GCS feasibility" --explain
 ```
 
+Build the lightweight markdown graph:
+
+```bash
+krail --local graph build
+krail --local graph entities --type Package
+krail --local graph edges --entity PDDLStream
+krail --local graph docs --topic dual-arm-planning
+```
+
 Ask for the current deterministic answer envelope:
 
 ```bash
@@ -184,17 +195,22 @@ You are piloting KRAIL as a local-first knowledge runtime.
 4. Search before answering:
    krail --local search "<question>" --explain
 
-5. Use think for the answer envelope:
+5. Build/query the markdown graph when notes include frontmatter:
+   krail --local graph build
+   krail --local graph entities
+   krail --local graph edges --entity "<entity>"
+
+6. Use think for the answer envelope:
    krail --local think "<question>"
 
-6. Create auditable work before launching agents:
+7. Create auditable work before launching agents:
    krail --local task create "<task title>" --description "<task detail>" --runner codex_cli
    krail --local task list
    krail --local task dispatch <task_id> --dry-run
 
-7. Only remove --dry-run when the command and work order look correct.
+8. Only remove --dry-run when the command and work order look correct.
 
-8. Treat all generated outputs as candidates until claims have evidence and
+9. Treat all generated outputs as candidates until claims have evidence and
    integrity checks pass.
 ```
 
@@ -237,6 +253,89 @@ krail --local think "what changed in onboarding this week?"
 Current `think` is intentionally conservative. It does not fake LLM synthesis.
 It uses search hits and tells you what is missing. The next step is to wire
 provider-backed synthesis into this envelope.
+
+## Markdown Graphs
+
+Markdown graph mode is the middle layer between plain notes and full ontology
+hydration. Markdown remains the source of truth, and YAML frontmatter provides
+typed entities, topics, sources, and relation triples.
+
+Example frontmatter:
+
+```yaml
+---
+title: Benchmark and tooling map for dual-arm TAMP
+kind: synthesis-note
+topics:
+  - benchmarks
+  - dual-arm-planning
+entities:
+  - PDDLStream
+entity_metadata:
+  - name: PDDLStream
+    entity_type: Package
+sources:
+  - https://arxiv.org/abs/1802.08705
+relations:
+  - from: PDDLStream
+    type: baseline_for
+    to: dual-arm TAMP experiments
+---
+```
+
+Build artifacts:
+
+```bash
+krail --local graph build
+```
+
+By default this writes:
+
+- `research_plan/graph/graph.json`
+- `research_plan/graph/graph.mmd`
+- `research_plan/graph/summary.md`
+
+Query graph metadata:
+
+```bash
+krail --local graph entities
+krail --local graph entities --type Package
+krail --local graph edges --entity PDDLStream
+krail --local graph edges --type baseline_for
+krail --local graph docs --topic dual-arm-planning
+krail --local graph docs --kind synthesis-note
+```
+
+Export graph content:
+
+```bash
+krail --local graph export --format json
+krail --local graph export --format mermaid
+krail --local graph export --format summary
+```
+
+Run lightweight graph hydration instead of full ontology hydration:
+
+```bash
+krail --local hydrate --mode markdown_graph
+```
+
+Optional project config:
+
+```yaml
+graph:
+  mode: markdown_frontmatter
+  include:
+    - topics/**/*.md
+    - research_plan/**/*.md
+  export:
+    json: research_plan/graph/graph.json
+    mermaid: research_plan/graph/graph.mmd
+    summary: research_plan/graph/summary.md
+  docs_export:
+    json: docs/data/graph.json
+    mermaid: docs/data/graph.mmd
+```
 
 ## Capture
 
@@ -386,6 +485,11 @@ Common tools:
 - `think`
 - `capture`
 - `doctor`
+- `graph_build`
+- `graph_entities`
+- `graph_edges`
+- `graph_docs`
+- `graph_export`
 - `pack_active`
 - `list_agents`
 - `create_task`
@@ -600,6 +704,7 @@ Phase 1: local brain UX
 - `search`
 - `think`
 - `pack`
+- markdown graph build/query/export
 - MCP tools
 - local task/work-order/session records
 
@@ -611,11 +716,10 @@ Phase 2: better retrieval
 - source freshness boosts
 - claim/evidence trust boosts
 
-Phase 3: auto-linking and graph
+Phase 3: auto-linking and graph-aware retrieval
 
 - typed wikilinks
-- deterministic edge extraction
-- graph query
+- deterministic edge extraction beyond frontmatter
 - dependency edges
 - graph-aware search boosts
 
@@ -684,6 +788,16 @@ krail --local search "query" --explain
 krail --local think "question"
 ```
 
+Markdown graph:
+
+```bash
+krail --local graph build
+krail --local graph entities --type Package
+krail --local graph edges --entity PDDLStream
+krail --local graph docs --topic dual-arm-planning
+krail --local graph export --format mermaid
+```
+
 Packs:
 
 ```bash
@@ -722,6 +836,7 @@ Ontology/hydration:
 ```bash
 krail --local query classes
 krail --local hydrate
+krail --local hydrate --mode markdown_graph
 ```
 
 Integrity:

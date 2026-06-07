@@ -147,6 +147,82 @@ def doctor() -> str:
 
 
 @mcp.tool()
+def graph_build(write: bool = True) -> str:
+    """
+    Build a markdown-frontmatter graph from local project notes.
+
+    Args:
+        write: If True, write graph artifacts such as research_plan/graph/graph.json.
+    """
+    return _json(_get_project().graph_build(write=write))
+
+
+@mcp.tool()
+def graph_entities(entity_type: str = "", limit: int = 100) -> str:
+    """
+    List entities derived from markdown frontmatter.
+
+    Args:
+        entity_type: Optional entity type filter, e.g. Package or Method.
+        limit: Maximum records to return.
+    """
+    return _json(_get_project().graph_entities(entity_type=entity_type or None, limit=limit))
+
+
+@mcp.tool()
+def graph_edges(entity: str = "", relation_type: str = "", limit: int = 100) -> str:
+    """
+    List graph edges derived from markdown frontmatter.
+
+    Args:
+        entity: Optional entity label to filter to incident edges.
+        relation_type: Optional relation type filter.
+        limit: Maximum records to return.
+    """
+    return _json(
+        _get_project().graph_edges(
+            entity=entity or None,
+            relation_type=relation_type or None,
+            limit=limit,
+        )
+    )
+
+
+@mcp.tool()
+def graph_docs(topic: str = "", kind: str = "", source: str = "", entity: str = "", limit: int = 100) -> str:
+    """
+    List markdown documents that contributed graph metadata.
+
+    Args:
+        topic: Optional topic filter.
+        kind: Optional document kind filter.
+        source: Optional source URL/text filter.
+        entity: Optional entity label filter.
+        limit: Maximum records to return.
+    """
+    return _json(
+        _get_project().graph_docs(
+            topic=topic or None,
+            kind=kind or None,
+            source=source or None,
+            entity=entity or None,
+            limit=limit,
+        )
+    )
+
+
+@mcp.tool()
+def graph_export(format: str = "json") -> str:
+    """
+    Export the markdown graph as json, mermaid, or summary text.
+
+    Args:
+        format: One of json, mermaid, or summary.
+    """
+    return _json(_get_project().graph_export(export_format=format))
+
+
+@mcp.tool()
 def pack_active() -> str:
     """Return the active knowledge pack for this local project, if one is configured."""
     return _json(_get_project().pack("active"))

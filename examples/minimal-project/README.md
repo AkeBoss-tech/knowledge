@@ -9,6 +9,9 @@ krail --local doctor
 krail --local pack use research-intelligence
 krail --local capture "Synthetic regional employment fixture ready for review"
 krail --local search "employment index" --explain
+krail --local graph build
+krail --local graph entities --type Dataset
+krail --local graph edges --entity "Synthetic Regional Indicators"
 krail --local workflow list
 krail --local workflow run weekly_literature_refresh --dry-run
 ```

@@ -101,6 +101,33 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
     elif args.workflow_command == "run":
         _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
 
+def cmd_graph(project: rail.Project, args: argparse.Namespace):
+    if args.graph_command == "build":
+        _print_json(project.graph_build(write=not args.no_write))
+    elif args.graph_command == "entities":
+        _print_json(project.graph_entities(entity_type=args.type, limit=args.limit))
+    elif args.graph_command == "edges":
+        _print_json(project.graph_edges(entity=args.entity, relation_type=args.type, limit=args.limit))
+    elif args.graph_command == "docs":
+        _print_json(
+            project.graph_docs(
+                topic=args.topic,
+                kind=args.kind,
+                source=args.source,
+                entity=args.entity,
+                limit=args.limit,
+            )
+        )
+    elif args.graph_command == "export":
+        result = project.graph_export(export_format=args.format)
+        if args.output:
+            output = Path(args.output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(result["content"], encoding="utf-8")
+            _print_json({"status": "written", "format": args.format, "path": str(output)})
+        else:
+            print(result["content"], end="")
+
 def cmd_query(project: rail.Project, args: argparse.Namespace):
     if args.command == "sql":
         _print_json(project.query(args.sql).to_dict(orient="records"))
@@ -110,7 +137,7 @@ def cmd_query(project: rail.Project, args: argparse.Namespace):
         _print_json(project.entities(args.class_name, limit=args.limit).to_dict(orient="records"))
 
 def cmd_hydrate(project: rail.Project, args: argparse.Namespace):
-    _print_json(project.hydrate(pipeline_slug=args.pipeline))
+    _print_json(project.hydrate(pipeline_slug=args.pipeline, mode=args.mode))
 
 
 def cmd_reconcile(project: rail.Project, args: argparse.Namespace):
@@ -278,6 +305,28 @@ def main():
     wr.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
     wr.add_argument("--dry-run", action="store_true")
 
+    # Markdown graph
+    graph_parser = subparsers.add_parser("graph", help="Build and query markdown-frontmatter graphs")
+    graph_subs = graph_parser.add_subparsers(dest="graph_command")
+    gb = graph_subs.add_parser("build", help="Build graph artifacts from markdown frontmatter")
+    gb.add_argument("--no-write", action="store_true", help="Return the graph without writing artifacts")
+    ge = graph_subs.add_parser("entities", help="List markdown-derived entities")
+    ge.add_argument("--type", help="Filter by entity type")
+    ge.add_argument("--limit", type=int, default=100)
+    gedge = graph_subs.add_parser("edges", help="List markdown-derived graph edges")
+    gedge.add_argument("--entity", help="Filter to edges involving an entity label")
+    gedge.add_argument("--type", help="Filter by relation type")
+    gedge.add_argument("--limit", type=int, default=100)
+    gd = graph_subs.add_parser("docs", help="List documents with graph frontmatter")
+    gd.add_argument("--topic", help="Filter by topic")
+    gd.add_argument("--kind", help="Filter by document kind")
+    gd.add_argument("--source", help="Filter by source URL/text")
+    gd.add_argument("--entity", help="Filter by entity label")
+    gd.add_argument("--limit", type=int, default=100)
+    gx = graph_subs.add_parser("export", help="Export the current graph as json, mermaid, or summary")
+    gx.add_argument("--format", choices=["json", "mermaid", "summary"], default="json")
+    gx.add_argument("--output", help="Write export content to a file instead of stdout")
+
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
     q_subs = q_parser.add_subparsers(dest="query_command")
@@ -294,6 +343,7 @@ def main():
     # Hydrate
     h_parser = subparsers.add_parser("hydrate", help="Trigger hydration")
     h_parser.add_argument("--pipeline", help="Pipeline slug")
+    h_parser.add_argument("--mode", choices=["markdown_graph", "markdown_frontmatter"], help="Run lightweight markdown graph hydration")
 
     # Reconcile
     subparsers.add_parser("reconcile", help="Reconcile repo-backed planner/session/control-plane state")
@@ -377,6 +427,8 @@ def main():
         cmd_task(project, args)
     elif args.command == "workflow":
         cmd_workflow(project, args)
+    elif args.command == "graph":
+        cmd_graph(project, args)
     elif args.command == "query":
         cmd_query(project, args)
     elif args.command == "hydrate":

@@ -13,6 +13,15 @@ from typing import Any
 
 import yaml
 
+from rail.markdown_graph import (
+    build_markdown_graph,
+    export_graph,
+    filter_documents,
+    filter_edges,
+    filter_entities,
+    load_or_build_graph,
+)
+
 
 DEFAULT_PACKS: dict[str, dict[str, Any]] = {
     "research-intelligence": {
@@ -413,10 +422,50 @@ class KnowledgeRuntime:
                     "frontend" not in manifest,
                     "rail.yaml still has a frontend section; KRAIL projects should be headless.",
                 )
+                graph = manifest.get("graph") if isinstance(manifest.get("graph"), dict) else {}
+                if graph:
+                    warn(
+                        "graph_mode",
+                        graph.get("mode") in {"markdown_frontmatter", "markdown_graph", None},
+                        "graph.mode should be markdown_frontmatter or markdown_graph for local KRAIL projects.",
+                    )
             except Exception as exc:
                 warn("manifest_parse", False, f"could not parse rail.yaml for advisory checks: {exc}")
         ok = all(item["ok"] for item in checks if not item["name"].startswith("capture_inbox"))
         return {"ok": ok, "checks": checks, "warnings": warnings}
+
+    def graph_build(self, *, write: bool = True) -> dict[str, Any]:
+        return build_markdown_graph(self.project_path, write=write)
+
+    def graph_entities(self, *, entity_type: str | None = None, limit: int = 100) -> dict[str, Any]:
+        graph = load_or_build_graph(self.project_path)
+        return filter_entities(graph, entity_type=entity_type, limit=limit)
+
+    def graph_edges(
+        self,
+        *,
+        entity: str | None = None,
+        relation_type: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        graph = load_or_build_graph(self.project_path)
+        return filter_edges(graph, entity=entity, relation_type=relation_type, limit=limit)
+
+    def graph_docs(
+        self,
+        *,
+        topic: str | None = None,
+        kind: str | None = None,
+        source: str | None = None,
+        entity: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        graph = load_or_build_graph(self.project_path)
+        return filter_documents(graph, topic=topic, kind=kind, source=source, entity=entity, limit=limit)
+
+    def graph_export(self, *, export_format: str = "json") -> dict[str, Any]:
+        graph = load_or_build_graph(self.project_path)
+        return {"format": export_format, "content": export_graph(graph, export_format)}
 
     @property
     def tasks_dir(self) -> Path:

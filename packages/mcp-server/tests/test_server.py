@@ -53,6 +53,25 @@ def test_mcp_integrity_status_calls_project(monkeypatch):
     assert payload["agentWorkflow"]["health"]["status"] == "ready"
 
 
+def test_mcp_graph_entities_calls_project(monkeypatch):
+    class _Project:
+        def graph_entities(self, *, entity_type=None, limit=100):
+            return {
+                "entities": [{"label": "PDDLStream", "entityType": entity_type}],
+                "count": 1,
+                "limit": limit,
+            }
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.graph_entities("Package", 5)
+
+    payload = json.loads(result)
+    assert payload["entities"][0]["label"] == "PDDLStream"
+    assert payload["entities"][0]["entityType"] == "Package"
+    assert payload["limit"] == 5
+
+
 def test_mcp_integrity_assumptions_calls_project(monkeypatch):
     class _Project:
         def integrity_assumptions(self):

@@ -226,6 +226,9 @@ pilots/
 examples/**/.rail/workspaces/
 examples/**/research_plan/tasks/*.json
 examples/**/research_plan/work_orders/*.json
+examples/**/research_plan/graph/graph.json
+examples/**/research_plan/graph/graph.mmd
+examples/**/research_plan/graph/summary.md
 examples/**/research_plan/sessions/
 examples/**/research_plan/audits/
 examples/**/research_plan/stuck_reports/
