@@ -124,6 +124,16 @@ class Project:
             raise RuntimeError("agent commands require local mode")
         return self._backend.knowledge.list_agents()
 
+    def scaffold_krail_agents(self, *, force: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("agent scaffold commands require local mode")
+        return self._backend.knowledge.scaffold_krail_agents(force=force)
+
+    def agent_prompt(self, role: str, *, task: str = "") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("agent prompt commands require local mode")
+        return self._backend.knowledge.agent_prompt(role, task=task)
+
     def create_task(
         self,
         title: str,
@@ -163,10 +173,45 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_list()
 
+    def init_workflow(self, workflow_id: str, *, force: bool = False, template: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_init(workflow_id, force=force, template=template)
+
+    def show_workflow(self, workflow_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_show(workflow_id)
+
+    def validate_workflow(self, workflow_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_validate(workflow_id)
+
+    def workflow_templates(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_templates()
+
+    def workflow_runs(self, *, limit: int = 20) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_runs(limit=limit)
+
+    def workflow_status(self, run_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_status(run_id)
+
     def run_workflow(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)
+
+    def execute_workflow(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force)
 
     def graph_build(self, *, write: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):

@@ -440,6 +440,42 @@ Your mission is to ensure that all research outputs are auditable, verified, and
 
 Do not mark an artifact as verified if there is a semantic gap between the claim and the source evidence.
 """
+        if role == "doctor":
+            return """# KRAIL Doctor Agent Prompt
+
+You are the KRAIL doctor agent for this local knowledge project.
+
+Inspect and improve platform health without inventing unsupported knowledge.
+Treat the Git repository as the source of truth.
+
+## Responsibilities
+
+1. Run deterministic checks such as `krail --local doctor`, `krail --local graph check`, and `krail --local vector build`.
+2. Inspect `rail.yaml`, `.krail/pack.yaml`, `research_plan/workflows/`, `agents/`, `skills/`, and `research_plan/state/`.
+3. Identify broken workflow specs, missing prompts, stale graph artifacts, and weak verification gates.
+4. Make small repo-backed fixes when safe.
+5. Record unresolved blockers and recommended next actions under `research_plan/`.
+
+Do not delete project knowledge unless the work order explicitly asks for cleanup.
+"""
+        if role == "platform":
+            return """# KRAIL Platform Manager Prompt
+
+You are the KRAIL platform manager for this local knowledge project.
+
+Design and maintain workflows, agent roles, prompts, and skills that let other
+agents work safely in the knowledge base.
+
+## Responsibilities
+
+1. Convert user goals into durable workflow specs under `research_plan/workflows/`.
+2. Create role-specific prompts under `agents/prompts/` and checklists under `agents/checklists/`.
+3. Keep workflow steps explicit about runner, role, verification, and expected outputs.
+4. Add deterministic command steps for `doctor`, graph checks, vector builds, tests, and project-specific verification.
+5. Record assumptions, gaps, and follow-up work in `research_plan/`.
+
+Prefer sequential workflows until explicit parallel orchestration exists.
+"""
         if role == "critic":
             return """# Critic Prompt
 
@@ -534,6 +570,26 @@ Never promote hypotheses that still rely on unsupported or stale claims.
                 "- distinguish stale sessions, stale artifacts, and real data-quality blockers explicitly\n"
                 "- write actionable remediation steps, not just failure summaries\n"
                 "- satisfy deterministic completion checks\n"
+            )
+        if role == "doctor":
+            return (
+                "# KRAIL Doctor Checklist\n\n"
+                "- run `krail --local doctor`\n"
+                "- inspect active pack and workflow specs\n"
+                "- verify graph and vector commands still work\n"
+                "- check that agents and skills have project-specific guidance\n"
+                "- record blockers with exact file paths and commands\n"
+                "- avoid changing domain knowledge without evidence\n"
+            )
+        if role == "platform":
+            return (
+                "# KRAIL Platform Manager Checklist\n\n"
+                "- create or update workflow specs under `research_plan/workflows/`\n"
+                "- include command and agent verification steps\n"
+                "- keep prompts/checklists role-specific\n"
+                "- preserve local-first behavior\n"
+                "- document cron entry points and expected logs\n"
+                "- avoid unbounded autonomous loops\n"
             )
         return f"# {role.title()} Checklist\n\n- follow repo contract\n- stay inside allowed paths\n- satisfy deterministic completion checks\n"
 
@@ -820,6 +876,20 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             "secrets": [],
             "tools": ["read_repo", "write_repo", "verify_paths", "verify_outputs", "grepai_search"],
         },
+        "doctor": {
+            "purpose": "Audit and repair KRAIL project structure, workflow specs, graph/vector health, and agent scaffolding.",
+            "read": ["rail.yaml", ".krail/pack.yaml", ".ontology", "topics", "specs", "research_plan", "skills", "agents"],
+            "write": ["research_plan", "skills", "agents", "specs"],
+            "secrets": [],
+            "tools": ["read_repo", "write_repo", "verify_paths", "run_krail_doctor", "grepai_search"],
+        },
+        "platform": {
+            "purpose": "Create and evolve KRAIL workflows, agent roles, prompts, skills, and operating conventions.",
+            "read": ["rail.yaml", ".krail/pack.yaml", ".ontology", "topics", "specs", "research_plan", "skills", "agents"],
+            "write": ["research_plan", "skills", "agents", "specs"],
+            "secrets": [],
+            "tools": ["read_repo", "write_repo", "validate_yaml", "run_krail_doctor", "grepai_search"],
+        },
     }
 
     for role, cfg in roles.items():
@@ -913,6 +983,22 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             6. search_registry("...")          → find additional datasets if needed
             7. hydrate()                       → refresh data when sources update
             ```
+            """
+        ),
+        "krail-platform.md": textwrap.dedent(
+            """\
+            # KRAIL Platform Skill
+
+            Use this skill when creating or changing KRAIL workflows, agent roles,
+            prompts, skills, or project operating conventions.
+
+            ## Workflow Rules
+
+            - Store durable workflow specs under `research_plan/workflows/`.
+            - Use command steps for deterministic checks.
+            - Use agent steps for research, coding, synthesis, or audit work.
+            - Add a verification step before any workflow claims completion.
+            - Prefer dry runs before cron dispatch.
             """
         ),
         "verification.md": textwrap.dedent(

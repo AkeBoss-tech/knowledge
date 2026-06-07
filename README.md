@@ -464,6 +464,25 @@ Check configured agents:
 krail --local agent list
 ```
 
+Install KRAIL-specific doctor/platform prompts into an existing project:
+
+```bash
+krail --local agent scaffold-krail
+```
+
+Render a prompt for a KRAIL platform agent:
+
+```bash
+krail --local agent prompt doctor --task "Audit workflow health and suggest fixes"
+krail --local agent prompt platform --task "Create a weekly research workflow"
+```
+
+Run the KRAIL doctor agent:
+
+```bash
+krail --local agent doctor --runner codex_cli --dry-run
+```
+
 Run a one-off task:
 
 ```bash
@@ -489,8 +508,56 @@ krail --local workflow list
 krail --local workflow run weekly_literature_refresh --runner codex_cli --dry-run
 ```
 
+Create a durable local workflow spec:
+
+```bash
+krail --local workflow templates
+krail --local workflow init weekly_research_review --template weekly_research_review
+krail --local workflow show weekly_research_review
+krail --local workflow validate weekly_research_review
+krail --local workflow execute weekly_research_review --dry-run
+```
+
+Local workflow specs live under:
+
+```text
+research_plan/workflows/*.yaml
+```
+
+Example step shape:
+
+```yaml
+id: weekly_research_review
+schedule: "0 8 * * 1"
+steps:
+  - id: doctor
+    kind: command
+    run: krail --local doctor
+  - id: research
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: "Review new captures, search for missing evidence, and update topics."
+  - id: verify
+    kind: command
+    run: krail --local graph check && krail --local vector build
+```
+
+Workflow runs are recorded under `research_plan/sessions/` and can be queried:
+
+```bash
+krail --local workflow runs
+krail --local workflow status <run_id>
+```
+
+Cron can call a workflow directly:
+
+```cron
+0 8 * * 1 cd /path/to/project && /absolute/path/to/krail --local workflow execute weekly_research_review >> .krail/cron.log 2>&1
+```
+
 Dry runs create records but do not launch another agent process. Remove
-`--dry-run` only after reviewing the generated command.
+`--dry-run` only after reviewing the generated command or workflow plan.
 
 Records are written under:
 
@@ -498,6 +565,19 @@ Records are written under:
 research_plan/tasks/*.json
 research_plan/work_orders/*.json
 research_plan/sessions/<session_id>/
+```
+
+Agent sessions include a `session_result.template.json`. Agents should write
+`session_result.json` with:
+
+```json
+{
+  "summary": "",
+  "changed_files": [],
+  "evidence": [],
+  "blockers_or_gaps": [],
+  "suggested_next_actions": []
+}
 ```
 
 This is the main design point: agents should do work through auditable tasks and
@@ -799,7 +879,11 @@ Phase 7: interfaces
 - `search --rag` is local hybrid retrieval, but embeddings are hashed rather than model-backed.
 - Agent dispatch can launch local CLI tools, but sandboxing is still mostly the
   responsibility of those tools and the operator.
-- Workflows are currently stubs that create tasks from pack workflow IDs.
+- Pack workflows can still run as simple task stubs; local workflow specs can
+  execute sequential command and agent steps, but do not yet support DAG
+  dependencies or parallel execution.
+- Scheduling is external for now. Use cron, launchd, or another scheduler to
+  call `krail --local workflow execute <workflow_id>`.
 - The optional API is still large relative to the desired KRAIL core.
 - Some legacy RAIL integrity tests fail and need a local-first cleanup pass.
 
@@ -882,6 +966,13 @@ Workflows:
 ```bash
 krail --local workflow list
 krail --local workflow run weekly_literature_refresh --dry-run
+krail --local workflow templates
+krail --local workflow init weekly_research_review --template weekly_research_review
+krail --local workflow show weekly_research_review
+krail --local workflow validate weekly_research_review
+krail --local workflow execute weekly_research_review --dry-run
+krail --local workflow runs
+krail --local workflow status <run_id>
 ```
 
 Ontology/hydration:

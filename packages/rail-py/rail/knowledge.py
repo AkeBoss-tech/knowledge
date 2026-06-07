@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -128,6 +129,176 @@ LOCAL_RUNNERS: dict[str, dict[str, str]] = {
         "command_env": "COPILOT_CLI_COMMAND",
         "default_command": "gh copilot suggest",
         "description": "GitHub Copilot CLI helper",
+    },
+}
+
+KRAIL_AGENT_ROLES: dict[str, dict[str, str]] = {
+    "doctor": {
+        "label": "KRAIL Doctor Agent",
+        "purpose": "Audit and repair KRAIL project structure, workflow definitions, graph/vector health, and agent scaffolding.",
+    },
+    "platform": {
+        "label": "KRAIL Platform Manager",
+        "purpose": "Create and evolve KRAIL workflows, agent roles, prompts, skills, and project operating conventions.",
+    },
+}
+
+KRAIL_AGENT_PROMPTS: dict[str, str] = {
+    "doctor": """# KRAIL Doctor Agent Prompt
+
+You are the KRAIL doctor agent for this local knowledge project.
+
+Your job is to inspect and improve platform health without inventing unsupported
+knowledge. Treat the Git repository as the source of truth.
+
+## Responsibilities
+
+1. Run deterministic checks such as `krail --local doctor`, `krail --local graph check`, and `krail --local vector build`.
+2. Inspect `rail.yaml`, `.krail/pack.yaml`, `research_plan/workflows/`, `agents/`, `skills/`, and `research_plan/state/`.
+3. Identify broken workflow specs, missing prompts, missing required folders, stale graph artifacts, and weak verification gates.
+4. Make small repo-backed fixes when safe.
+5. Record unresolved blockers and recommended next actions under `research_plan/`.
+
+## Rules
+
+- Do not delete project knowledge unless the work order explicitly asks for cleanup.
+- Do not mark generated claims as verified without evidence.
+- Prefer local commands and repo-backed files over API-only state.
+- Keep changes scoped to KRAIL platform health unless asked to work on domain content.
+""",
+    "platform": """# KRAIL Platform Manager Prompt
+
+You are the KRAIL platform manager for this local knowledge project.
+
+Your job is to design and maintain workflows, agent roles, prompts, and skills
+that let other agents work safely in the knowledge base.
+
+## Responsibilities
+
+1. Convert user goals into durable workflow specs under `research_plan/workflows/`.
+2. Create role-specific prompts under `agents/prompts/` and checklists under `agents/checklists/`.
+3. Keep workflow steps explicit about runner, role, dependencies, verification, and expected outputs.
+4. Add deterministic command steps for `doctor`, graph checks, vector builds, tests, and project-specific verification.
+5. Record assumptions, gaps, and follow-up work in `research_plan/`.
+
+## Rules
+
+- Prefer sequential workflows until explicit parallel orchestration exists.
+- Treat agent output as candidate state until verification passes.
+- Do not broaden runner permissions silently.
+- Keep workflow specs readable enough for a human to audit before cron dispatch.
+""",
+}
+
+KRAIL_AGENT_CHECKLISTS: dict[str, str] = {
+    "doctor": """# KRAIL Doctor Checklist
+
+- run `krail --local doctor`
+- inspect active pack and workflow specs
+- verify graph and vector commands still work
+- check that agents and skills have project-specific guidance
+- record blockers with exact file paths and commands
+- avoid changing domain knowledge without evidence
+""",
+    "platform": """# KRAIL Platform Manager Checklist
+
+- create or update workflow specs under `research_plan/workflows/`
+- include command and agent verification steps
+- keep prompts/checklists role-specific
+- preserve local-first behavior
+- document cron entry points and expected logs
+- avoid unbounded autonomous loops
+""",
+}
+
+WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
+    "project_doctor": {
+        "id": "project_doctor",
+        "description": "Audit KRAIL project health and record platform remediation work.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {
+                "id": "doctor_agent",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "codex_cli",
+                "prompt": "Audit workflow specs, graph/vector health, agent prompts, skills, and project structure. Apply safe fixes and record blockers.",
+            },
+            {"id": "verify", "kind": "command", "run": "krail --local doctor && krail --local graph check"},
+        ],
+    },
+    "weekly_research_review": {
+        "id": "weekly_research_review",
+        "description": "Review captures, refresh retrieval artifacts, and audit platform health.",
+        "schedule": "0 8 * * 1",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {
+                "id": "research_triage",
+                "kind": "agent",
+                "role": "research",
+                "runner": "codex_cli",
+                "prompt": "Review new captures and update topics with evidence-backed notes, gaps, and next actions.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+            {
+                "id": "audit",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "codex_cli",
+                "prompt": "Audit workflow outputs and record unresolved blockers under research_plan/.",
+            },
+        ],
+    },
+    "rag_refresh": {
+        "id": "rag_refresh",
+        "description": "Refresh graph and local vector artifacts for RAG search.",
+        "schedule": "",
+        "steps": [
+            {"id": "graph_build", "kind": "command", "run": "krail --local graph build"},
+            {"id": "graph_check", "kind": "command", "run": "krail --local graph check"},
+            {"id": "vector_build", "kind": "command", "run": "krail --local vector build"},
+        ],
+    },
+    "paper_ingest": {
+        "id": "paper_ingest",
+        "description": "Capture and triage a new research paper or source pointer.",
+        "schedule": "",
+        "steps": [
+            {
+                "id": "research",
+                "kind": "agent",
+                "role": "research",
+                "runner": "codex_cli",
+                "prompt": "Ingest the provided paper/source pointer, record exact evidence, identify claims, and list gaps.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+            {
+                "id": "audit",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "codex_cli",
+                "prompt": "Audit the ingest output for unsupported claims, missing source metadata, and workflow gaps.",
+            },
+        ],
+    },
+    "release_readiness": {
+        "id": "release_readiness",
+        "description": "Check KRAIL project readiness before publishing changes or a release.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {"id": "graph_check", "kind": "command", "run": "krail --local graph check"},
+            {"id": "vector_build", "kind": "command", "run": "krail --local vector build"},
+            {
+                "id": "release_audit",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "codex_cli",
+                "prompt": "Review readiness for release or handoff. Record test status, blockers, changed files, and next actions.",
+            },
+        ],
     },
 }
 
@@ -503,6 +674,19 @@ class KnowledgeRuntime:
             check(f"path:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing")
         pack_state = self.active_pack().get("active")
         check("pack", bool(pack_state), f"active pack: {pack_state.get('id')}" if pack_state else "no active .krail/pack.yaml")
+        workflow_validation = self.workflow_validate_all()
+        check(
+            "workflows",
+            workflow_validation["ok"],
+            f"{workflow_validation['valid']} valid workflow specs, {workflow_validation['invalid']} invalid",
+        )
+        for rel in ["agents/prompts/doctor.md", "agents/prompts/platform.md", "skills/krail-platform.md"]:
+            path = self.project_path / rel
+            check(f"krail_agent:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing; run `krail --local agent scaffold-krail`")
+        stale_locks = []
+        for lock in sorted(self.locks_dir.glob("workflow-*.lock")):
+            stale_locks.append(str(lock.relative_to(self.project_path)))
+        warn("workflow_locks", not stale_locks, "workflow lock files exist; remove stale locks only after confirming no workflow is running: " + ", ".join(stale_locks))
         inbox = self.project_path / "topics" / "inbox"
         check("capture_inbox", inbox.exists(), "topics/inbox exists" if inbox.exists() else "topics/inbox will be created on first capture")
         warn(
@@ -554,7 +738,7 @@ class KnowledgeRuntime:
             except Exception as exc:
                 warn("manifest_parse", False, f"could not parse rail.yaml for advisory checks: {exc}")
         ok = all(item["ok"] for item in checks if not item["name"].startswith("capture_inbox"))
-        return {"ok": ok, "checks": checks, "warnings": warnings}
+        return {"ok": ok, "checks": checks, "warnings": warnings, "workflow_validation": workflow_validation}
 
     def graph_build(self, *, write: bool = True) -> dict[str, Any]:
         return build_markdown_graph(self.project_path, write=write)
@@ -658,6 +842,14 @@ jobs:
     def sessions_dir(self) -> Path:
         return self.project_path / "research_plan" / "sessions"
 
+    @property
+    def workflow_specs_dir(self) -> Path:
+        return self.project_path / "research_plan" / "workflows"
+
+    @property
+    def locks_dir(self) -> Path:
+        return self.krail_dir / "locks"
+
     def list_agents(self) -> dict[str, Any]:
         agents = []
         for name, meta in LOCAL_RUNNERS.items():
@@ -672,6 +864,100 @@ jobs:
                 }
             )
         return {"agents": agents, "default": "codex_cli"}
+
+    def scaffold_krail_agents(self, *, force: bool = False) -> dict[str, Any]:
+        written: list[str] = []
+        skipped: list[str] = []
+
+        def write(rel: str, content: str) -> None:
+            path = self.project_path / rel
+            if path.exists() and not force:
+                skipped.append(rel)
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content.rstrip() + "\n", encoding="utf-8")
+            written.append(rel)
+
+        for role, meta in KRAIL_AGENT_ROLES.items():
+            cfg = {
+                "role": role,
+                "label": meta["label"],
+                "purpose": meta["purpose"],
+                "runner": {"default": "codex_cli", "approval_required": role == "platform", "max_retries": 1},
+                "permissions": {
+                    "read": ["rail.yaml", ".krail/pack.yaml", "research_plan", "topics", "agents", "skills", "specs"],
+                    "write": ["research_plan", "agents", "skills", "specs"],
+                    "deny": [".git", ".krail/vector.sqlite"],
+                },
+                "prompts": {
+                    "system": f"agents/prompts/{role}.md",
+                    "checklist": f"agents/checklists/{role}.md",
+                },
+                "completion": {"requires": ["summary", "changed_files", "blockers_or_gaps"]},
+            }
+            write(f"agents/{role}.yaml", yaml.safe_dump(cfg, sort_keys=False))
+            write(f"agents/prompts/{role}.md", KRAIL_AGENT_PROMPTS[role])
+            write(f"agents/checklists/{role}.md", KRAIL_AGENT_CHECKLISTS[role])
+
+        write(
+            "skills/krail-platform.md",
+            """# KRAIL Platform Skill
+
+Use this skill when creating or changing KRAIL workflows, agent roles, prompts,
+or project operating conventions.
+
+## Workflow Rules
+
+- Store durable workflow specs under `research_plan/workflows/`.
+- Use command steps for deterministic checks.
+- Use agent steps for research, coding, synthesis, or audit work.
+- Add a verification step before any workflow claims completion.
+- Prefer dry runs before cron dispatch.
+
+## Required Checks
+
+Run these before handing off a platform change:
+
+```bash
+krail --local doctor
+krail --local workflow list
+krail --local graph check
+```
+""",
+        )
+        return {"status": "scaffolded", "written": written, "skipped": skipped}
+
+    def agent_prompt(self, role: str, *, task: str = "") -> dict[str, Any]:
+        role = role.strip().lower()
+        aliases = {"krail_doctor": "doctor", "krail-platform": "platform", "platform_manager": "platform"}
+        role = aliases.get(role, role)
+        prompt_path = self.project_path / "agents" / "prompts" / f"{role}.md"
+        checklist_path = self.project_path / "agents" / "checklists" / f"{role}.md"
+        if prompt_path.exists():
+            prompt = prompt_path.read_text(encoding="utf-8")
+        elif role in KRAIL_AGENT_PROMPTS:
+            prompt = KRAIL_AGENT_PROMPTS[role]
+        else:
+            prompt = f"# {role.title()} Agent Prompt\n\nWork inside this KRAIL project and follow the work order."
+        checklist = ""
+        if checklist_path.exists():
+            checklist = checklist_path.read_text(encoding="utf-8")
+        elif role in KRAIL_AGENT_CHECKLISTS:
+            checklist = KRAIL_AGENT_CHECKLISTS[role]
+        project_context = (
+            f"Project root: {self.project_path}\n"
+            "Primary commands:\n"
+            "- krail --local doctor\n"
+            "- krail --local workflow list\n"
+            "- krail --local graph check\n"
+            "- krail --local vector build\n"
+        )
+        rendered = prompt.rstrip() + "\n\n## KRAIL Project Context\n\n" + project_context
+        if task:
+            rendered += "\n## Task\n\n" + task.strip() + "\n"
+        if checklist:
+            rendered += "\n## Checklist\n\n" + checklist.strip() + "\n"
+        return {"role": role, "prompt": rendered}
 
     @staticmethod
     def _slug(value: str, *, fallback: str = "task") -> str:
@@ -736,17 +1022,20 @@ jobs:
 
     def _work_order_for_task(self, task: dict[str, Any]) -> dict[str, Any]:
         wo_id = f"wo_{task['id']}"
+        role = task.get("role") or "research"
+        role_prompt = self.agent_prompt(role, task=task.get("description") or task["title"]).get("prompt", "")
         return {
             "work_order_id": wo_id,
             "task_id": task["id"],
             "title": task["title"],
             "description": task.get("description") or task["title"],
             "runner": task.get("runner") or "codex_cli",
-            "role": task.get("role") or "research",
+            "role": role,
             "workflow": task.get("workflow"),
             "allowed_paths": ["topics", "research_plan", "artifacts", "agents", "skills", "specs"],
             "outputs_required": ["summary", "changed_files", "blockers_or_gaps"],
             "trust": "candidate_until_reviewed",
+            "role_prompt": role_prompt,
             "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
         }
 
@@ -783,11 +1072,13 @@ jobs:
             f"Work order: {work_order['work_order_id']}\n"
             f"Task: {work_order['title']}\n\n"
             f"{work_order['description']}\n\n"
+            f"Role guidance:\n{work_order.get('role_prompt') or 'Use the project role prompt and checklist if available.'}\n\n"
             "Rules:\n"
             "- Work only inside this project repository.\n"
             "- Prefer evidence files, captures, and integrity records over unsupported claims.\n"
             "- Write useful outputs under topics/, research_plan/, or artifacts/.\n"
             "- End with a concise summary, changed files, gaps, and suggested next actions.\n"
+            f"- Before exiting, write a JSON result to `{work_order.get('session_result_path', 'session_result.json')}` with keys: summary, changed_files, evidence, blockers_or_gaps, suggested_next_actions.\n"
             "- Do not promote generated claims as verified without evidence.\n"
         )
 
@@ -797,13 +1088,30 @@ jobs:
             task["runner"] = runner
         work_order_result = self.create_work_order(task["id"])
         work_order = work_order_result["work_order"]
-        prompt = self._prompt_for_work_order(work_order)
-        command = self._runner_command(work_order["runner"], prompt)
         session_id = f"session_{task['id']}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
         session_dir = self.sessions_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
+        work_order["session_id"] = session_id
+        work_order["session_path"] = str(session_dir.relative_to(self.project_path))
+        work_order["session_result_path"] = str((session_dir / "session_result.json").relative_to(self.project_path))
+        prompt = self._prompt_for_work_order(work_order)
+        command = self._runner_command(work_order["runner"], prompt)
         (session_dir / "work_order.json").write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
         (session_dir / "command.json").write_text(json.dumps({"command": command}, indent=2) + "\n", encoding="utf-8")
+        (session_dir / "session_result.template.json").write_text(
+            json.dumps(
+                {
+                    "summary": "",
+                    "changed_files": [],
+                    "evidence": [],
+                    "blockers_or_gaps": [],
+                    "suggested_next_actions": [],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         if dry_run:
             return {
                 "status": "dry_run",
@@ -837,6 +1145,12 @@ jobs:
         finally:
             task["started_at"] = started.isoformat()
             task["ended_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+            result_path = session_dir / "session_result.json"
+            if result_path.exists():
+                try:
+                    task["session_result"] = json.loads(result_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    task["session_result_error"] = str(exc)
             self._write_task(task_path, task)
 
         return {
@@ -846,14 +1160,327 @@ jobs:
             "session_path": str(session_dir.relative_to(self.project_path)),
         }
 
+    def workflow_templates(self) -> dict[str, Any]:
+        return {"templates": sorted(WORKFLOW_TEMPLATES.keys())}
+
+    def _load_workflow_spec_file(self, path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            raise ValueError("workflow spec root must be a mapping")
+        return data
+
+    def _validate_workflow_spec(self, spec: dict[str, Any], *, path: str | None = None) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        workflow_id = spec.get("id")
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            errors.append("id must be a non-empty string")
+        schedule = spec.get("schedule")
+        if schedule is not None and not isinstance(schedule, str):
+            errors.append("schedule must be a string when present")
+        steps = spec.get("steps")
+        if not isinstance(steps, list) or not steps:
+            errors.append("steps must be a non-empty list")
+            steps = []
+        seen: set[str] = set()
+        for index, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                errors.append(f"step {index} must be a mapping")
+                continue
+            step_id = step.get("id")
+            if not isinstance(step_id, str) or not step_id.strip():
+                errors.append(f"step {index} id must be a non-empty string")
+                step_id = f"step_{index}"
+            if step_id in seen:
+                errors.append(f"duplicate step id: {step_id}")
+            seen.add(str(step_id))
+            kind = step.get("kind", "command")
+            if kind not in {"command", "agent"}:
+                errors.append(f"step {step_id} kind must be command or agent")
+            if kind == "command":
+                run = step.get("run")
+                if not isinstance(run, str) or not run.strip():
+                    errors.append(f"command step {step_id} requires run")
+            if kind == "agent":
+                runner = str(step.get("runner") or spec.get("runner") or "codex_cli")
+                if runner not in LOCAL_RUNNERS:
+                    errors.append(f"agent step {step_id} has unknown runner: {runner}")
+                role = step.get("role")
+                if role is not None and not isinstance(role, str):
+                    errors.append(f"agent step {step_id} role must be a string")
+                prompt = step.get("prompt") or step.get("description")
+                if not isinstance(prompt, str) or not prompt.strip():
+                    warnings.append(f"agent step {step_id} has no prompt; generic prompt will be used")
+            on_failure = step.get("on_failure", "stop")
+            if on_failure not in {"stop", "continue"}:
+                errors.append(f"step {step_id} on_failure must be stop or continue")
+            retry = step.get("retry", 0)
+            if not isinstance(retry, int) or retry < 0:
+                errors.append(f"step {step_id} retry must be a non-negative integer")
+            timeout_minutes = step.get("timeout_minutes")
+            if timeout_minutes is not None and (not isinstance(timeout_minutes, int) or timeout_minutes <= 0):
+                errors.append(f"step {step_id} timeout_minutes must be a positive integer")
+        return {"ok": not errors, "id": workflow_id, "path": path, "errors": errors, "warnings": warnings, "steps": len(steps)}
+
+    def workflow_validate(self, workflow_id: str) -> dict[str, Any]:
+        shown = self.workflow_show(workflow_id, validate=False)
+        validation = self._validate_workflow_spec(shown["workflow"], path=shown["path"])
+        return validation
+
+    def workflow_validate_all(self) -> dict[str, Any]:
+        results: list[dict[str, Any]] = []
+        for path in sorted(self.workflow_specs_dir.glob("*.yaml")) + sorted(self.workflow_specs_dir.glob("*.yml")):
+            try:
+                spec = self._load_workflow_spec_file(path)
+                result = self._validate_workflow_spec(spec, path=str(path.relative_to(self.project_path)))
+            except Exception as exc:
+                result = {"ok": False, "id": path.stem, "path": str(path.relative_to(self.project_path)), "errors": [str(exc)], "warnings": [], "steps": 0}
+            results.append(result)
+        invalid = [item for item in results if not item.get("ok")]
+        return {"ok": not invalid, "valid": len(results) - len(invalid), "invalid": len(invalid), "workflows": results}
+
+    def workflow_runs(self, *, limit: int = 20) -> dict[str, Any]:
+        runs: list[dict[str, Any]] = []
+        for path in sorted(self.sessions_dir.glob("workflow_*/result.json"), reverse=True):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            runs.append(
+                {
+                    "run_id": data.get("run_id") or path.parent.name,
+                    "workflow": data.get("workflow"),
+                    "status": data.get("status"),
+                    "started_at": data.get("started_at"),
+                    "ended_at": data.get("ended_at"),
+                    "duration_seconds": data.get("duration_seconds"),
+                    "failed_step": data.get("failed_step"),
+                    "path": str(path.parent.relative_to(self.project_path)),
+                }
+            )
+        return {"runs": runs[:limit], "limit": limit}
+
+    def workflow_status(self, run_id: str) -> dict[str, Any]:
+        candidates = [
+            self.sessions_dir / run_id / "result.json",
+            self.sessions_dir / self._slug(run_id) / "result.json",
+        ]
+        for path in candidates:
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
+        matches = sorted(self.sessions_dir.glob(f"{run_id}*/result.json"))
+        if len(matches) == 1:
+            return json.loads(matches[0].read_text(encoding="utf-8"))
+        raise FileNotFoundError(f"Workflow run not found: {run_id}")
+
     def workflow_list(self) -> dict[str, Any]:
         active = self.active_pack().get("active") or {}
-        workflows = active.get("workflows") or []
-        return {"workflows": workflows, "pack": active.get("id")}
+        raw_pack_workflows = active.get("workflows") or []
+        pack_workflows = [item for item in raw_pack_workflows if isinstance(item, str)]
+        ignored_pack_items = [item for item in raw_pack_workflows if not isinstance(item, str)]
+        spec_workflows = []
+        for path in sorted(self.workflow_specs_dir.glob("*.yaml")) + sorted(self.workflow_specs_dir.glob("*.yml")):
+            try:
+                data = self._load_workflow_spec_file(path)
+                validation = self._validate_workflow_spec(data, path=str(path.relative_to(self.project_path)))
+            except Exception as exc:
+                spec_workflows.append({"id": path.stem, "path": str(path.relative_to(self.project_path)), "valid": False, "error": str(exc)})
+                continue
+            spec_workflows.append(
+                {
+                    "id": data.get("id") or path.stem,
+                    "path": str(path.relative_to(self.project_path)),
+                    "valid": validation["ok"],
+                    "steps": len(data.get("steps") or []),
+                    "schedule": data.get("schedule"),
+                    "errors": validation["errors"],
+                    "warnings": validation["warnings"],
+                }
+            )
+        result: dict[str, Any] = {"workflows": pack_workflows, "specs": spec_workflows, "pack": active.get("id")}
+        if ignored_pack_items:
+            result["warnings"] = ["active pack has non-string workflow entries; move workflow settings out of the workflows list"]
+        return result
+
+    def workflow_init(self, workflow_id: str, *, force: bool = False, template: str | None = None) -> dict[str, Any]:
+        rel = Path("research_plan") / "workflows" / f"{self._slug(workflow_id)}.yaml"
+        path = self.project_path / rel
+        if path.exists() and not force:
+            return {"status": "exists", "path": str(rel)}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if template:
+            if template not in WORKFLOW_TEMPLATES:
+                raise ValueError(f"Unknown workflow template: {template}")
+            spec = json.loads(json.dumps(WORKFLOW_TEMPLATES[template]))
+            spec["id"] = workflow_id
+        else:
+            spec = {
+                "id": workflow_id,
+                "description": f"Local KRAIL workflow for {workflow_id}.",
+                "schedule": "",
+                "steps": [
+                    {
+                        "id": "doctor",
+                        "kind": "command",
+                        "run": "krail --local doctor",
+                    },
+                    {
+                        "id": "work",
+                        "kind": "agent",
+                        "role": "platform",
+                        "runner": "codex_cli",
+                        "prompt": f"Run the {workflow_id} workflow. Update repo-backed outputs and record gaps.",
+                    },
+                    {
+                        "id": "verify",
+                        "kind": "command",
+                        "run": "krail --local graph check && krail --local vector build",
+                    },
+                ],
+            }
+        path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        return {"status": "written", "path": str(rel), "workflow": spec, "template": template}
+
+    def _workflow_spec_path(self, workflow_id: str) -> Path:
+        candidates = [
+            self.workflow_specs_dir / f"{workflow_id}.yaml",
+            self.workflow_specs_dir / f"{workflow_id}.yml",
+            self.workflow_specs_dir / f"{self._slug(workflow_id)}.yaml",
+        ]
+        for path in candidates:
+            if path.exists():
+                return path
+        raise FileNotFoundError(f"Workflow spec not found: {workflow_id}")
+
+    def workflow_show(self, workflow_id: str, *, validate: bool = True) -> dict[str, Any]:
+        path = self._workflow_spec_path(workflow_id)
+        spec = self._load_workflow_spec_file(path)
+        result = {"path": str(path.relative_to(self.project_path)), "workflow": spec}
+        if validate:
+            result["validation"] = self._validate_workflow_spec(spec, path=result["path"])
+        return result
+
+    def _workflow_lock_path(self, workflow_id: str) -> Path:
+        return self.locks_dir / f"workflow-{self._slug(workflow_id)}.lock"
+
+    def _acquire_workflow_lock(self, workflow_id: str) -> Path:
+        self.locks_dir.mkdir(parents=True, exist_ok=True)
+        lock = self._workflow_lock_path(workflow_id)
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise RuntimeError(f"workflow already running: {workflow_id} ({lock})") from exc
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"workflow": workflow_id, "pid": os.getpid(), "created_at": _dt.datetime.now(_dt.UTC).isoformat()}) + "\n")
+        return lock
+
+    def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
+        shown = self.workflow_show(workflow_id)
+        spec = shown["workflow"]
+        validation = shown.get("validation") or self._validate_workflow_spec(spec, path=shown["path"])
+        if not validation["ok"]:
+            return {"status": "invalid", "workflow": workflow_id, "validation": validation}
+        steps = spec.get("steps") or []
+        if not isinstance(steps, list) or not steps:
+            raise ValueError(f"Workflow {workflow_id!r} must define a non-empty steps list")
+        run_id = f"workflow_{self._slug(str(spec.get('id') or workflow_id))}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
+        run_dir = self.sessions_dir / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "workflow.yaml").write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        started_at = _dt.datetime.now(_dt.UTC)
+        results: list[dict[str, Any]] = []
+        lock: Path | None = None
+        if not dry_run and not force:
+            lock = self._acquire_workflow_lock(str(spec.get("id") or workflow_id))
+        try:
+            for index, step in enumerate(steps, start=1):
+                if not isinstance(step, dict):
+                    raise ValueError(f"Workflow step {index} must be a mapping")
+                step_id = str(step.get("id") or f"step_{index}")
+                kind = str(step.get("kind") or "command")
+                step_result: dict[str, Any] = {"id": step_id, "kind": kind, "status": "dry_run" if dry_run else "running"}
+                if dry_run:
+                    step_result["step"] = step
+                    results.append(step_result)
+                    continue
+                attempts = int(step.get("retry", 0)) + 1
+                on_failure = str(step.get("on_failure") or "stop")
+                timeout_seconds = int(step["timeout_minutes"]) * 60 if step.get("timeout_minutes") else None
+                if kind == "command":
+                    command = str(step.get("run") or "").strip()
+                    if not command:
+                        raise ValueError(f"Command step {step_id!r} is missing run")
+                    last_returncode = 1
+                    for attempt in range(1, attempts + 1):
+                        try:
+                            completed = subprocess.run(command, cwd=self.project_path, shell=True, capture_output=True, text=True, timeout=timeout_seconds)
+                            last_returncode = completed.returncode
+                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
+                        except subprocess.TimeoutExpired as exc:
+                            last_returncode = 124
+                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stdout.log").write_text(exc.stdout or "", encoding="utf-8")
+                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stderr.log").write_text(exc.stderr or "timeout expired", encoding="utf-8")
+                        if last_returncode == 0:
+                            break
+                    step_result.update({"status": "done" if last_returncode == 0 else "failed", "exit_code": last_returncode, "command": command, "attempts": attempt})
+                    results.append(step_result)
+                    if last_returncode != 0 and on_failure == "stop":
+                        break
+                elif kind == "agent":
+                    prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
+                    runner = str(step.get("runner") or spec.get("runner") or "codex_cli")
+                    role = str(step.get("role") or "research")
+                    dispatch: dict[str, Any] = {"status": "failed"}
+                    created: dict[str, Any] = {"task": {"id": ""}}
+                    for attempt in range(1, attempts + 1):
+                        created = self.create_task(
+                            f"{spec.get('id') or workflow_id}: {step_id}",
+                            description=prompt,
+                            runner=runner,
+                            workflow=str(spec.get("id") or workflow_id),
+                            role=role,
+                        )
+                        dispatch = self.dispatch_task(created["task"]["id"], runner=runner, dry_run=False)
+                        if dispatch.get("status") == "done":
+                            break
+                    step_result.update({"status": dispatch.get("status"), "task_id": created["task"]["id"], "runner": runner, "role": role, "dispatch": dispatch})
+                    results.append(step_result)
+                    if dispatch.get("status") not in {"done", "dispatched"} and on_failure == "stop":
+                        break
+                else:
+                    raise ValueError(f"Unsupported workflow step kind: {kind}")
+                time.sleep(0.01)
+        finally:
+            if lock and lock.exists():
+                lock.unlink()
+        ended_at = _dt.datetime.now(_dt.UTC)
+        failed_steps = [item for item in results if item.get("status") not in {"done", "dry_run"}]
+        status = "dry_run" if dry_run else ("done" if not failed_steps and len(results) == len(steps) else "failed")
+        payload = {
+            "status": status,
+            "run_id": run_id,
+            "workflow": spec.get("id") or workflow_id,
+            "path": str(run_dir.relative_to(self.project_path)),
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "duration_seconds": round((ended_at - started_at).total_seconds(), 3),
+            "failed_step": failed_steps[0]["id"] if failed_steps else None,
+            "steps": results,
+            "validation": validation,
+        }
+        (run_dir / "result.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return payload
 
     def workflow_run(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict[str, Any]:
+        try:
+            self._workflow_spec_path(workflow_id)
+        except FileNotFoundError:
+            pass
+        else:
+            return self.workflow_execute(workflow_id, dry_run=dry_run)
         active = self.active_pack().get("active") or {}
-        known = set(active.get("workflows") or [])
+        known = {item for item in (active.get("workflows") or []) if isinstance(item, str)}
         if known and workflow_id not in known:
             raise ValueError(f"Workflow {workflow_id!r} is not declared by active pack {active.get('id')!r}")
         title = workflow_id.replace("_", " ").replace("-", " ").title()
