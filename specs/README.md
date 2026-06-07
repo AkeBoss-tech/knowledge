@@ -13,3 +13,6 @@ The first new implemented spec is the local brain UX skeleton:
 - `capture`: writes notes into `topics/inbox`
 - `pack`: activates local knowledge pack metadata in `.krail/pack.yaml`
 - `doctor`: checks manifest, core paths, pack, and capture inbox readiness
+- `agent`: lists and launches local CLI agents as workers
+- `task`: creates repo-backed task and work-order records
+- `workflow`: turns active-pack workflow IDs into auditable tasks

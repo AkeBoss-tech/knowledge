@@ -55,6 +55,9 @@ Useful tool families:
 - `capture`: add local notes or source pointers to `topics/inbox`
 - `doctor`: inspect local project health
 - `pack_active`: inspect active knowledge pack
+- `list_agents`: inspect local CLI runners
+- `create_task`, `list_tasks`, `dispatch_task`: manage repo-backed worker tasks
+- `list_workflows`, `run_workflow`: create workflow tasks from the active pack
 - ontology classes and entities
 - SQL queries over DuckDB artifacts
 - Python execution
@@ -67,6 +70,19 @@ Use `search` when you need raw evidence. Use `think` when you need a cited
 answer shape with explicit gaps, conflicts, and next actions. Do not promote
 generated statements into trusted state until they are registered as claims with
 evidence and pass integrity checks.
+
+## Agent Dispatch
+
+Prefer dry-run dispatch first:
+
+```bash
+krail --local agent run "summarize new captures" --runner codex_cli --dry-run
+krail --local workflow run weekly_literature_refresh --dry-run
+```
+
+Dry runs write the work order and session command files without launching a
+second agent process. Full dispatch can run local CLIs such as Codex CLI,
+Claude Code, Gemini CLI, Cursor CLI, and GitHub Copilot CLI.
 
 ## Principle
 

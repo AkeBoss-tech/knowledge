@@ -3,7 +3,10 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
+import shlex
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -76,6 +79,34 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
             "Claim SUPPORTED_BY EvidenceChunk",
         ],
         "workflows": ["compile_policy", "review_exceptions", "evidence_gap_scan"],
+    },
+}
+
+LOCAL_RUNNERS: dict[str, dict[str, str]] = {
+    "codex_cli": {
+        "command_env": "CODEX_CLI_COMMAND",
+        "default_command": "codex",
+        "description": "Codex CLI local runner",
+    },
+    "claude_code": {
+        "command_env": "CLAUDE_CODE_COMMAND",
+        "default_command": "claude",
+        "description": "Claude Code local runner",
+    },
+    "gemini_cli": {
+        "command_env": "GEMINI_CLI_COMMAND",
+        "default_command": "gemini",
+        "description": "Gemini CLI local runner",
+    },
+    "cursor_cli": {
+        "command_env": "CURSOR_CLI_COMMAND",
+        "default_command": "agent",
+        "description": "Cursor CLI local runner",
+    },
+    "copilot_cli": {
+        "command_env": "COPILOT_CLI_COMMAND",
+        "default_command": "gh copilot suggest",
+        "description": "GitHub Copilot CLI helper",
     },
 }
 
@@ -344,3 +375,231 @@ class KnowledgeRuntime:
         check("capture_inbox", inbox.exists(), "topics/inbox exists" if inbox.exists() else "topics/inbox will be created on first capture")
         ok = all(item["ok"] for item in checks if not item["name"].startswith("capture_inbox"))
         return {"ok": ok, "checks": checks}
+
+    @property
+    def tasks_dir(self) -> Path:
+        return self.project_path / "research_plan" / "tasks"
+
+    @property
+    def work_orders_dir(self) -> Path:
+        return self.project_path / "research_plan" / "work_orders"
+
+    @property
+    def sessions_dir(self) -> Path:
+        return self.project_path / "research_plan" / "sessions"
+
+    def list_agents(self) -> dict[str, Any]:
+        agents = []
+        for name, meta in LOCAL_RUNNERS.items():
+            command = os.environ.get(meta["command_env"], meta["default_command"])
+            executable = shlex.split(command)[0] if command else ""
+            agents.append(
+                {
+                    "name": name,
+                    "description": meta["description"],
+                    "command": command,
+                    "available": bool(executable and shutil_which(executable)),
+                }
+            )
+        return {"agents": agents, "default": "codex_cli"}
+
+    @staticmethod
+    def _slug(value: str, *, fallback: str = "task") -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+        while "--" in slug:
+            slug = slug.replace("--", "-")
+        return slug[:80] or fallback
+
+    def create_task(
+        self,
+        title: str,
+        *,
+        description: str = "",
+        runner: str = "codex_cli",
+        workflow: str | None = None,
+        role: str = "research",
+    ) -> dict[str, Any]:
+        now = _dt.datetime.now(_dt.UTC)
+        digest = hashlib.sha1(f"{title}:{description}:{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
+        task_id = f"task_{self._slug(title)}_{digest}"
+        payload = {
+            "id": task_id,
+            "title": title,
+            "description": description or title,
+            "status": "ready",
+            "runner": runner,
+            "role": role,
+            "workflow": workflow,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+        self.tasks_dir.mkdir(parents=True, exist_ok=True)
+        path = self.tasks_dir / f"{task_id}.json"
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return {"status": "created", "task": payload, "path": str(path.relative_to(self.project_path))}
+
+    def list_tasks(self) -> dict[str, Any]:
+        tasks = []
+        for path in sorted(self.tasks_dir.glob("*.json")):
+            try:
+                tasks.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return {"tasks": tasks}
+
+    def _task_path(self, task_id: str) -> Path:
+        path = self.tasks_dir / f"{task_id}.json"
+        if path.exists():
+            return path
+        matches = list(self.tasks_dir.glob(f"{task_id}*.json"))
+        if len(matches) == 1:
+            return matches[0]
+        raise FileNotFoundError(f"Task not found: {task_id}")
+
+    def _load_task(self, task_id: str) -> tuple[Path, dict[str, Any]]:
+        path = self._task_path(task_id)
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def _write_task(self, path: Path, task: dict[str, Any]) -> None:
+        task["updated_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+        path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+
+    def _work_order_for_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        wo_id = f"wo_{task['id']}"
+        return {
+            "work_order_id": wo_id,
+            "task_id": task["id"],
+            "title": task["title"],
+            "description": task.get("description") or task["title"],
+            "runner": task.get("runner") or "codex_cli",
+            "role": task.get("role") or "research",
+            "workflow": task.get("workflow"),
+            "allowed_paths": ["topics", "research_plan", "artifacts", "agents", "skills", "specs"],
+            "outputs_required": ["summary", "changed_files", "blockers_or_gaps"],
+            "trust": "candidate_until_reviewed",
+            "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        }
+
+    def create_work_order(self, task_id: str) -> dict[str, Any]:
+        _, task = self._load_task(task_id)
+        work_order = self._work_order_for_task(task)
+        self.work_orders_dir.mkdir(parents=True, exist_ok=True)
+        path = self.work_orders_dir / f"{work_order['work_order_id']}.json"
+        path.write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
+        return {"status": "created", "work_order": work_order, "path": str(path.relative_to(self.project_path))}
+
+    def _runner_command(self, runner: str, prompt: str) -> list[str]:
+        if runner not in LOCAL_RUNNERS:
+            raise ValueError(f"Unknown runner: {runner}")
+        meta = LOCAL_RUNNERS[runner]
+        base = os.environ.get(meta["command_env"], meta["default_command"])
+        parts = shlex.split(base)
+        if runner == "codex_cli":
+            return [*parts, "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
+        if runner == "claude_code":
+            return [*parts, "--print", "--permission-mode", "bypassPermissions", prompt]
+        if runner == "gemini_cli":
+            return [*parts, "-p", prompt]
+        if runner == "cursor_cli":
+            return [*parts, prompt]
+        if runner == "copilot_cli":
+            return [*parts, prompt]
+        return [*parts, prompt]
+
+    def _prompt_for_work_order(self, work_order: dict[str, Any]) -> str:
+        return (
+            "You are a local KRAIL workflow worker.\n\n"
+            f"Project root: {self.project_path}\n"
+            f"Work order: {work_order['work_order_id']}\n"
+            f"Task: {work_order['title']}\n\n"
+            f"{work_order['description']}\n\n"
+            "Rules:\n"
+            "- Work only inside this project repository.\n"
+            "- Prefer evidence files, captures, and integrity records over unsupported claims.\n"
+            "- Write useful outputs under topics/, research_plan/, or artifacts/.\n"
+            "- End with a concise summary, changed files, gaps, and suggested next actions.\n"
+            "- Do not promote generated claims as verified without evidence.\n"
+        )
+
+    def dispatch_task(self, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict[str, Any]:
+        task_path, task = self._load_task(task_id)
+        if runner:
+            task["runner"] = runner
+        work_order_result = self.create_work_order(task["id"])
+        work_order = work_order_result["work_order"]
+        prompt = self._prompt_for_work_order(work_order)
+        command = self._runner_command(work_order["runner"], prompt)
+        session_id = f"session_{task['id']}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
+        session_dir = self.sessions_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "work_order.json").write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
+        (session_dir / "command.json").write_text(json.dumps({"command": command}, indent=2) + "\n", encoding="utf-8")
+        if dry_run:
+            return {
+                "status": "dry_run",
+                "session_id": session_id,
+                "task_id": task["id"],
+                "runner": work_order["runner"],
+                "command": command,
+                "work_order": work_order_result["path"],
+            }
+
+        task["status"] = "running"
+        task["session_id"] = session_id
+        self._write_task(task_path, task)
+        started = _dt.datetime.now(_dt.UTC)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=self.project_path,
+                capture_output=True,
+                text=True,
+                timeout=None,
+            )
+            (session_dir / "stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+            (session_dir / "stderr.log").write_text(completed.stderr or "", encoding="utf-8")
+            (session_dir / "exit_code.txt").write_text(str(completed.returncode), encoding="utf-8")
+            task["status"] = "done" if completed.returncode == 0 else "failed"
+            task["exit_code"] = completed.returncode
+        except FileNotFoundError as exc:
+            task["status"] = "blocked"
+            task["blocker"] = str(exc)
+        finally:
+            task["started_at"] = started.isoformat()
+            task["ended_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+            self._write_task(task_path, task)
+
+        return {
+            "status": task["status"],
+            "session_id": session_id,
+            "task": task,
+            "session_path": str(session_dir.relative_to(self.project_path)),
+        }
+
+    def workflow_list(self) -> dict[str, Any]:
+        active = self.active_pack().get("active") or {}
+        workflows = active.get("workflows") or []
+        return {"workflows": workflows, "pack": active.get("id")}
+
+    def workflow_run(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict[str, Any]:
+        active = self.active_pack().get("active") or {}
+        known = set(active.get("workflows") or [])
+        if known and workflow_id not in known:
+            raise ValueError(f"Workflow {workflow_id!r} is not declared by active pack {active.get('id')!r}")
+        title = workflow_id.replace("_", " ").replace("-", " ").title()
+        description = (
+            f"Run the `{workflow_id}` workflow for this KRAIL project. "
+            "Inspect current captures, sources, and integrity records; then create or update repo-backed outputs. "
+            "If the workflow cannot be completed, record blockers and missing evidence."
+        )
+        task = self.create_task(title, description=description, runner=runner, workflow=workflow_id, role="research")["task"]
+        if dry_run:
+            return {"status": "created", "task": task, "dry_run": True}
+        dispatch = self.dispatch_task(task["id"], runner=runner)
+        return {"status": "dispatched", "task": task, "dispatch": dispatch}
+
+
+def shutil_which(executable: str) -> str | None:
+    from shutil import which
+
+    return which(executable)
