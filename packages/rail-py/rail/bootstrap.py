@@ -23,9 +23,12 @@ def bootstrap_future_project(
     name: str,
     slug: str | None = None,
     default_branch: str = "main",
+    mode: str = "ontology_first",
 ) -> Path:
     project_root = Path(target_dir).resolve()
     project_slug = slug or _slugify(name)
+    if mode not in {"ontology_first", "markdown_graph"}:
+        raise ValueError("mode must be ontology_first or markdown_graph")
 
     dirs = [
         ".ontology/sources",
@@ -55,7 +58,7 @@ def bootstrap_future_project(
           slug: "{project_slug}"
           default_branch: "{default_branch}"
           description: "RAIL future project"
-          mode: "ontology_first"
+          mode: "{'research_first' if mode == 'markdown_graph' else 'ontology_first'}"
 
         repo_contract:
           required_paths:
@@ -99,6 +102,16 @@ def bootstrap_future_project(
               - "answerable_after_requery"
               - "answerable_after_expansion"
               - "blocked_by_data"
+
+        graph:
+          mode: "markdown_frontmatter"
+          include:
+            - "topics/**/*.md"
+            - "research_plan/**/*.md"
+          export:
+            json: "research_plan/graph/graph.json"
+            mermaid: "research_plan/graph/graph.mmd"
+            summary: "research_plan/graph/summary.md"
 
         planner:
           current_plan_path: "research_plan/current_plan.md"
@@ -207,9 +220,28 @@ def bootstrap_future_project(
         object_properties: []
         """
     )
+    research_question = textwrap.dedent(
+        f"""\
+        question: What should {name} learn or produce first?
+        required_sources: []
+        output: research_plan/current_plan.md
+        """
+    )
 
     current_plan = textwrap.dedent(
         f"""\
+        ---
+        title: Current Plan
+        kind: plan
+        topics:
+          - planning
+        entities:
+          - {name}
+        entity_metadata:
+          - name: {name}
+            entity_type: ProjectIdea
+        ---
+
         # Current Plan
 
         Project: {name}
@@ -223,6 +255,25 @@ def bootstrap_future_project(
         - refine project requirements
         - create initial tasks
         - approve the first worker run
+        """
+    )
+    brief = textwrap.dedent(
+        f"""\
+        ---
+        title: {name} Brief
+        kind: brief
+        topics:
+          - project-brief
+        entities:
+          - {name}
+        entity_metadata:
+          - name: {name}
+            entity_type: ProjectIdea
+        ---
+
+        # {name} Brief
+
+        Describe the project goal, important entities, sources, and open questions.
         """
     )
 
@@ -516,6 +567,8 @@ Never promote hypotheses that still rely on unsupported or stale claims.
 
     _write(project_root / "rail.yaml", rail_yaml)
     _write(project_root / ".ontology/ontology.yaml", ontology_yaml)
+    _write(project_root / "specs/research_question.yaml", research_question)
+    _write(project_root / "topics/brief.md", brief)
     for filename, content in research_plan_files.items():
         _write(project_root / "research_plan" / filename, content)
     for filename, content in research_plan_state_files.items():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import textwrap
 from pathlib import Path
@@ -166,6 +167,33 @@ def test_cmd_reconcile_prints_json(capsys):
     captured = capsys.readouterr()
     assert '"status": "ok"' in captured.out
     assert '"updatedTaskIds": [' in captured.out
+
+
+def test_cmd_vector_build_passes_provider_and_model(capsys):
+    class _Project:
+        def vector_build(self, *, provider=None, model=None):
+            return {"provider": provider, "model": model}
+
+    args = argparse.Namespace(vector_command="build", provider="local_hash", model="demo-model")
+
+    rail_cli.cmd_vector(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"provider": "local_hash", "model": "demo-model"}
+
+
+def test_cmd_ci_init_prints_written_path(capsys):
+    class _Project:
+        def ci_init(self, *, path):
+            return {"status": "written", "path": path}
+
+    args = argparse.Namespace(ci_command="init", ci_path=".github/workflows/krail.yml")
+
+    rail_cli.cmd_ci(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "written"
+    assert payload["path"] == ".github/workflows/krail.yml"
 
 
 def test_local_engine_reconcile_calls_reconciliation_service(tmp_path: Path, monkeypatch):

@@ -277,6 +277,13 @@ class KnowledgeRuntime:
             result["rag"] = {"database": vector.get("database"), "embedding": vector.get("embedding"), "status": vector.get("status", "ok")}
         graph = self._graph_context(query, limit=5)
         if graph:
+            graph_boosts = self._graph_boosts(graph)
+            for hit in result["hits"]:
+                boost = graph_boosts.get(hit["path"], 0)
+                if boost:
+                    hit["graph_score"] = boost
+                    hit["score"] = round(float(hit.get("score") or 0) + boost, 3)
+            result["hits"] = sorted(result["hits"], key=lambda item: (-float(item.get("score") or 0), item["path"]))[:limit]
             result["graph_context"] = graph
         if explain:
             result["explain"] = {
@@ -308,6 +315,19 @@ class KnowledgeRuntime:
             )
             merged[key] = current
         return sorted(merged.values(), key=lambda item: (-float(item.get("score") or 0), item["path"]))[:limit]
+
+    @staticmethod
+    def _graph_boosts(graph_context: dict[str, Any]) -> dict[str, float]:
+        boosts: dict[str, float] = {}
+        for doc in graph_context.get("documents", []):
+            path = doc.get("path")
+            if path:
+                boosts[path] = boosts.get(path, 0) + 1.5
+        for edge in graph_context.get("edges", []):
+            source = edge.get("source")
+            if source:
+                boosts[source] = boosts.get(source, 0) + 0.75
+        return boosts
 
     def _graph_context(self, query: str, *, limit: int = 5) -> dict[str, Any] | None:
         graph = load_or_build_graph(self.project_path)
@@ -506,7 +526,11 @@ class KnowledgeRuntime:
             "research_plan/audits",
             "research_plan/stuck_reports",
         ]
-        present_transient = [rel for rel in transient_dirs if (self.project_path / rel).exists()]
+        present_transient = [
+            rel
+            for rel in transient_dirs
+            if (self.project_path / rel).exists() and any((self.project_path / rel).iterdir())
+        ]
         warn(
             "transient_runtime_state",
             not present_transient,
@@ -571,8 +595,8 @@ class KnowledgeRuntime:
         graph = load_or_build_graph(self.project_path)
         return {"format": export_format, "content": export_graph(graph, export_format)}
 
-    def vector_build(self) -> dict[str, Any]:
-        return LocalVectorStore(self.project_path).build(self._iter_docs())
+    def vector_build(self, *, provider: str | None = None, model: str | None = None) -> dict[str, Any]:
+        return LocalVectorStore(self.project_path, provider=provider, model=model).build(self._iter_docs())
 
     def vector_search(self, query: str, *, limit: int = 10) -> dict[str, Any]:
         store = LocalVectorStore(self.project_path)
@@ -581,6 +605,46 @@ class KnowledgeRuntime:
             self.vector_build()
             result = store.search(query, limit=limit)
         return result
+
+    def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict[str, Any]:
+        rel = path
+        target = self.project_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = """name: KRAIL Local Preview
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  krail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install KRAIL
+        run: |
+          python -m pip install --upgrade pip
+          if [ -d packages/rail-py ]; then
+            pip install -e packages/rail-py
+          else
+            pip install "git+https://github.com/AkeBoss-tech/knowledge.git@future#subdirectory=packages/rail-py"
+          fi
+      - name: Doctor
+        run: krail --local doctor
+      - name: Build markdown graph
+        run: krail --local graph build
+      - name: Check markdown graph
+        run: krail --local graph check
+      - name: Build local vector index
+        run: krail --local vector build
+      - name: RAG smoke test
+        run: krail --local search "project" --rag --explain
+"""
+        target.write_text(content, encoding="utf-8")
+        return {"status": "written", "path": rel}
 
     @property
     def tasks_dir(self) -> Path:

@@ -128,7 +128,7 @@ Optional agent CLI check:
 Create a research knowledge project:
 
 ```bash
-krail init robotics-kb --pack research-intelligence
+krail init robotics-kb --pack research-intelligence --mode markdown_graph
 cd robotics-kb
 krail --local doctor
 ```
@@ -270,6 +270,17 @@ The first implementation uses deterministic hashed embeddings and stores chunks
 in `.krail/vector.sqlite`. This keeps the system offline and dependency-light.
 Future embedding providers can replace the local hash encoder while keeping the
 same command surface.
+
+Optional embedding providers:
+
+```bash
+krail --local vector build --provider local_hash
+OPENAI_API_KEY=... krail --local vector build --provider openai --model text-embedding-3-small
+krail --local vector build --provider sentence_transformers --model all-MiniLM-L6-v2
+```
+
+OpenAI embeddings use the official embeddings endpoint with `input` and `model`
+fields. Sentence-transformers requires installing the optional embeddings extra.
 
 ## Markdown Graphs
 
@@ -517,6 +528,7 @@ Common tools:
 - `graph_export`
 - `vector_build`
 - `vector_search`
+- `ci_init`
 - `pack_active`
 - `list_agents`
 - `create_task`
@@ -796,8 +808,10 @@ Phase 7: interfaces
 Project setup:
 
 ```bash
-krail init <directory> --pack research-intelligence
+krail --version
+krail init <directory> --pack research-intelligence --mode markdown_graph
 krail --local doctor
+krail --local ci init
 ```
 
 Capture:
@@ -821,6 +835,7 @@ Vector/RAG:
 
 ```bash
 krail --local vector build
+krail --local vector build --provider openai --model text-embedding-3-small
 krail --local vector search "query"
 ```
 

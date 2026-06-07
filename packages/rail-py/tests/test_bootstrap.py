@@ -91,3 +91,15 @@ def test_bootstrap_future_project_creates_workspace_scaffold(tmp_path):
     setup_script = (root / "scripts/setup-workspace.sh").read_text(encoding="utf-8")
     assert "packages/rail-py" in setup_script
     assert "rail --help" in setup_script
+
+
+def test_bootstrap_future_project_supports_markdown_graph_mode(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Graph Project", slug="graph-project", mode="markdown_graph")
+
+    rail_data = yaml.safe_load((root / "rail.yaml").read_text(encoding="utf-8"))
+    assert rail_data["project"]["mode"] == "research_first"
+    assert rail_data["graph"]["mode"] == "markdown_frontmatter"
+    assert "topics/**/*.md" in rail_data["graph"]["include"]
+
+    brief = (root / "topics" / "brief.md").read_text(encoding="utf-8")
+    assert "entity_type: ProjectIdea" in brief

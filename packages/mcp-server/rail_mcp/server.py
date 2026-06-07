@@ -235,9 +235,15 @@ def graph_export(format: str = "json") -> str:
 
 
 @mcp.tool()
-def vector_build() -> str:
-    """Build the local SQLite vector database at .krail/vector.sqlite."""
-    return _json(_get_project().vector_build())
+def vector_build(provider: str = "", model: str = "") -> str:
+    """
+    Build the local SQLite vector database at .krail/vector.sqlite.
+
+    Args:
+        provider: Optional embedding provider: local_hash, openai, or sentence_transformers.
+        model: Optional embedding model name for the selected provider.
+    """
+    return _json(_get_project().vector_build(provider=provider or None, model=model or None))
 
 
 @mcp.tool()
@@ -250,6 +256,12 @@ def vector_search(query: str, limit: int = 10) -> str:
         limit: Maximum chunks to return.
     """
     return _json(_get_project().vector_search(query, limit=limit))
+
+
+@mcp.tool()
+def ci_init(path: str = ".github/workflows/krail-local-preview.yml") -> str:
+    """Write a GitHub Actions workflow that runs KRAIL local-preview checks."""
+    return _json(_get_project().ci_init(path=path))
 
 
 @mcp.tool()

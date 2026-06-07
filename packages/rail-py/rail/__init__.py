@@ -29,6 +29,8 @@ from rail.session_state import (
 )
 from rail.exceptions import RailError
 
+__version__ = "0.1.0"
+
 def connect(
     slug: str,
     api_url: str | None = None,

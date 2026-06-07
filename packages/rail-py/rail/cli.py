@@ -30,11 +30,11 @@ def _get_project(args: argparse.Namespace) -> rail.Project:
 def cmd_init(args: argparse.Namespace):
     target = Path(args.directory).resolve()
     name = args.name or target.name
-    root = bootstrap_future_project(target, name=name, slug=args.slug)
+    root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode)
     project = rail.local(str(root))
     if args.pack:
         project.pack("use", args.pack)
-    _print_json({"status": "initialized", "path": str(root), "pack": args.pack})
+    _print_json({"status": "initialized", "path": str(root), "pack": args.pack, "mode": args.mode})
 
 def cmd_search(project: rail.Project, args: argparse.Namespace):
     if hasattr(project._backend, "knowledge"):
@@ -144,9 +144,13 @@ def cmd_graph(project: rail.Project, args: argparse.Namespace):
 
 def cmd_vector(project: rail.Project, args: argparse.Namespace):
     if args.vector_command == "build":
-        _print_json(project.vector_build())
+        _print_json(project.vector_build(provider=args.provider, model=args.model))
     elif args.vector_command == "search":
         _print_json(project.vector_search(args.query, limit=args.limit))
+
+def cmd_ci(project: rail.Project, args: argparse.Namespace):
+    if args.ci_command == "init":
+        _print_json(project.ci_init(path=args.ci_path))
 
 def cmd_query(project: rail.Project, args: argparse.Namespace):
     if args.command == "sql":
@@ -242,6 +246,7 @@ def main():
     parser.add_argument("--api-key", help="API Key (overrides RAIL_API_KEY)")
     parser.add_argument("--local", action="store_true", help="Load from local path")
     parser.add_argument("--path", default=".", help="Local project path")
+    parser.add_argument("--version", action="store_true", help="Print KRAIL version and exit")
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -251,6 +256,7 @@ def main():
     init_parser.add_argument("--name", help="Project display name")
     init_parser.add_argument("--slug", help="Project slug")
     init_parser.add_argument("--pack", choices=["research-intelligence", "company-brain", "software-architecture", "policy-compiler"], help="Activate a knowledge pack")
+    init_parser.add_argument("--mode", choices=["ontology_first", "markdown_graph"], default="ontology_first", help="Project scaffold mode")
 
     # Search
     s_parser = subparsers.add_parser("search", help="Search local project evidence")
@@ -357,10 +363,18 @@ def main():
     # Vector / RAG
     vector_parser = subparsers.add_parser("vector", help="Build and query the local SQLite vector database")
     vector_subs = vector_parser.add_subparsers(dest="vector_command")
-    vector_subs.add_parser("build", help="Build .krail/vector.sqlite from local project documents")
+    vb = vector_subs.add_parser("build", help="Build .krail/vector.sqlite from local project documents")
+    vb.add_argument("--provider", choices=["local_hash", "openai", "sentence_transformers"], help="Embedding provider")
+    vb.add_argument("--model", help="Embedding model name")
     vs = vector_subs.add_parser("search", help="Search local vector chunks")
     vs.add_argument("query")
     vs.add_argument("--limit", type=int, default=10)
+
+    # CI templates
+    ci_parser = subparsers.add_parser("ci", help="Generate local-preview CI templates")
+    ci_subs = ci_parser.add_subparsers(dest="ci_command")
+    ci_init = ci_subs.add_parser("init", help="Write a GitHub Actions KRAIL local-preview workflow")
+    ci_init.add_argument("--path", dest="ci_path", default=".github/workflows/krail-local-preview.yml")
 
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
@@ -421,6 +435,9 @@ def main():
     ask_parser.add_argument("--session", help="Session ID (optional if RAIL_SESSION_ID set)")
 
     args = parser.parse_args()
+    if args.version:
+        _print_json({"name": "KRAIL", "version": rail.__version__})
+        return
     if not args.command:
         parser.print_help()
         return
@@ -466,6 +483,8 @@ def main():
         cmd_graph(project, args)
     elif args.command == "vector":
         cmd_vector(project, args)
+    elif args.command == "ci":
+        cmd_ci(project, args)
     elif args.command == "query":
         cmd_query(project, args)
     elif args.command == "hydrate":
