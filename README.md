@@ -1115,6 +1115,7 @@ Start here:
 Examples:
 
 - [Minimal KRAIL Project](examples/minimal-project/README.md)
+- [Robotics TAMP Knowledge Base](projects/robotics-tamp-kb/README.md)
 
 ## For Agents
 

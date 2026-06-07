@@ -1,0 +1,16 @@
+question: >-
+  How should a modern dual-arm robotics task-and-motion-planning stack combine
+  symbolic planning, scheduling, geometric feasibility, and execution/replanning
+  for long-horizon tabletop and manipulation tasks?
+required_sources:
+  - pddlstream-foundations
+  - dual-arm-tamp-papers
+  - graphs-of-convex-sets-and-iris
+  - behavior-tree-execution
+  - practical-open-source-packages
+subquestions:
+  - What benchmark tasks best expose failures in long-horizon bimanual coordination?
+  - Where do symbolic plans fail late because geometry is checked too weakly or too late?
+  - What scheduling layer is missing between task planning and motion planning?
+  - Which packages are actually usable for experimentation right now?
+  - How should this be translated into Akash-specific project ideas?

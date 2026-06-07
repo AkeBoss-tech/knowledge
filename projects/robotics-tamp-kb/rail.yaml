@@ -1,0 +1,65 @@
+version: 1
+
+project:
+  name: Robotics TAMP Knowledge Base
+  slug: robotics-tamp-kb
+  default_branch: future
+  description: Local-first knowledge project for robotics task-and-motion planning research.
+  mode: ontology_first
+
+repo_contract:
+  required_paths:
+    - .ontology
+    - specs
+    - research_plan
+    - topics
+    - agents
+    - skills
+  flexible_paths:
+    - artifacts
+    - workflows
+    - scripts
+    - topics/**
+  source_of_truth: git
+
+paths:
+  ontology_root: .ontology
+  topics_root: topics
+  specs_root: specs
+  plan_root: research_plan
+  agents_root: agents
+  skills_root: skills
+  artifacts_root: artifacts
+
+research:
+  brief_path: topics/brief.md
+  spec_path: specs/research_question.yaml
+
+planner:
+  current_plan_path: research_plan/current_plan.md
+  task_root: research_plan/tasks
+  approval_root: research_plan/approvals
+  decision_root: research_plan/decisions
+  require_audit_before_advance: true
+  lane_policy: single_active_worker
+
+agents:
+  roles_dir: agents
+  default_runner: codex_cli
+  sequential_execution: true
+  planner_thread_mode: project
+  default_planner_role: planner
+
+autonomy:
+  mode: assisted
+  require_human_for:
+    - publish_changes
+    - destructive_delete
+  allow_without_human:
+    - plan_decomposition
+    - source_discovery
+    - data_ingestion
+    - verification
+  max_runtime_minutes: 60
+  max_cost_usd: 0
+  max_retries_per_task: 1
