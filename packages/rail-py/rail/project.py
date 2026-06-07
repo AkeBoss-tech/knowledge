@@ -217,15 +217,20 @@ class Project:
             raise RuntimeError("graph commands require local mode")
         return self._backend.knowledge.graph_export(export_format=export_format)
 
-    def vector_build(self) -> dict:
+    def vector_build(self, *, provider: str | None = None, model: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("vector commands require local mode")
-        return self._backend.knowledge.vector_build()
+        return self._backend.knowledge.vector_build(provider=provider, model=model)
 
     def vector_search(self, query: str, *, limit: int = 10) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("vector commands require local mode")
         return self._backend.knowledge.vector_search(query, limit=limit)
+
+    def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("ci commands require local mode")
+        return self._backend.knowledge.ci_init(path=path)
 
     def series(self, series_id: str) -> "pd.DataFrame":
         import pandas as pd

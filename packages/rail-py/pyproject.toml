@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 analysis = ["numpy", "pandas", "statsmodels", "matplotlib"]
 local = ["owlready2", "duckdb"]
+embeddings = ["sentence-transformers>=2.7"]
 
 [tool.setuptools.packages.find]
 where = ["."]

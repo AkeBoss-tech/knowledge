@@ -198,3 +198,28 @@ def test_capture_can_write_graph_frontmatter_and_search_rag(tmp_path: Path):
     rag = project._backend.knowledge.search("robotics planning baseline", limit=3, rag=True, explain=True)
     assert rag["vector_hits"]
     assert rag["rag"]["database"] == ".krail/vector.sqlite"
+
+
+def test_graph_context_boosts_connected_documents(tmp_path: Path):
+    _write_project(tmp_path)
+    project = rail.local(path=tmp_path)
+    project.graph_build(write=False)
+
+    result = project._backend.knowledge.search("PDDLStream", limit=5, explain=True)
+
+    brief_hit = next(hit for hit in result["hits"] if hit["path"] == "topics/brief.md")
+    assert brief_hit["graph_score"] > 0
+    assert result["graph_context"]["entities"][0]["label"] == "PDDLStream"
+
+
+def test_vector_build_records_provider_metadata(tmp_path: Path):
+    _write_project(tmp_path)
+    project = rail.local(path=tmp_path)
+
+    indexed = project.vector_build(provider="local_hash", model="local-test")
+    assert indexed["embedding"]["provider"] == "local_hash"
+    assert indexed["embedding"]["model"] == "local-test"
+
+    hits = project.vector_search("PDDLStream baseline", limit=2)
+    assert hits["embedding"]["provider"] == "local_hash"
+    assert hits["embedding"]["model"] == "local-test"
