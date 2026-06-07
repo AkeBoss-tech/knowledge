@@ -66,9 +66,9 @@ This document also covers **one-click installs** on macOS, Windows, and Linux wi
 
 | Artifact | Contents | Platforms |
 |----------|----------|-----------|
-| **RAIL Desktop** (recommended) | Embedded API + web UI + local Convex/PGLite or remote Convex | macOS `.dmg`, Windows `.msi`/`.exe`, Linux `.AppImage` |
+| **RAIL Desktop** | Embedded API + local Convex/PGLite or remote Convex | macOS `.dmg`, Windows `.msi`/`.exe`, Linux `.AppImage` |
 | **`rail` CLI wheel / binary** | Query, hydrate, integrity, MCP stdio | PyPI + PyInstaller one-file per OS |
-| **Docker Compose** | API + web + optional engine | Any host with Docker |
+| **Docker Compose** | API + optional engine workers | Any host with Docker |
 
 ## What we cannot ship in one EXE
 

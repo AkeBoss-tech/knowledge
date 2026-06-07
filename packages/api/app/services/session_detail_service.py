@@ -1,10 +1,10 @@
 """
-Frontend-ready session detail builder.
+Client-ready session detail builder.
 
 Turns raw session files (session.ndjson, commands.ndjson, state.json) into
-a consolidated, typed read model the UI can render without further parsing.
+a consolidated, typed read model an interface can render without further parsing.
 
-The four observability layers from specs/frontend-command-center.md:
+The four observability layers:
   Layer 1 – Executive summary   (currentFocus, status, workspaceBranch, ...)
   Layer 2 – Activity timeline   (normalized event rows)
   Layer 3 – Workspace/files     (changedFiles, changedFileCount, ...)

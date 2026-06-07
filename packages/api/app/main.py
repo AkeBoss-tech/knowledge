@@ -79,17 +79,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_cors_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
 _cors_kw: dict = {
-    "allow_origins": _cors_origins,
+    "allow_origins": settings.api_cors_origins,
     "allow_credentials": True,
     "allow_methods": ["*"],
     "allow_headers": ["*"],
 }
+if settings.api_cors_origin_regex:
+    _cors_kw["allow_origin_regex"] = settings.api_cors_origin_regex
 app.add_middleware(CORSMiddleware, **_cors_kw)
 
 # Ensure CORS headers are present even on unhandled 500s
@@ -97,7 +94,7 @@ app.add_middleware(CORSMiddleware, **_cors_kw)
 async def _unhandled_exception_handler(request, exc):
     origin = request.headers.get("origin", "")
     headers = {}
-    if origin in _cors_origins:
+    if origin in settings.api_cors_origins:
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(

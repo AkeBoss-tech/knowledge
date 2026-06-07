@@ -1,7 +1,7 @@
-.PHONY: help install setup install-api install-engine install-web install-agent-tools \
-        dev api web frontend run \
+.PHONY: help install setup install-api install-engine install-agent-tools \
+        dev api run \
         hydrate hydrate-pipeline hydrate-academic \
-        kill kill-api kill-web kill-all \
+        kill kill-api kill-all \
         seed \
         test \
         deploy-api \
@@ -24,10 +24,8 @@ endif
 
 API_DIR  := $(ROOT_DIR)packages/api
 ENG_DIR  := $(ROOT_DIR)packages/engine
-WEB_DIR  := $(ROOT_DIR)apps/web
 
 API_PORT := 8000
-WEB_PORT := 3000
 
 PIPELINE           := configs/pipelines/nj_hydration.yaml
 ACADEMIC_PIPELINE  := configs/pipelines/academic_hydration.yaml
@@ -49,25 +47,21 @@ endef
 # ─────────────────────────────────────────────────────────────────────────────
 help:
 	@echo ""
-	@echo "  RAIL Platform — Command Center"
+	@echo "  RAIL Core — Headless Knowledge Runtime"
 	@echo ""
 	@echo "  🚀 Setup & Installation"
-	@echo "    make setup            One-step install (API + Engine + Web + Seeding)"
-	@echo "    make install          Install all dependencies (api + engine + web)"
+	@echo "    make setup            One-step install (API + Engine + Seeding)"
+	@echo "    make install          Install core dependencies (api + engine + cli + mcp)"
 	@echo "    make install-api      Install FastAPI service deps"
 	@echo "    make install-engine   Install Streamlit/engine deps"
-	@echo "    make install-web      Install Next.js frontend deps"
 	@echo ""
 	@echo "  💻 Development"
-	@echo "    make run              Start both API and Web (background logs: *.log)"
+	@echo "    make run              Start API in the background (log: backend.log)"
 	@echo "    make api              Start FastAPI only (foreground)"
-	@echo "    make web              Start Next.js Command Center (foreground)"
-	@echo "    make frontend         Alias for 'make web'"
 	@echo ""
 	@echo "  🛑 Control"
-	@echo "    make kill-all         Kill both API and Web servers"
+	@echo "    make kill-all         Kill API server"
 	@echo "    make kill-api         Kill process on :$(API_PORT)"
-	@echo "    make kill-web          Kill process on :$(WEB_PORT)"
 	@echo ""
 	@echo "  🧠 Ontology & Data"
 	@echo "    make hydrate          Run default pipeline (nj_hydration)"
@@ -91,7 +85,7 @@ help:
 setup: install seed
 	@echo "→ Setup complete. Run 'make run' to start the platform."
 
-install: install-api install-engine install-web install-agent-tools install-rail install-mcp
+install: install-api install-engine install-agent-tools install-rail install-mcp
 
 install-api:
 	@echo "→ Installing FastAPI deps…"
@@ -101,10 +95,6 @@ install-api:
 install-engine:
 	@echo "→ Installing engine deps…"
 	$(PYTHON) -m pip install owlready2 pandas streamlit pyvis requests openpyxl rdflib pyyaml beautifulsoup4 lxml duckdb aioboto3 litellm matplotlib numpy pdfplumber scikit-learn statsmodels python-multipart playwright
-
-install-web:
-	@echo "→ Installing Next.js deps…"
-	cd $(WEB_DIR) && npm install
 
 install-agent-tools:
 	@echo "→ Installing agent CLI tools…"
@@ -116,11 +106,9 @@ install-agent-tools:
 # ─────────────────────────────────────────────────────────────────────────────
 
 run: kill-all
-	@echo "→ Starting RAIL Platform (Logs: backend.log, frontend.log)..."
+	@echo "→ Starting RAIL API (log: backend.log)..."
 	@nohup make api > backend.log 2>&1 &
-	@nohup make web > frontend.log 2>&1 &
 	@echo "  API: http://localhost:$(API_PORT)"
-	@echo "  WEB: http://localhost:$(WEB_PORT)"
 
 dev: api
 
@@ -129,25 +117,15 @@ api:
 	cd $(API_DIR) && $(api_env) \
 	  $(PYTHON) -m uvicorn app.main:app --port $(API_PORT) --reload
 
-web:
-	@echo "→ Starting Next.js on :$(WEB_PORT)…"
-	cd $(WEB_DIR) && npm run dev
-
-frontend: web
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Lifecycle
 # ─────────────────────────────────────────────────────────────────────────────
 
-kill-all: kill-api kill-web
+kill-all: kill-api
 
 kill-api:
 	@lsof -ti :$(API_PORT) | xargs kill -9 2>/dev/null \
 	  && echo "  API on :$(API_PORT) killed." || echo "  Nothing on :$(API_PORT)."
-
-kill-web:
-	@lsof -ti :$(WEB_PORT) | xargs kill -9 2>/dev/null \
-	  && echo "  Web on :$(WEB_PORT) killed." || echo "  Nothing on :$(WEB_PORT)."
 
 kill: kill-api
 

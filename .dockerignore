@@ -1,5 +1,3 @@
-packages/web/
-packages/web/node_modules/
 packages/engine/ontology/
 packages/engine/cache/
 packages/engine/graph*.html

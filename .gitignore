@@ -15,8 +15,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!apps/web/lib/
-!apps/web/lib/**
 lib64/
 parts/
 sdist/
@@ -211,11 +209,6 @@ __marimo__/
 # RAIL Specifics
 packages/engine/cache/
 cache/
-packages/web/
-apps/web/.next/
-apps/web/node_modules/
-apps/web/tsconfig.tsbuildinfo
-apps/web/.screenshots/
 state/work-orders/.jules-runner-state.json
 .DS_Store
 .rail/
@@ -223,6 +216,4 @@ packages/api/.rail_state/
 *.pid
 api_debug.log
 backend.log
-frontend.log
-nextjs.log
 uploaded_key

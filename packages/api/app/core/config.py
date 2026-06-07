@@ -111,13 +111,9 @@ class Settings(BaseSettings):
     copilot_cli_command: str = Field(default="gh copilot suggest", validation_alias="COPILOT_CLI_COMMAND")
 
     # Server
-    # In production set API_CORS_ORIGINS="https://your-app.vercel.app,https://custom-domain.com"
-    # Include 127.0.0.1: browsers treat localhost vs 127.0.0.1 as different origins for CORS.
-    api_cors_origins: list[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
-    # Any dev port (e.g. 3001 when 3000 is busy). Set to empty string to disable.
+    # Set API_CORS_ORIGINS when attaching a browser-based interface to the headless API.
+    api_cors_origins: list[str] = []
+    # Any localhost dev port for replaceable interfaces. Set to empty string to disable.
     api_cors_origin_regex: str = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     # Python execution (POST /api/v1/execute, agent execute_python)
