@@ -153,6 +153,59 @@ def pack_active() -> str:
 
 
 @mcp.tool()
+def list_agents() -> str:
+    """List local CLI agents KRAIL can dispatch as workers."""
+    return _json(_get_project().agents())
+
+
+@mcp.tool()
+def create_task(title: str, description: str = "", runner: str = "codex_cli", role: str = "research") -> str:
+    """
+    Create a repo-backed task without dispatching it.
+
+    Args:
+        title: Short task title.
+        description: Detailed task description.
+        runner: Preferred local runner, e.g. codex_cli or claude_code.
+        role: Worker role label.
+    """
+    return _json(_get_project().create_task(title, description=description, runner=runner, role=role))
+
+
+@mcp.tool()
+def list_tasks() -> str:
+    """List repo-backed local KRAIL tasks."""
+    return _json(_get_project().list_tasks())
+
+
+@mcp.tool()
+def dispatch_task(task_id: str, runner: str = "", dry_run: bool = True) -> str:
+    """
+    Dispatch a task to a local CLI runner.
+
+    Defaults to dry_run=True so agents can inspect the exact command and work
+    order before launching another agent process.
+    """
+    return _json(_get_project().dispatch_task(task_id, runner=runner or None, dry_run=dry_run))
+
+
+@mcp.tool()
+def list_workflows() -> str:
+    """List workflow IDs declared by the active knowledge pack."""
+    return _json(_get_project().list_workflows())
+
+
+@mcp.tool()
+def run_workflow(workflow_id: str, runner: str = "codex_cli", dry_run: bool = True) -> str:
+    """
+    Create and optionally dispatch a pack-defined workflow task.
+
+    Defaults to dry_run=True for safety when called by agents.
+    """
+    return _json(_get_project().run_workflow(workflow_id, runner=runner, dry_run=dry_run))
+
+
+@mcp.tool()
 def get_series(series_id: str) -> str:
     """
     Fetch a named time-series as a table of (date, value) rows.

@@ -37,6 +37,27 @@ rail --local think "what are the open problems?"
 rail --local pack active
 ```
 
+## Phase 1 Agent Dispatch
+
+```bash
+rail --local agent list
+rail --local agent run "research recent GCS papers" --runner codex_cli --dry-run
+rail --local task create "Compare GCS and diffusion policy" --runner claude_code
+rail --local task dispatch task_compare-gcs-and-diffusion-policy_abc123 --dry-run
+rail --local workflow list
+rail --local workflow run weekly_literature_refresh --dry-run
+```
+
+Records are repo-backed:
+
+- `research_plan/tasks/*.json`
+- `research_plan/work_orders/*.json`
+- `research_plan/sessions/*`
+
+This makes local agents part of auditable workflows instead of loose chat
+sessions. Generated outputs remain candidate material until reviewed and
+promoted through integrity checks.
+
 ## Pack Commands
 
 ```bash

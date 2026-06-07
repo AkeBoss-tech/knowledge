@@ -100,6 +100,55 @@ class Project:
             return knowledge.suggest_pack()
         raise ValueError(f"unknown pack command: {command}")
 
+    def agents(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("agent commands require local mode")
+        return self._backend.knowledge.list_agents()
+
+    def create_task(
+        self,
+        title: str,
+        *,
+        description: str = "",
+        runner: str = "codex_cli",
+        workflow: str | None = None,
+        role: str = "research",
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task commands require local mode")
+        return self._backend.knowledge.create_task(
+            title,
+            description=description,
+            runner=runner,
+            workflow=workflow,
+            role=role,
+        )
+
+    def list_tasks(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task commands require local mode")
+        return self._backend.knowledge.list_tasks()
+
+    def dispatch_task(self, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task dispatch requires local mode")
+        return self._backend.knowledge.dispatch_task(task_id, runner=runner, dry_run=dry_run)
+
+    def create_work_order(self, task_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("work-order creation requires local mode")
+        return self._backend.knowledge.create_work_order(task_id)
+
+    def list_workflows(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_list()
+
+    def run_workflow(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)
+
     def series(self, series_id: str) -> "pd.DataFrame":
         import pandas as pd
         data = self._backend.get_series(series_id)

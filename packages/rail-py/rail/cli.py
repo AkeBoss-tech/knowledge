@@ -65,6 +65,42 @@ def cmd_doctor(project: rail.Project, args: argparse.Namespace):
 def cmd_pack(project: rail.Project, args: argparse.Namespace):
     _print_json(project.pack(args.pack_command, getattr(args, "pack_id", None)))
 
+def cmd_agent(project: rail.Project, args: argparse.Namespace):
+    if args.agent_command == "list":
+        _print_json(project.agents())
+    elif args.agent_command == "run":
+        created = project.create_task(
+            args.prompt,
+            description=args.prompt,
+            runner=args.runner,
+            role=args.role,
+        )
+        _print_json(project.dispatch_task(created["task"]["id"], runner=args.runner, dry_run=args.dry_run))
+
+def cmd_task(project: rail.Project, args: argparse.Namespace):
+    if args.task_command == "list":
+        _print_json(project.list_tasks())
+    elif args.task_command == "create":
+        _print_json(
+            project.create_task(
+                args.title,
+                description=args.description or args.title,
+                runner=args.runner,
+                workflow=args.workflow,
+                role=args.role,
+            )
+        )
+    elif args.task_command == "work-order":
+        _print_json(project.create_work_order(args.task_id))
+    elif args.task_command == "dispatch":
+        _print_json(project.dispatch_task(args.task_id, runner=args.runner, dry_run=args.dry_run))
+
+def cmd_workflow(project: rail.Project, args: argparse.Namespace):
+    if args.workflow_command == "list":
+        _print_json(project.list_workflows())
+    elif args.workflow_command == "run":
+        _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
+
 def cmd_query(project: rail.Project, args: argparse.Namespace):
     if args.command == "sql":
         _print_json(project.query(args.sql).to_dict(orient="records"))
@@ -206,6 +242,42 @@ def main():
     p_subs.add_parser("detect", help="Detect active and suggested packs")
     p_subs.add_parser("suggest", help="Suggest a pack from project files")
 
+    # Agents
+    a_parser = subparsers.add_parser("agent", help="Run local CLI agents as KRAIL workers")
+    a_subs = a_parser.add_subparsers(dest="agent_command")
+    a_subs.add_parser("list", help="List configured local CLI agents")
+    ar = a_subs.add_parser("run", help="Create and dispatch a one-off local agent task")
+    ar.add_argument("prompt", help="Task prompt")
+    ar.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    ar.add_argument("--role", default="research")
+    ar.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
+
+    # Tasks
+    task_parser = subparsers.add_parser("task", help="Manage repo-backed tasks and work orders")
+    task_subs = task_parser.add_subparsers(dest="task_command")
+    task_subs.add_parser("list", help="List local tasks")
+    tc = task_subs.add_parser("create", help="Create a local task")
+    tc.add_argument("title")
+    tc.add_argument("--description", default="")
+    tc.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    tc.add_argument("--workflow")
+    tc.add_argument("--role", default="research")
+    two = task_subs.add_parser("work-order", help="Create a work order for a task")
+    two.add_argument("task_id")
+    td = task_subs.add_parser("dispatch", help="Dispatch a task to a local CLI runner")
+    td.add_argument("task_id")
+    td.add_argument("--runner", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    td.add_argument("--dry-run", action="store_true")
+
+    # Workflows
+    wf_parser = subparsers.add_parser("workflow", help="Run pack-defined workflow stubs")
+    wf_subs = wf_parser.add_subparsers(dest="workflow_command")
+    wf_subs.add_parser("list", help="List workflows from active pack")
+    wr = wf_subs.add_parser("run", help="Create and dispatch a workflow task")
+    wr.add_argument("workflow_id")
+    wr.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    wr.add_argument("--dry-run", action="store_true")
+
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
     q_subs = q_parser.add_subparsers(dest="query_command")
@@ -299,6 +371,12 @@ def main():
         cmd_doctor(project, args)
     elif args.command == "pack":
         cmd_pack(project, args)
+    elif args.command == "agent":
+        cmd_agent(project, args)
+    elif args.command == "task":
+        cmd_task(project, args)
+    elif args.command == "workflow":
+        cmd_workflow(project, args)
     elif args.command == "query":
         cmd_query(project, args)
     elif args.command == "hydrate":

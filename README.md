@@ -57,6 +57,21 @@ confidence, gaps, conflicts, and suggested next actions. In this phase, `think`
 is deterministic and local; it does not pretend to be LLM synthesis until a
 provider-backed synthesizer is wired in.
 
+Local CLI agents can now be used as workflow workers:
+
+```bash
+krail --local agent list
+krail --local agent run "research recent papers on graph of convex sets" --runner codex_cli --dry-run
+krail --local task create "Compare GCS and diffusion policy" --runner claude_code
+krail --local task dispatch task_compare-gcs-and-diffusion-policy_abc123 --dry-run
+krail --local workflow list
+krail --local workflow run weekly_literature_refresh --dry-run
+```
+
+These commands create repo-backed records under `research_plan/tasks`,
+`research_plan/work_orders`, and `research_plan/sessions`. Use `--dry-run` to
+inspect the exact command before launching another local agent process.
+
 ## Local Project Mode
 
 ```bash
