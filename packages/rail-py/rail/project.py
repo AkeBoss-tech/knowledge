@@ -5,8 +5,19 @@ class Project:
         self.slug = slug
         self._backend = backend
 
-    def hydrate(self, pipeline_slug: str | None = None) -> dict:
+    def hydrate(self, pipeline_slug: str | None = None, *, mode: str | None = None) -> dict:
         """Trigger hydration. Uses the project's default pipeline if not specified."""
+        if mode in {"markdown_graph", "markdown_frontmatter"} and hasattr(self._backend, "knowledge"):
+            graph = self._backend.knowledge.graph_build(write=True)
+            return {
+                "status": "hydrated",
+                "mode": "markdown_graph",
+                "graph": {
+                    "counts": graph.get("counts"),
+                    "written": graph.get("written", []),
+                    "warnings": graph.get("warnings", []),
+                },
+            }
         if hasattr(self._backend, "hydrate_project"):
             return self._backend.hydrate_project(self.slug, pipeline_slug)
         return self._backend.hydrate(pipeline_slug)
@@ -148,6 +159,45 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)
+
+    def graph_build(self, *, write: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_build(write=write)
+
+    def graph_entities(self, *, entity_type: str | None = None, limit: int = 100) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_entities(entity_type=entity_type, limit=limit)
+
+    def graph_edges(
+        self,
+        *,
+        entity: str | None = None,
+        relation_type: str | None = None,
+        limit: int = 100,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_edges(entity=entity, relation_type=relation_type, limit=limit)
+
+    def graph_docs(
+        self,
+        *,
+        topic: str | None = None,
+        kind: str | None = None,
+        source: str | None = None,
+        entity: str | None = None,
+        limit: int = 100,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_docs(topic=topic, kind=kind, source=source, entity=entity, limit=limit)
+
+    def graph_export(self, *, export_format: str = "json") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_export(export_format=export_format)
 
     def series(self, series_id: str) -> "pd.DataFrame":
         import pandas as pd

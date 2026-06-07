@@ -10,11 +10,12 @@ requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
 analysis = ["numpy", "pandas", "statsmodels", "matplotlib"]
-local = ["owlready2", "duckdb", "pyyaml"]
+local = ["owlready2", "duckdb"]
 
 [tool.setuptools.packages.find]
 where = ["."]

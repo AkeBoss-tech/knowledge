@@ -40,6 +40,16 @@ research:
   brief_path: topics/brief.md
   spec_path: specs/research_question.yaml
 
+graph:
+  mode: markdown_frontmatter
+  include:
+    - topics/**/*.md
+    - research_plan/**/*.md
+  export:
+    json: research_plan/graph/graph.json
+    mermaid: research_plan/graph/graph.mmd
+    summary: research_plan/graph/summary.md
+
 planner:
   current_plan_path: research_plan/current_plan.md
   task_root: research_plan/tasks

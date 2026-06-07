@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 
 HydrationMode = Literal["full", "incremental"]
+GraphMode = Literal["markdown_frontmatter", "markdown_graph"]
 RunnerName = Literal["claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"]
 PlannerThreadMode = Literal["project"]
 WorkspaceMode = Literal["isolated"]
@@ -204,6 +205,52 @@ class ResearchSection(BaseModel):
         return _validate_repo_relative_path(value)
 
 
+class GraphExportSection(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    json_path: str = Field(default="research_plan/graph/graph.json", alias="json")
+    mermaid: str = "research_plan/graph/graph.mmd"
+    summary: str = "research_plan/graph/summary.md"
+    docs_json: str | None = None
+    docs_mermaid: str | None = None
+
+    @field_validator("json_path", "mermaid", "summary", "docs_json", "docs_mermaid")
+    @classmethod
+    def _validate_relative_paths(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_repo_relative_path(value)
+
+
+class GraphDocsExportSection(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    json_path: str | None = Field(default=None, alias="json")
+    mermaid: str | None = None
+
+    @field_validator("json_path", "mermaid")
+    @classmethod
+    def _validate_relative_paths(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_repo_relative_path(value)
+
+
+class GraphSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: GraphMode = "markdown_frontmatter"
+    include: list[str] = Field(default_factory=lambda: ["topics/**/*.md", "research_plan/**/*.md"])
+    exclude: list[str] = Field(default_factory=list)
+    export: GraphExportSection = Field(default_factory=GraphExportSection)
+    docs_export: GraphDocsExportSection = Field(default_factory=GraphDocsExportSection)
+
+    @field_validator("include", "exclude")
+    @classmethod
+    def _validate_globs(cls, values: list[str]) -> list[str]:
+        return [_validate_repo_relative_path(value) for value in values]
+
+
 class ResearchBurstSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -306,6 +353,7 @@ class RailManifest(BaseModel):
     paths: PathsSection
     hydration: HydrationSection
     research: ResearchSection = Field(default_factory=ResearchSection)
+    graph: GraphSection = Field(default_factory=GraphSection)
     planner: PlannerSection = Field(default_factory=PlannerSection)
     agents: AgentsSection
     auditors: AuditorsSection = Field(default_factory=AuditorsSection)
