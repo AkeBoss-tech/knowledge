@@ -37,7 +37,8 @@ On startup (`lifespan`):
 | `openai_api_key` | `str` | `""` | `OPENAI_API_KEY` |
 | `google_api_key` | `str` | `""` | `GOOGLE_API_KEY` |
 | `openrouter_api_key` | `str` | `""` | `OPENROUTER_API_KEY` |
-| `api_cors_origins` | `list[str]` | `["http://localhost:3000"]` | `API_CORS_ORIGINS` |
+| `api_cors_origins` | `list[str]` | `[]` | `API_CORS_ORIGINS` |
+| `api_cors_origin_regex` | `str` | `^https?://(localhost\|127\.0\.0\.1)(:\d+)?$` | `API_CORS_ORIGIN_REGEX` |
 | `execute_python_enabled` | `bool` | `true` | `RAIL_EXECUTE_ENABLED` |
 | `execute_python_mode` | `str` | `"inproc"` | `RAIL_EXECUTE_MODE` (`inproc` \| `subprocess`) |
 | `execute_docker_image` | `str` | `""` | `RAIL_EXECUTE_DOCKER_IMAGE` |

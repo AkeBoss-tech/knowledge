@@ -19,7 +19,6 @@ Use this checklist the first time you install RAIL on a machine.
 | Tool | Version |
 |------|---------|
 | Python | 3.11+ |
-| Node.js | 18+ |
 | git | any recent |
 | Convex | deployment URL + deploy key (cloud mode) |
 
@@ -33,7 +32,7 @@ After [releases](https://github.com/Rutgers-Economics-Labs/RutgersAgenticIntelli
 curl -fsSL https://github.com/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs/releases/latest/download/install.sh | bash
 ```
 
-The installer downloads a source bundle, creates a virtualenv, installs Python packages and the web app, and prints the install path (default `~/rail-platform`).
+The installer downloads a source bundle, creates a virtualenv, installs Python packages, and prints the install path (default `~/rail-platform`).
 
 ### Option B — Install from a git clone (developers)
 
@@ -59,7 +58,7 @@ CONVEX_DEPLOY_KEY=your_deploy_key
 FRED_API_KEY=your_fred_key          # for FRED hydration pipelines
 ```
 
-### Start the platform
+### Start the API
 
 ```bash
 make run
@@ -67,15 +66,14 @@ make run
 
 | Service | URL |
 |---------|-----|
-| Command Center (UI) | http://localhost:3000 |
 | API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
 
-Open a project in the UI → **Overview**. Use **Fetch data & hydrate** to reconcile state, run pipelines, and refresh the ontology DuckDB in one step.
+Use the `rail` CLI, Python SDK, MCP server, or API directly to reconcile state, run pipelines, and refresh ontology artifacts.
 
 ### Create or open a research project
 
-**Cloud (Convex):** use the web UI to create a project, or connect an existing slug via the project picker.
+**Cloud (Convex):** connect an existing project slug via the API, SDK, or CLI.
 
 **Local (no Convex):** work inside a directory that contains `rail.yaml`:
 

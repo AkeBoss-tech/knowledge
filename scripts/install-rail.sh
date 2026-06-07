@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install RAIL platform dev stack on macOS, Linux, or WSL.
+# Install RAIL core dev stack on macOS, Linux, or WSL.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,11 +18,6 @@ need_cmd() {
 need_cmd git
 need_cmd python3
 
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js 18+ is required for the web UI. Install from https://nodejs.org/ or your package manager." >&2
-  exit 1
-fi
-
 if [[ ! -d "$ROOT/.venv" ]]; then
   echo "Creating Python virtualenv at .venv"
   python3 -m venv "$ROOT/.venv"
@@ -33,10 +28,7 @@ source "$ROOT/.venv/bin/activate"
 
 echo "Installing Python packages (API, engine, CLI, MCP)..."
 pip install -q --upgrade pip
-pip install -q -e "$ROOT/packages/api" -e "$ROOT/packages/engine" -e "$ROOT/packages/cli" -e "$ROOT/packages/mcp-server"
-
-echo "Installing web dependencies..."
-(cd "$ROOT/apps/web" && npm ci)
+pip install -q -e "$ROOT/packages/api" -e "$ROOT/packages/engine" -e "$ROOT/packages/rail-py" -e "$ROOT/packages/mcp-server"
 
 if [[ ! -f "$ROOT/.env" ]]; then
   if [[ -f "$ROOT/.env.example" ]]; then
@@ -49,7 +41,7 @@ fi
 
 echo ""
 echo "Done. Next steps:"
-echo "  make run          # API :8000 + web :3000"
+echo "  make run          # API :8000"
 echo "  make seed         # seed Convex (if configured)"
 echo "  rail --help       # CLI"
 echo ""
