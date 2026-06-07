@@ -1,5 +1,5 @@
 """
-Resolve pipeline + referenced Convex configs and run validate_pipeline_runnable.
+Resolve pipeline + referenced local store configs and run validate_pipeline_runnable.
 
 Where validation runs:
   • POST /api/v1/configs/pipelines/validate — body ``{"content": "<pipeline yaml>"}``;
@@ -7,10 +7,10 @@ Where validation runs:
   • POST/PUT /api/v1/configs/pipelines — same checks before save.
   • POST /api/v1/jobs — before a job is queued (422 with ``detail: string[]`` on failure).
   • ``hydration_worker.run`` — runs the same ``validate_pipeline_runnable`` check again
-    after the job is marked running, logs a ``[preflight]`` section to Convex job logs,
+    after the job is marked running, logs a ``[preflight]`` section to local store job logs,
     then proceeds (catches registry drift and surfaces wiring on the log page).
   • ``validate_pipeline_runnable`` in ``app.services.yaml_service`` — pure Python checks
-    (classes, foreach order, transforms) when you have YAML strings without Convex.
+    (classes, foreach order, transforms) when you have YAML strings without local store.
 
 Project/agent tools that call ``_trigger_job`` use ``ensure_pipeline_ready`` here and
 return structured errors if validation fails.
@@ -27,15 +27,15 @@ class PipelineValidationFailed(Exception):
         super().__init__(f"Pipeline validation failed ({len(errors)} issue(s))")
 
 
-async def ensure_pipeline_ready(convex, pipeline: dict) -> None:
-    err = await validate_stored_pipeline(convex, pipeline)
+async def ensure_pipeline_ready(local_store, pipeline: dict) -> None:
+    err = await validate_stored_pipeline(local_store, pipeline)
     if err:
         raise PipelineValidationFailed(err)
 
 
-async def validate_stored_pipeline(convex, pipeline: dict) -> list[str]:
+async def validate_stored_pipeline(local_store, pipeline: dict) -> list[str]:
     """
-    `pipeline` is a Convex document with at least `content` and usually
+    `pipeline` is a local store document with at least `content` and usually
     `parsedSpec` / `referencedApiSlugs`.
     """
     content = pipeline.get("content") or ""
@@ -54,13 +54,13 @@ async def validate_stored_pipeline(convex, pipeline: dict) -> list[str]:
 
     api_yaml_by_slug: dict[str, str] = {}
     for slug in api_slugs:
-        row = await convex.query("configs:getApi", {"slug": slug})
+        row = await local_store.query("configs:getApi", {"slug": slug})
         if row:
             api_yaml_by_slug[slug] = row["content"]
 
     onto_ref = str(parsed.get("ontology", "core") or "core").strip() or "core"
     onto_yaml: str | None = None
-    onto_row = await convex.query("configs:getOntology", {"slug": onto_ref})
+    onto_row = await local_store.query("configs:getOntology", {"slug": onto_ref})
     if onto_row:
         onto_yaml = onto_row["content"]
 

@@ -58,10 +58,6 @@ MINIMAL_RAIL_YAML = textwrap.dedent("""\
       approval_required_for_write_runs: true
       planner_thread_mode: "project"
       default_planner_role: "planner"
-
-    frontend:
-      topic_index_mode: "filesystem"
-      artifact_index_mode: "filesystem"
 """)
 
 CUSTOM_ONTOLOGY_ROOT_YAML = MINIMAL_RAIL_YAML.replace(
@@ -307,7 +303,7 @@ class TestReuseAwareHydration:
 
 # ── hydration_registry_service resolve_pipeline_slug fix ─────────────────────
 # These tests live in packages/api/tests/test_hydration_registry.py so that the
-# API conftest handles Convex mocking cleanly.  Here we verify the underlying
+# API conftest handles local store mocking cleanly.  Here we verify the underlying
 # parse_manifest_content helper used by the fixed implementation.
 
 class TestResolvePipelineSlug:

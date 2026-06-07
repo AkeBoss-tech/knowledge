@@ -5,7 +5,7 @@ from typing import Any
 
 from app.runners import session_lifecycle
 from app.runners.cli_base import runner_runtime_paths
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import hydration_registry_service, planner_service, running_agent_service
 from app.services.audit_service import audit_gate_status, repair_stale_session_audits
 from app.services.integrity_service import load_integrity_indexes
@@ -277,7 +277,7 @@ async def repair_agent_secret_policy_roles(project: dict[str, Any]) -> dict[str,
     if not project_id:
         return {"repairedRoles": []}
 
-    policies = await convex.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or []
+    policies = await local_store.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or []
     grouped: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         raw_role = str(policy.get("agentRole") or "").strip().lower()
@@ -304,7 +304,7 @@ async def repair_agent_secret_policy_roles(project: dict[str, Any]) -> dict[str,
                 if name and name not in merged_allowed:
                     merged_allowed.append(name)
 
-        await convex.mutation(
+        await local_store.mutation(
             "agentSecretPolicies:upsert",
             {
                 "projectId": project_id,
@@ -314,7 +314,7 @@ async def repair_agent_secret_policy_roles(project: dict[str, Any]) -> dict[str,
         )
         for policy in alias_policies:
             raw_role = str(policy.get("agentRole") or "").strip().lower()
-            await convex.mutation(
+            await local_store.mutation(
                 "agentSecretPolicies:deleteByRole",
                 {"projectId": project_id, "agentRole": raw_role},
             )
@@ -397,7 +397,7 @@ async def project_reality_snapshot(
         except Exception:
             pass
         try:
-            policies = await convex.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or [] if project_id else []
+            policies = await local_store.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or [] if project_id else []
             drifted = []
             for policy in policies:
                 raw_role = str(policy.get("agentRole") or "").strip().lower()
@@ -566,7 +566,7 @@ async def project_reality_snapshot(
         active_exists = bool(active_duckdb_path and Path(active_duckdb_path).exists())
         # Synthesized-from-local-disk artifacts come from
         # hydration_registry_service's local-disk fallback: a project that's
-        # hydrated on disk but doesn't yet have a Convex record. Don't flag
+        # hydrated on disk but doesn't yet have a local store record. Don't flag
         # this as drift — the project record is just operational metadata
         # that hasn't been backfilled, and the spec says Git is the durable
         # truth (docs/future-spec-autonomous-platform-roadmap.md#1).
@@ -633,7 +633,7 @@ async def project_reality_snapshot(
         "policies": [],
     }
     try:
-        policies = await convex.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or [] if project_id else []
+        policies = await local_store.query("agentSecretPolicies:listByProject", {"projectId": project_id}) or [] if project_id else []
         drifted = []
         for policy in policies:
             raw_role = str(policy.get("agentRole") or "").strip().lower()

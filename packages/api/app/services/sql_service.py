@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 _duckdb_path: Optional[Path] = None
 

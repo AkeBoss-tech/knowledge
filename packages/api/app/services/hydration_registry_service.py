@@ -11,7 +11,7 @@ import yaml
 from rail.integrity import ResearchIntegrityRepo, sync_sources_from_configs
 from rail.manifest import load_manifest, parse_manifest_content
 
-from app.services.convex_client import convex, ConvexBackendConfigurationError
+from app.services.local_store import local_store
 from app.services.device_service import get_device_id
 
 
@@ -156,7 +156,7 @@ async def register_hydration_artifact(
     if _is_local_project_id(project.get("_id")):
         project_slug = str(project.get("slug") or Path(project["localRepoPath"]).name)
         return f"local-hydration:{project_slug}:{pipeline_slug}:{hydration_mode}"
-    return await convex.mutation(
+    return await local_store.mutation(
         "hydrationArtifacts:register",
         {
             "projectId": project["_id"],
@@ -172,7 +172,7 @@ async def register_hydration_artifact(
     )
 
 
-async def attach_local_hydration_to_convex(
+async def attach_local_hydration_to_store(
     *,
     slug: str,
     duckdb_artifact_path: str,
@@ -180,9 +180,9 @@ async def attach_local_hydration_to_convex(
     pipeline_slug: str | None = None,
     hydration_mode: str = "full",
 ) -> dict[str, Any]:
-    """Register + promote a locally-produced hydration artifact in Convex.
+    """Register + promote a locally-produced hydration artifact in local store.
 
-    Looks up the project by slug. If Convex is not configured or the project
+    Looks up the project by slug. If local store is not configured or the project
     is not registered, returns `{"status": "skipped", "reason": ...}` instead
     of raising. Use this after a local hydrate (e.g., the live agent loop) to
     unblock the ontology auditor for autopilot ticks against that project.
@@ -203,7 +203,7 @@ async def attach_local_hydration_to_convex(
         return {"status": "skipped", "reason": "missing_local_repo_path"}
     pipeline_slug = pipeline_slug or resolve_pipeline_slug(project, root)
 
-    # Convex's hydrationArtifacts.register requires a non-null ontologyArtifactPath
+    # local store's hydrationArtifacts.register requires a non-null ontologyArtifactPath
     # (v.string()). Fall back to .ontology/ontology.yaml if the caller did not
     # pass one explicitly — the manifest writer always produces this file.
     if not ontology_artifact_path:
@@ -229,7 +229,7 @@ async def attach_local_hydration_to_convex(
     )
     return {
         "status": "promoted",
-        "mode": "local_repo" if _is_local_project_id(project.get("_id")) else "convex",
+        "mode": "local_repo" if _is_local_project_id(project.get("_id")) else "local_store",
         "projectId": project["_id"],
         "artifactId": artifact_id,
         "pipelineSlug": pipeline_slug,
@@ -289,7 +289,7 @@ async def promote_project_hydration_artifact(
         patch["activeOntologyEmbeddingsPath"] = str(embeddings_path)
     if _is_local_project_id(project_id):
         return
-    await convex.mutation("projects:updateById", patch)
+    await local_store.mutation("projects:updateById", patch)
 
 
 def _sync_repo_hydration_lineage(
@@ -380,7 +380,7 @@ async def get_hydration_status(
     if _is_local_project_id(project_id) or not project_id:
         artifacts = []
     else:
-        artifacts = await convex.query(
+        artifacts = await local_store.query(
             "hydrationArtifacts:listByProject",
             {"projectId": project_id, "limit": 100},
         ) or []
@@ -411,14 +411,14 @@ async def get_hydration_status(
     stale_local = any(item["filesExist"] and not item["isReusable"] for item in current_device_matches)
     hydrated_elsewhere = any(item["filesExist"] for item in other_device_matches)
 
-    # Local-disk fallback: if Convex has no record but the project's
+    # Local-disk fallback: if local store has no record but the project's
     # `.ontology/onto.duckdb` + `.rail_hydration.json` both exist with
     # populated rows, synthesize a current-device artifact. This matches
     # the spec's "Git is the durable truth, the DB stores operational
     # metadata" rule (docs/future-spec-autonomous-platform-roadmap.md#1)
-    # — a project that's hydrated on disk IS hydrated; missing Convex
+    # — a project that's hydrated on disk IS hydrated; missing local store
     # registration is operational drift, not a research-integrity gap.
-    # The fallback also makes the auditor robust to Convex outages and
+    # The fallback also makes the auditor robust to local store outages and
     # offline operation, and lets integration tests work without
     # elaborate hydrationArtifacts mocking.
     if reusable_local is None:
@@ -469,14 +469,14 @@ async def get_hydration_status(
             except Exception:
                 pass
 
-    # Check for active jobs. Local repo-only projects do not have a Convex row, so
+    # Check for active jobs. Local repo-only projects do not have a local store row, so
     # hydration status should degrade to local artifact truth instead of raising on
     # a missing `_id`.
     project_id = project.get("_id")
     if _is_local_project_id(project_id) or not project_id:
         active_jobs = []
     else:
-        active_jobs = await convex.query(
+        active_jobs = await local_store.query(
             "jobs:listByProject",
             {"projectId": project_id, "limit": 10},
         ) or []

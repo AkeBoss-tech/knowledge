@@ -147,7 +147,7 @@ async def _ask_planner_llm(project: dict, question: str) -> dict[str, Any]:
 
     context = "\n\n".join(context_bits)
     
-    prompt = f"""You are the Project Planner for RAIL (Rutgers Agentic Intelligence Labs).
+    prompt = f"""You are the Project Planner for KRAIL.
 An autonomous research agent is asking a question mid-session.
 You must answer based ONLY on the project context provided below.
 

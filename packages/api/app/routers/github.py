@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from app.services.github_service import github_service
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import planner_service
 from app.services.repo_contract_service import (
     dedupe_changed_paths,
@@ -45,7 +45,7 @@ async def _persist_github_project_patch(project: dict, patch: dict) -> dict:
         refreshed = await planner_service.resolve_project_reference(str(project.get("slug") or ""))
         return refreshed
 
-    await convex.mutation("projects:update", {"slug": project["slug"], **patch})
+    await local_store.mutation("projects:update", {"slug": project["slug"], **patch})
     try:
         refreshed = await planner_service.resolve_project_reference(str(project.get("slug") or ""))
     except Exception:
@@ -138,7 +138,7 @@ async def github_sync(request: Request, background_tasks: BackgroundTasks):
 
 
 async def _sync_repo_changes(repo: str, before_sha: str, after_sha: str, project: dict):
-    """Background: fetch changed files and sync to Convex, then maybe trigger hydration."""
+    """Background: fetch changed files and sync to local store, then maybe trigger hydration."""
     changed = await github_service.list_changed_files(repo, before_sha, after_sha)
     watched = dedupe_changed_paths([f for f in changed if _is_watched(f)])
 
@@ -160,21 +160,21 @@ async def _sync_repo_changes(repo: str, before_sha: str, after_sha: str, project
         content = await github_service.get_file(repo, path, ref=after_sha)
         kind, slug = parsed
         if kind == "apis":
-            existing = await convex.query("configs:getApi", {"slug": slug})
+            existing = await local_store.query("configs:getApi", {"slug": slug})
             if existing and existing.get("content") == content:
                 continue
-            await convex.mutation("configs:upsertApi", {"slug": slug, "content": content, "source": "github"})
+            await local_store.mutation("configs:upsertApi", {"slug": slug, "content": content, "source": "github"})
         elif kind == "pipelines":
-            existing = await convex.query("configs:getPipeline", {"slug": slug})
+            existing = await local_store.query("configs:getPipeline", {"slug": slug})
             if existing and existing.get("content") == content:
                 continue
-            await convex.mutation("configs:upsertPipeline", {"slug": slug, "content": content, "source": "github"})
+            await local_store.mutation("configs:upsertPipeline", {"slug": slug, "content": content, "source": "github"})
             pipeline_changed = True
         else:
-            existing = await convex.query("configs:getOntology", {"slug": slug})
+            existing = await local_store.query("configs:getOntology", {"slug": slug})
             if existing and existing.get("content") == content:
                 continue
-            await convex.mutation("configs:upsertOntology", {"slug": slug, "content": content, "source": "github"})
+            await local_store.mutation("configs:upsertOntology", {"slug": slug, "content": content, "source": "github"})
         synced_count += 1
 
     # Trigger hydration if pipeline or ontology changed

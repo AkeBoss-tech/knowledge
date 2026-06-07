@@ -33,7 +33,72 @@ class Project:
         return pd.DataFrame(result.get("items", []))
 
     def search(self, q: str) -> list[dict]:
+        if hasattr(self._backend, "knowledge"):
+            return self._backend.knowledge.search(q)["hits"]
         return self._backend.search_entities(q)
+
+    def think(self, q: str, *, limit: int = 5) -> dict:
+        if hasattr(self._backend, "knowledge"):
+            return self._backend.knowledge.think(q, limit=limit)
+        if hasattr(self._backend, "think"):
+            return self._backend.think(self.slug, q, limit=limit)
+        return {
+            "query": q,
+            "answer": "API-backed think is not wired yet.",
+            "evidence": self.search(q)[:limit],
+            "confidence": "low",
+            "gaps": ["Use local mode for phase-1 deterministic think."],
+            "conflicts": [],
+            "suggested_next_actions": [],
+        }
+
+    def capture(
+        self,
+        text: str = "",
+        *,
+        file_path: str | None = None,
+        url: str | None = None,
+        kind: str = "note",
+        workflow: str | None = None,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("capture requires local mode")
+        return self._backend.knowledge.capture(
+            text=text,
+            file_path=file_path,
+            url=url,
+            kind=kind,
+            workflow=workflow,
+        )
+
+    def doctor(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("doctor requires local mode")
+        return self._backend.knowledge.doctor()
+
+    def pack(self, command: str, pack_id: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("pack commands require local mode")
+        knowledge = self._backend.knowledge
+        if command == "active":
+            return knowledge.active_pack()
+        if command == "list":
+            return knowledge.list_packs()
+        if command == "show":
+            if not pack_id:
+                raise ValueError("pack id is required")
+            return knowledge.show_pack(pack_id)
+        if command == "use":
+            if not pack_id:
+                raise ValueError("pack id is required")
+            return knowledge.use_pack(pack_id)
+        if command == "validate":
+            return knowledge.validate_pack(pack_id)
+        if command == "detect":
+            return knowledge.detect_pack()
+        if command == "suggest":
+            return knowledge.suggest_pack()
+        raise ValueError(f"unknown pack command: {command}")
 
     def series(self, series_id: str) -> "pd.DataFrame":
         import pandas as pd
@@ -68,7 +133,7 @@ class Project:
         """Access the research agent for this project."""
         from rail.agent import AgentClient
         if not hasattr(self._backend, "base_url"):
-            raise RuntimeError("Agent access requires cloud mode (rail.connect())")
+            raise RuntimeError("Agent access requires API mode (rail.connect())")
         return AgentClient(
             base_url=self._backend.base_url,
             project_slug=self.slug,
@@ -200,5 +265,5 @@ class Project:
         return self._backend.ask_question(self.slug, session_id, question)
 
     def __repr__(self):
-        mode = "cloud" if hasattr(self._backend, "base_url") else "local"
+        mode = "api" if hasattr(self._backend, "base_url") else "local"
         return f"Project(slug={self.slug!r}, mode={mode!r})"

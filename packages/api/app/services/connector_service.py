@@ -1,5 +1,5 @@
 import yaml
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 SCALAR_TYPES = (str, int, float, bool, type(None))
 
@@ -18,8 +18,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 async def resolve(base_content: str, extends_slug: str) -> str:
-    """Fetch template from Convex, deep-merge with base_content, return resolved YAML."""
-    template = await convex.query("connectors:getBySlug", {"slug": extends_slug})
+    """Fetch template from local store, deep-merge with base_content, return resolved YAML."""
+    template = await local_store.query("connectors:getBySlug", {"slug": extends_slug})
     if not template:
         raise ValueError(f"Connector template not found: {extends_slug}")
     template_data = yaml.safe_load(template["content"])
@@ -28,7 +28,7 @@ async def resolve(base_content: str, extends_slug: str) -> str:
     return yaml.dump(merged, default_flow_style=False)
 
 async def list_templates(q: str | None = None, tags: list[str] | None = None) -> list[dict]:
-    items = await convex.query("connectors:list", {})
+    items = await local_store.query("connectors:list", {})
     if q:
         q_lower = q.lower()
         items = [i for i in items if q_lower in i.get("name","").lower()

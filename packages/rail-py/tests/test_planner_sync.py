@@ -45,7 +45,7 @@ SAMPLE_TASK: dict = {
     "repoPaths": ["packages/rail-py/tests/"],
     "latestRunSummary": "Not started",
     "approvalState": "",
-    "runner": "jules",
+    "runner": "codex_cli",
     "dependsOnTaskIds": [],
 }
 
@@ -142,7 +142,7 @@ class TestRenderTaskMd:
 
     def test_runner_in_frontmatter(self):
         md = render_task_md(SAMPLE_TASK)
-        assert "runner: jules" in md
+        assert "runner: codex_cli" in md
 
     def test_acceptance_criteria_listed(self):
         md = render_task_md(SAMPLE_TASK)

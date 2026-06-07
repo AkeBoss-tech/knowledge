@@ -5,7 +5,7 @@ Usage::
 
     from app.runners.factory import RunnerFactory
 
-    runner = RunnerFactory.get("jules")
+    runner = RunnerFactory.get("codex_cli")
     session = await runner.create_session(task_payload)
 
 Adding a new runner:
@@ -31,10 +31,8 @@ def _build_registry() -> dict[str, Type[BaseRunner]]:
     from app.runners.codex_cli import CodexCliRunner
     from app.runners.cursor_cli import CursorCliRunner
     from app.runners.gemini_cli import GeminiCliRunner
-    from app.runners.jules import JulesRunner
 
     return {
-        "jules": JulesRunner,
         "claude_code": ClaudeCodeRunner,
         "codex_cli": CodexCliRunner,
         "gemini_cli": GeminiCliRunner,
@@ -73,7 +71,7 @@ class RunnerFactory:
         """Return an authenticated runner adapter for ``name``.
 
         Args:
-            name: Runner identifier, e.g. ``"jules"``.
+            name: Runner identifier, e.g. ``"codex_cli"``.
 
         Raises:
             ValueError:     Unknown runner name.
@@ -92,21 +90,6 @@ class RunnerFactory:
             raise ValueError(
                 f"Unknown runner '{name}'. Available runners: {known}"
             )
-
-        # ------------------------------------------------------------------
-        # Jules
-        # ------------------------------------------------------------------
-        if name == "jules":
-            api_key = getattr(settings, "jules_api_key", None) or ""
-            if not api_key:
-                raise RuntimeError(
-                    "JulesRunner requires JULES_API_KEY to be set in the environment."
-                )
-            api_url = getattr(settings, "jules_api_url", "https://jules.googleapis.com/v1alpha")
-            jules_source = getattr(settings, "jules_source", "sources/github/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs")
-            instance = cls(api_key=api_key, api_url=api_url, source=jules_source)
-            RunnerFactory._instances[name] = instance
-            return instance
 
         if name == "claude_code":
             instance = cls(command=getattr(settings, "claude_code_command", "claude"))

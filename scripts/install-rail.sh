@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install RAIL core dev stack on macOS, Linux, or WSL.
+# Install KRAIL local dev stack on macOS, Linux, or WSL.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 OS="$(uname -s)"
-echo "RAIL install — $OS"
+echo "KRAIL install — $OS"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -33,16 +33,15 @@ pip install -q -e "$ROOT/packages/api" -e "$ROOT/packages/engine" -e "$ROOT/pack
 if [[ ! -f "$ROOT/.env" ]]; then
   if [[ -f "$ROOT/.env.example" ]]; then
     cp "$ROOT/.env.example" "$ROOT/.env"
-    echo "Created .env from .env.example — set CONVEX_URL and API keys before running."
+    echo "Created .env from .env.example — edit local overrides if needed."
   else
-    echo "No .env found. Create one with CONVEX_URL and provider keys (see docs/INSTALL.md)."
+    echo "No .env found. Create one from .env.example if you need local overrides."
   fi
 fi
 
 echo ""
 echo "Done. Next steps:"
 echo "  make run          # API :8000"
-echo "  make seed         # seed Convex (if configured)"
 echo "  rail --help       # CLI"
 echo ""
 echo "Agent CLIs: ./scripts/install-agent-clis.sh"

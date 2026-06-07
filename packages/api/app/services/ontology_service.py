@@ -697,7 +697,7 @@ def _serialize_entity(ind, include_relationships: bool = False) -> dict:
         except Exception:
             pass
 
-    # Explicitly include GIS fields if present for frontend mapping
+    # Explicitly include GIS fields if present for client mapping.
     for gis_field in ["hasLatitude", "hasLongitude", "hasGeometry"]:
         try:
             val = getattr(ind, gis_field, None)

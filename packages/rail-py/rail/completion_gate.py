@@ -11,7 +11,7 @@ This module provides two gates:
                            Runs role-appropriate deterministic hooks before the
                            task is allowed to transition to `done` in the DB.
 
-Both gates return a VerificationSummary that Convex callers can use to decide
+Both gates return a VerificationSummary that local store callers can use to decide
 whether to call tasks.transition(..., newStatus="done") or block and surface failures.
 """
 from __future__ import annotations

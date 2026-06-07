@@ -1,5 +1,5 @@
 """
-RAIL FastAPI service.
+KRAIL FastAPI service.
 Run: uvicorn app.main:app --reload --port 8000
 """
 import sys
@@ -11,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.services.convex_client import ConvexBackendConfigurationError
 from app.services.project_artifacts_service import HydrationRequiredError
 from app.services.scheduler_service import scheduler
 from app.routers import configs, jobs, ontology, analysis, storage, sql, execute, agent, registry, project_agent, questions, context, quality, connectors, projects, ontology_templates, github, schedules, runners, repo, zen, dashboard, autopilot
@@ -73,8 +72,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="RAIL API",
-    description="Rutgers Agentic Intelligence Labs — ontology engine API",
+    title="KRAIL API",
+    description="Local-first ontology and knowledge runtime API",
     version="0.2.0",
     lifespan=lifespan,
 )
@@ -131,11 +130,6 @@ app.include_router(runners.router,        prefix="/api/v1")
 app.include_router(repo.router,           prefix="/api/v1")
 app.include_router(dashboard.router,      prefix="/api/v1")
 app.include_router(autopilot.router,      prefix="/api/v1")
-
-
-@app.exception_handler(ConvexBackendConfigurationError)
-async def convex_configuration_handler(_, exc: ConvexBackendConfigurationError):
-    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)

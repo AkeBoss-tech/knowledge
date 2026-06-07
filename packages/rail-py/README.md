@@ -1,13 +1,13 @@
 # rail-py
 
-RAIL platform client supporting both cloud and local modes.
+KRAIL client supporting local project mode and the local FastAPI runtime.
 
 ## Usage Examples
 
 ```python
 import rail
 
-# Cloud mode
+# API mode
 project = rail.connect("nj-economics")
 
 # DataFrame queries
@@ -22,7 +22,7 @@ for event in project.agent.ask("Compare Hudson and Bergen County unemployment tr
     if event["type"] == "text_delta":
         print(event["text"], end="", flush=True)
 
-# Local mode
+# Direct local mode
 project = rail.local("./nj-economics")
 ont = project.ontology()
 counties = ont.individuals("County")

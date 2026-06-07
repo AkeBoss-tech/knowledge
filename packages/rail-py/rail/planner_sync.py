@@ -2,7 +2,7 @@
 planner_sync.py — Sync rules and Git mirror logic for planner task state.
 
 Responsible for writing research_plan/ files when the operational task board
-reaches a meaningful state transition.  The DB (Convex) remains the live source
+reaches a meaningful state transition.  The DB (local store) remains the live source
 of truth; these files give users and future agents durable, Git-visible context.
 """
 from __future__ import annotations

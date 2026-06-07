@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.github_service import github_service
 from app.services.repo_contract_service import (
     build_config_files,
@@ -245,7 +245,7 @@ async def publish_manifest(project: dict[str, Any]) -> dict[str, Any]:
 
 
 async def record_publish_success(project_id: str, publish_result: dict[str, Any]) -> None:
-    # The current Convex project schema does not accept publish metadata
+    # The current local store project schema does not accept publish metadata
     # fields yet, so keep this as a no-op instead of emitting noisy failed
     # mutations during otherwise successful publish flows.
     _ = (project_id, publish_result, time.time())
@@ -279,12 +279,12 @@ async def rollback_project_update(project_id: str, previous: dict[str, Any]) -> 
         "agentAllowedActions": previous.get("agentAllowedActions"),
         "lastHydratedAt": previous.get("lastHydratedAt"),
     }
-    await convex.mutation("projects:updateById", patch)
+    await local_store.mutation("projects:updateById", patch)
 
 
 async def rollback_config_update(kind: str, slug: str, previous: dict[str, Any] | None) -> None:
     if previous is None:
-        await convex.mutation(f"configs:delete{_kind_name(kind)}", {"slug": slug})
+        await local_store.mutation(f"configs:delete{_kind_name(kind)}", {"slug": slug})
         return
 
     payload = {
@@ -296,13 +296,13 @@ async def rollback_config_update(kind: str, slug: str, previous: dict[str, Any] 
     }
     if kind == "apis":
         payload["tags"] = previous.get("tags") or []
-        await convex.mutation("configs:updateApi", payload)
+        await local_store.mutation("configs:updateApi", payload)
     elif kind == "ontologies":
-        await convex.mutation("configs:updateOntology", payload)
+        await local_store.mutation("configs:updateOntology", payload)
     else:
         payload["tags"] = previous.get("tags") or []
         payload["referencedApiSlugs"] = previous.get("referencedApiSlugs") or []
-        await convex.mutation("configs:updatePipeline", payload)
+        await local_store.mutation("configs:updatePipeline", payload)
 
 
 def _kind_name(kind: str) -> str:

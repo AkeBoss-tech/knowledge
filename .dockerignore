@@ -1,8 +1,0 @@
-packages/engine/ontology/
-packages/engine/cache/
-packages/engine/graph*.html
-**/__pycache__/
-**/*.pyc
-**/.DS_Store
-.git/
-.env

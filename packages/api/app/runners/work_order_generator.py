@@ -9,7 +9,7 @@ The generated work order is written to:
 This is a best-effort mapping.  Fields the planner hasn't yet declared
 (capabilities_required, outputs_required) get conservative defaults so the
 work order is valid even for legacy task dispatches.  The planner can declare
-richer values by adding a ``taskType`` and ``capabilities`` field on the Convex
+richer values by adding a ``taskType`` and ``capabilities`` field on the local store
 task record; these take precedence over the role-based defaults.
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ def _infer_task_type(role: str, task: dict[str, Any] | None) -> TaskType:
     """Infer TaskType from agent role and optional task metadata.
 
     Priority:
-      1. ``taskType`` / ``task_type`` field on the Convex task record (explicit).
+      1. ``taskType`` / ``task_type`` field on the local store task record (explicit).
       2. Role-based default from ``_ROLE_TO_TASK_TYPE``.
       3. Fallback: DATA_INGESTION (conservative choice for unknown roles).
     """

@@ -56,11 +56,11 @@ async def resolve_secrets_for_role(project_id: str, agent_role: str) -> dict[str
     project secrets whose key names are in the policy's allowlist.
     Returns an empty dict when no policy exists or no secrets match.
     """
-    from app.services.convex_client import convex
+    from app.services.local_store import local_store
 
     policy = None
     for role_candidate in _policy_lookup_roles(agent_role):
-        policy = await convex.query(
+        policy = await local_store.query(
             "agentSecretPolicies:getByRole",
             {"projectId": project_id, "agentRole": role_candidate},
         )
@@ -74,7 +74,7 @@ async def resolve_secrets_for_role(project_id: str, agent_role: str) -> dict[str
         return {}
     allow_all = "*" in allowed_names
 
-    all_secrets = await convex.query(
+    all_secrets = await local_store.query(
         "projectSecrets:listByProject",
         {"projectId": project_id},
     ) or []

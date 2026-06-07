@@ -138,7 +138,7 @@ async def infer_schema(req: InferSchemaRequest):
 
 
 # ---------------------------------------------------------------------------
-# Available models list (for frontend selector)
+# Available models list (for API clients)
 # ---------------------------------------------------------------------------
 
 AVAILABLE_MODELS = [
@@ -162,6 +162,6 @@ AVAILABLE_MODELS = [
 
 @router.get("/models")
 async def list_models():
-    """Return the list of supported model IDs for the frontend selector."""
+    """Return the list of supported model IDs for API clients."""
     from app.core.config import settings
     return {"models": AVAILABLE_MODELS, "default": settings.ai_model}

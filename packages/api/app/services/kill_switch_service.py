@@ -214,7 +214,7 @@ async def _cancel_everything() -> dict[str, Any]:
 
         # We only know slugs that autopilot has touched recently.  This is
         # the right scope: the kill switch's job is to stop work that's
-        # running, not to enumerate every project in Convex.
+        # running, not to enumerate every project in local store.
         slugs = set(autopilot_service._active_autopilots.keys()) | set(autopilot_service._autopilot_configs.keys())
         for slug in slugs:
             try:

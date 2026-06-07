@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from rail.completion_gate import PlannerCompletionGate
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import session_files
 from app.services.role_runtime_service import ROLE_ALIASES
 
@@ -32,11 +32,11 @@ TASK_APPROVAL_STATES = [
 ]
 TASK_RUNNERS = [
     "default",
-    "jules",
     "claude_code",
     "gemini_cli",
     "cursor_cli",
     "codex_cli",
+    "copilot_cli",
 ]
 TASK_PRIORITIES = [
     "high",
@@ -276,7 +276,7 @@ def get_project_by_slug_path(project_root: Path, slug: str) -> Path:
 
 
 async def get_project_by_slug(slug: str) -> dict:
-    project = await convex.query("projects:getBySlug", {"slug": slug})
+    project = await local_store.query("projects:getBySlug", {"slug": slug})
     if not project:
         raise ValueError(f"Project '{slug}' not found")
     return project
@@ -301,7 +301,7 @@ async def resolve_project_reference(project_ref: str | None) -> dict[str, Any] |
 
     if not project and not str(project_ref).startswith("local:"):
         try:
-            project = await convex.query("projects:getById", {"projectId": project_ref})
+            project = await local_store.query("projects:getById", {"projectId": project_ref})
         except Exception:
             project = None
         if isinstance(project, dict):

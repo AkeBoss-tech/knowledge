@@ -5,7 +5,7 @@ from typing import Union
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import hydration_worker, planner_service
 from app.services.execution_manager import execution_manager
 from app.services.pipeline_validate import ensure_pipeline_ready, PipelineValidationFailed
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 def _job_id_from_mutation_result(result: object) -> str | None:
-    """Convex returns ``{ \"jobId\": \"...\" }``; tolerate alternate keys or missing value."""
+    """local store returns ``{ \"jobId\": \"...\" }``; tolerate alternate keys or missing value."""
     if not isinstance(result, dict):
         return None
     jid = result.get("jobId") or result.get("id")
@@ -68,23 +68,23 @@ async def _trigger_job(pipeline_slug: str, project_id: str | None = None) -> dic
     Fires hydration as a plain asyncio task (no BackgroundTasks dependency).
     Returns {jobId, status}.
     """
-    pipeline = await convex.query("configs:getPipeline", {"slug": pipeline_slug})
+    pipeline = await local_store.query("configs:getPipeline", {"slug": pipeline_slug})
     if not pipeline:
         raise ValueError(f"Pipeline '{pipeline_slug}' not found")
 
-    await ensure_pipeline_ready(convex, pipeline)
+    await ensure_pipeline_ready(local_store, pipeline)
 
     api_slugs = pipeline.get("referencedApiSlugs", [])
     api_configs: dict[str, str] = {}
     for slug in api_slugs:
-        cfg = await convex.query("configs:getApi", {"slug": slug})
+        cfg = await local_store.query("configs:getApi", {"slug": slug})
         if cfg:
             api_configs[slug] = cfg["content"]
 
     pipeline_spec = pipeline.get("parsedSpec", {})
     onto_ref = pipeline_spec.get("ontology", "core")
     onto_configs: dict[str, str] = {}
-    onto_cfg = await convex.query("configs:getOntology", {"slug": onto_ref})
+    onto_cfg = await local_store.query("configs:getOntology", {"slug": onto_ref})
     if onto_cfg:
         onto_configs[onto_ref] = onto_cfg["content"]
 
@@ -99,11 +99,11 @@ async def _trigger_job(pipeline_slug: str, project_id: str | None = None) -> dic
     }
     mutation_args.update(await _job_project_fields(project_id))
 
-    result = await convex.mutation("jobs:create", mutation_args)
+    result = await local_store.mutation("jobs:create", mutation_args)
     job_id = _job_id_from_mutation_result(result)
     if not job_id:
         raise ValueError(
-            f"Convex jobs:create did not return a jobId (got {result!r}). "
+            f"local store jobs:create did not return a jobId (got {result!r}). "
             "Deploy the latest backend job mutation so create returns { jobId }."
         )
 
@@ -119,13 +119,13 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
     import yaml
 
     # 1. Fetch Pipeline
-    pipeline = await convex.query("configs:getPipeline", {"slug": req.pipeline_slug})
+    pipeline = await local_store.query("configs:getPipeline", {"slug": req.pipeline_slug})
     
     if not pipeline:
         # FALLBACK: Try local engine config
         local_path = Path("../engine/configs/pipelines") / f"{req.pipeline_slug}.yaml"
         if local_path.exists():
-            print(f"📄 [jobs] Convex query failed. Falling back to local pipeline: {local_path}")
+            print(f"📄 [jobs] local store query failed. Falling back to local pipeline: {local_path}")
             content = local_path.read_text()
             spec = yaml.safe_load(content)
             pipeline = {
@@ -136,11 +136,11 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
                 "referencedApiSlugs": spec.get("apis", []) # Basic estimation
             }
         else:
-            raise HTTPException(404, detail=f"Pipeline '{req.pipeline_slug}' not found (Convex & Local)")
+            raise HTTPException(404, detail=f"Pipeline '{req.pipeline_slug}' not found (local store & Local)")
     else:
-        # If found in Convex, ensure it's valid according to current rules
+        # If found in local store, ensure it's valid according to current rules
         try:
-            await ensure_pipeline_ready(convex, pipeline)
+            await ensure_pipeline_ready(local_store, pipeline)
         except PipelineValidationFailed as e:
             raise HTTPException(422, detail=e.errors)
 
@@ -149,7 +149,7 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
     api_slugs = pipeline.get("referencedApiSlugs", [])
     api_configs: dict[str, str] = {}
     for slug in api_slugs:
-        cfg = await convex.query("configs:getApi", {"slug": slug})
+        cfg = await local_store.query("configs:getApi", {"slug": slug})
         if cfg:
             api_configs[slug] = cfg["content"]
         else:
@@ -166,7 +166,7 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
         onto_ref = Path(onto_ref).stem
 
     onto_configs: dict[str, str] = {}
-    onto_cfg = await convex.query("configs:getOntology", {"slug": onto_ref})
+    onto_cfg = await local_store.query("configs:getOntology", {"slug": onto_ref})
     if onto_cfg:
         onto_configs[onto_ref] = onto_cfg["content"]
     else:
@@ -186,13 +186,13 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
         "machine": platform.node(),
     }
     mutation_args.update(await _job_project_fields(req.project_id))
-    result = await convex.mutation("jobs:create", mutation_args)
+    result = await local_store.mutation("jobs:create", mutation_args)
     job_id = _job_id_from_mutation_result(result)
     if not job_id:
         raise HTTPException(
             500,
             detail=(
-                f"Convex jobs:create did not return a jobId (got {result!r}). "
+                f"local store jobs:create did not return a jobId (got {result!r}). "
                 "Deploy the latest backend job mutation implementation (especially jobs:create)."
             ),
         )
@@ -205,7 +205,7 @@ async def trigger_job(req: TriggerJobRequest, background_tasks: BackgroundTasks)
         onto_configs,
     )
 
-    return {"jobId": job_id, "status": "queued", "source": "local_fallback" if "local_" in pipeline["_id"] else "convex"}
+    return {"jobId": job_id, "status": "queued", "source": "local_fallback" if "local_" in pipeline["_id"] else "local_store"}
 
 
 @router.get("")
@@ -218,17 +218,17 @@ async def list_jobs(
     """List jobs, optionally filtered by project or status."""
     project_ref = project_slug or project_id
     if project_ref:
-        # The Convex query expects 'projectSlug'
+        # The local store query expects 'projectSlug'
         fields = await _job_project_fields(project_ref)
         resolved_slug = fields.get("projectSlug") or str(project_ref).removeprefix("local:").strip()
-        return await convex.query("jobs:listByProject", {"projectSlug": resolved_slug, "limit": limit})
+        return await local_store.query("jobs:listByProject", {"projectSlug": resolved_slug, "limit": limit})
     
-    return await convex.query("jobs:list", {"status": status, "limit": limit})
+    return await local_store.query("jobs:list", {"status": status, "limit": limit})
 
 
 @router.get("/{job_id}")
 async def get_job(job_id: str):
-    result = await convex.query("jobs:get", {"jobId": job_id})
+    result = await local_store.query("jobs:get", {"jobId": job_id})
     if not result:
         raise HTTPException(404, detail=f"Job '{job_id}' not found")
     return result
@@ -236,7 +236,7 @@ async def get_job(job_id: str):
 
 @router.get("/{job_id}/logs")
 async def get_job_logs(job_id: str, after_seq: int = 0, limit: int = 200):
-    return await convex.query("jobs:getLogs", {
+    return await local_store.query("jobs:getLogs", {
         "jobId": job_id,
         "afterSeq": after_seq,
         "limit": limit,
@@ -245,8 +245,8 @@ async def get_job_logs(job_id: str, after_seq: int = 0, limit: int = 200):
 
 @router.delete("/{job_id}")
 async def cancel_job(job_id: str):
-    # Mark as cancelled in Convex — the worker checks this flag on next iteration
-    return await convex.mutation("jobs:updateJob", {
+    # Mark as cancelled in local store — the worker checks this flag on next iteration
+    return await local_store.mutation("jobs:updateJob", {
         "jobId": job_id,
         "status": "cancelled",
         "finishedAt": int(time.time() * 1000),

@@ -2,9 +2,7 @@
         dev api run \
         hydrate hydrate-pipeline hydrate-academic \
         kill kill-api kill-all \
-        seed \
         test \
-        deploy-api \
         clean cache-clear \
         push \
         install-rail install-mcp secrets-list
@@ -36,8 +34,6 @@ export
 
 # Env block forwarded to the API server (picks up .env values above)
 define api_env
-	CONVEX_URL="$(CONVEX_URL)" \
-	CONVEX_DEPLOY_KEY="$(CONVEX_DEPLOY_KEY)" \
 	ENGINE_ROOT="$(ENG_DIR)" \
 	RAIL_ANALYSIS_DIR="$(ENG_DIR)/analysis" \
 	RAIL_TRANSFORM_DIR="$(ENG_DIR)/transforms" \
@@ -47,13 +43,13 @@ endef
 # ─────────────────────────────────────────────────────────────────────────────
 help:
 	@echo ""
-	@echo "  RAIL Core — Headless Knowledge Runtime"
+	@echo "  KRAIL — Local Knowledge Runtime"
 	@echo ""
 	@echo "  🚀 Setup & Installation"
-	@echo "    make setup            One-step install (API + Engine + Seeding)"
+	@echo "    make setup            One-step install (API + Engine + CLI + MCP)"
 	@echo "    make install          Install core dependencies (api + engine + cli + mcp)"
 	@echo "    make install-api      Install FastAPI service deps"
-	@echo "    make install-engine   Install Streamlit/engine deps"
+	@echo "    make install-engine   Install engine deps"
 	@echo ""
 	@echo "  💻 Development"
 	@echo "    make run              Start API in the background (log: backend.log)"
@@ -65,7 +61,6 @@ help:
 	@echo ""
 	@echo "  🧠 Ontology & Data"
 	@echo "    make hydrate          Run default pipeline (nj_hydration)"
-	@echo "    make seed             Seed Convex backend with default configs"
 	@echo "    make cache-clear      Delete cached API responses"
 	@echo ""
 	@echo "  🧪 Testing & Maintenance"
@@ -82,7 +77,7 @@ help:
 # Setup
 # ─────────────────────────────────────────────────────────────────────────────
 
-setup: install seed
+setup: install
 	@echo "→ Setup complete. Run 'make run' to start the platform."
 
 install: install-api install-engine install-agent-tools install-rail install-mcp
@@ -106,7 +101,7 @@ install-agent-tools:
 # ─────────────────────────────────────────────────────────────────────────────
 
 run: kill-all
-	@echo "→ Starting RAIL API (log: backend.log)..."
+	@echo "→ Starting KRAIL API (log: backend.log)..."
 	@nohup make api > backend.log 2>&1 &
 	@echo "  API: http://localhost:$(API_PORT)"
 
@@ -144,10 +139,6 @@ hydrate-academic:
 	@echo "→ Academic pipeline: $(ACADEMIC_PIPELINE) (outputs under packages/engine/ontology/)"
 	cd $(ENG_DIR) && $(PYTHON) hydrate.py --pipeline $(ACADEMIC_PIPELINE)
 
-seed:
-	@echo "→ Seeding Convex with default YAML configs…"
-	$(PYTHON) $(ROOT_DIR)scripts/seed_convex.py
-
 cache-clear:
 	rm -f $(ENG_DIR)/cache/*.json
 	@echo "  Cache cleared."
@@ -160,14 +151,8 @@ test:
 	@echo "→ Running Python tests (API + engine)…"
 	$(PYTHON) -m pytest -v
 
-deploy-api:
-	@echo "→ Deploying API to Railway (push triggers auto-deploy)…"
-	@echo "  Ensure railway.json is committed and Railway is linked to this repo."
-	@echo "  Run: railway up   (or just push — Railway deploys on every push)"
-
 push:
 	git -C $(ROOT_DIR) push origin HEAD
-	git -C $(ROOT_DIR) push personal HEAD
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI & Secrets

@@ -68,7 +68,7 @@ def find_session_result(
     Args:
         workspace_root: Root of the agent workspace.
         role: Agent role string (e.g. ``research``, ``artifact``).
-        session_id: Convex session ID string.
+        session_id: local store session ID string.
 
     Returns:
         Path to the first existing file, or None.
@@ -102,7 +102,7 @@ def enforce_session_result(
     Args:
         workspace_root: Root of the agent workspace.
         role: Agent role (e.g. ``research``).
-        session_id: Convex session ID.
+        session_id: local store session ID.
 
     Returns:
         EnforcerOutcome with all findings populated.

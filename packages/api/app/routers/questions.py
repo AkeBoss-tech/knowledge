@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import llm_service
 from app.services import planner_service
 
@@ -201,7 +201,7 @@ async def _execute_tool(name: str, args: dict) -> dict:
 
     if name == "search_context":
         project_slug = await _resolve_project_slug(project_id) if project_id else None
-        docs = await convex.query("context:list", {"projectSlug": project_slug} if project_slug else {})
+        docs = await local_store.query("context:list", {"projectSlug": project_slug} if project_slug else {})
         if not docs:
             return {"results": [], "message": "No context documents uploaded yet"}
         query = args.get("query", "").lower()
@@ -258,7 +258,7 @@ async def _execute_tool(name: str, args: dict) -> dict:
         return {"results": results}
 
     if name == "report_scope_exceeded":
-        # Just return the structured data — frontend handles this specially
+        # Just return the structured data; clients can render this specially.
         return {
             "__scope_exceeded__": True,
             "explanation": args.get("explanation", ""),
@@ -277,7 +277,7 @@ async def _execute_tool(name: str, args: dict) -> dict:
         if project_slug:
             payload["projectSlug"] = project_slug
         try:
-            doc_id = await convex.mutation("context:create", payload)
+            doc_id = await local_store.mutation("context:create", payload)
             return {"saved": True, "id": doc_id, "name": args["name"]}
         except Exception as e:
             return {"saved": False, "error": str(e)}
