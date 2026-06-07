@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+No changes yet.
+
+## v0.2.0-local-preview
+
+Second local-preview release focused on source-aware workflow orchestration.
+
 ### Added
 
 - Local workflow specs under `research_plan/workflows/`
@@ -10,6 +16,7 @@
 - Source dependency manifests with snapshot-based change detection and affected-document lookup
 - `source_refresh` workflow template for source-aware markdown maintenance
 - Markdown graph `Document depends_on Source` edges from `sources/dependencies.yaml`
+- GitHub issue intake workflow for safe `/krail` commands that create tasks, run dry-run workflows, or inspect source state
 - Workflow schema validation, run listing, and run status inspection
 - Workflow failure policy, retries, and command timeouts
 - Agent `session_result.json` template and prompt contract

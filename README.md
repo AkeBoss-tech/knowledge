@@ -636,6 +636,42 @@ Dependency edges are also included in the markdown graph as:
 Document depends_on Source
 ```
 
+## GitHub Issue Intake
+
+This repository includes a safe issue-intake workflow:
+
+```text
+.github/workflows/krail-issue-intake.yml
+```
+
+When an issue body or issue comment contains `/krail`, GitHub Actions runs
+`scripts/krail_issue_intake.py`, comments the result back on the issue, and
+commits generated task/work-order records if a command created them.
+
+Supported commands:
+
+```text
+/krail doctor
+/krail sources validate
+/krail sources list
+/krail sources check
+/krail sources changed
+/krail sources affected
+/krail workflow source_refresh
+/krail workflow execute source_refresh
+/krail task create --title "Audit sources" --description "Check stale docs" --runner codex_cli --role research --workflow source_refresh
+```
+
+Issue-triggered workflow commands always run as dry runs. They create an
+auditable plan and response, but do not launch a local agent process. Full
+agent dispatch should use a self-hosted runner path with explicit credentials
+and a separate approval policy.
+
+By default, the issue workflow uses the repository root when it contains
+`rail.yaml`; otherwise, this package repo falls back to
+`examples/minimal-project`. Set the repository variable `KRAIL_PROJECT_PATH` to
+target a different project path in the checked-out repository.
+
 ## MCP
 
 KRAIL exposes MCP tools for local agents.
