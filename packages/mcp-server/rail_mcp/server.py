@@ -277,6 +277,18 @@ def list_agents() -> str:
 
 
 @mcp.tool()
+def scaffold_krail_agents(force: bool = False) -> str:
+    """Write KRAIL doctor/platform prompts, checklists, role configs, and skill docs."""
+    return _json(_get_project().scaffold_krail_agents(force=force))
+
+
+@mcp.tool()
+def agent_prompt(role: str = "doctor", task: str = "") -> str:
+    """Render a KRAIL role prompt for another local agent."""
+    return _json(_get_project().agent_prompt(role, task=task))
+
+
+@mcp.tool()
 def create_task(title: str, description: str = "", runner: str = "codex_cli", role: str = "research") -> str:
     """
     Create a repo-backed task without dispatching it.
@@ -309,8 +321,32 @@ def dispatch_task(task_id: str, runner: str = "", dry_run: bool = True) -> str:
 
 @mcp.tool()
 def list_workflows() -> str:
-    """List workflow IDs declared by the active knowledge pack."""
+    """List workflow IDs declared by the active knowledge pack and local workflow specs."""
     return _json(_get_project().list_workflows())
+
+
+@mcp.tool()
+def workflow_templates() -> str:
+    """List built-in KRAIL workflow templates."""
+    return _json(_get_project().workflow_templates())
+
+
+@mcp.tool()
+def init_workflow(workflow_id: str, force: bool = False, template: str = "") -> str:
+    """Create a local workflow spec under research_plan/workflows."""
+    return _json(_get_project().init_workflow(workflow_id, force=force, template=template or None))
+
+
+@mcp.tool()
+def show_workflow(workflow_id: str) -> str:
+    """Show a local workflow spec."""
+    return _json(_get_project().show_workflow(workflow_id))
+
+
+@mcp.tool()
+def validate_workflow(workflow_id: str) -> str:
+    """Validate a local workflow spec."""
+    return _json(_get_project().validate_workflow(workflow_id))
 
 
 @mcp.tool()
@@ -321,6 +357,28 @@ def run_workflow(workflow_id: str, runner: str = "codex_cli", dry_run: bool = Tr
     Defaults to dry_run=True for safety when called by agents.
     """
     return _json(_get_project().run_workflow(workflow_id, runner=runner, dry_run=dry_run))
+
+
+@mcp.tool()
+def execute_workflow(workflow_id: str, dry_run: bool = True, force: bool = False) -> str:
+    """
+    Execute a local workflow spec.
+
+    Defaults to dry_run=True for safety when called by agents.
+    """
+    return _json(_get_project().execute_workflow(workflow_id, dry_run=dry_run, force=force))
+
+
+@mcp.tool()
+def workflow_runs(limit: int = 20) -> str:
+    """List local workflow run records."""
+    return _json(_get_project().workflow_runs(limit=limit))
+
+
+@mcp.tool()
+def workflow_status(run_id: str) -> str:
+    """Show one local workflow run result."""
+    return _json(_get_project().workflow_status(run_id))
 
 
 @mcp.tool()

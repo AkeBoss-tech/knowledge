@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Local workflow specs under `research_plan/workflows/`
+- Sequential workflow execution for command and agent steps
+- Built-in workflow templates for doctor, weekly review, RAG refresh, paper ingest, and release readiness
+- Workflow schema validation, run listing, and run status inspection
+- Workflow failure policy, retries, and command timeouts
+- Agent `session_result.json` template and prompt contract
+- Workflow dry runs with repo-backed session records
+- KRAIL doctor/platform agent prompt scaffolding
+- MCP tools for workflow specs and KRAIL agent prompt rendering
+- Minimal project workflow and platform-agent examples
+
 ## v0.1.0-local-preview
 
 Initial local-first preview release.

@@ -87,6 +87,59 @@ def test_mcp_vector_search_calls_project(monkeypatch):
     assert payload["limit"] == 3
 
 
+def test_mcp_agent_prompt_calls_project(monkeypatch):
+    class _Project:
+        def agent_prompt(self, role, *, task=""):
+            return {"role": role, "prompt": f"{role}: {task}"}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.agent_prompt("doctor", "check platform")
+
+    payload = json.loads(result)
+    assert payload["role"] == "doctor"
+    assert "check platform" in payload["prompt"]
+
+
+def test_mcp_execute_workflow_defaults_to_dry_run(monkeypatch):
+    class _Project:
+        def execute_workflow(self, workflow_id, *, dry_run=True, force=False):
+            return {"workflow": workflow_id, "dry_run": dry_run, "force": force}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.execute_workflow("weekly_review")
+
+    payload = json.loads(result)
+    assert payload == {"workflow": "weekly_review", "dry_run": True, "force": False}
+
+
+def test_mcp_init_workflow_passes_template(monkeypatch):
+    class _Project:
+        def init_workflow(self, workflow_id, *, force=False, template=None):
+            return {"workflow": workflow_id, "force": force, "template": template}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.init_workflow("weekly", template="weekly_research_review")
+
+    payload = json.loads(result)
+    assert payload == {"workflow": "weekly", "force": False, "template": "weekly_research_review"}
+
+
+def test_mcp_workflow_status_calls_project(monkeypatch):
+    class _Project:
+        def workflow_status(self, run_id):
+            return {"run_id": run_id, "status": "done"}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.workflow_status("workflow_weekly_20260607")
+
+    payload = json.loads(result)
+    assert payload["status"] == "done"
+
+
 def test_mcp_integrity_assumptions_calls_project(monkeypatch):
     class _Project:
         def integrity_assumptions(self):

@@ -1,0 +1,20 @@
+id: weekly_research_review
+description: Weekly local-first review of captures, graph health, and retrieval readiness.
+schedule: "0 8 * * 1"
+steps:
+  - id: doctor
+    kind: command
+    run: krail --local doctor
+  - id: research_triage
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: Review new captures and update topics with evidence-backed notes, gaps, and next actions.
+  - id: platform_audit
+    kind: agent
+    role: doctor
+    runner: codex_cli
+    prompt: Audit KRAIL project health, workflow specs, graph state, and vector search readiness.
+  - id: verify
+    kind: command
+    run: krail --local graph check && krail --local vector build

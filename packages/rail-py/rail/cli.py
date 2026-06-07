@@ -72,6 +72,19 @@ def cmd_pack(project: rail.Project, args: argparse.Namespace):
 def cmd_agent(project: rail.Project, args: argparse.Namespace):
     if args.agent_command == "list":
         _print_json(project.agents())
+    elif args.agent_command == "prompt":
+        _print_json(project.agent_prompt(args.role, task=args.task or ""))
+    elif args.agent_command == "scaffold-krail":
+        _print_json(project.scaffold_krail_agents(force=args.force))
+    elif args.agent_command == "doctor":
+        prompt = args.prompt or "Audit this KRAIL project and repair platform health issues that are safe to fix."
+        created = project.create_task(
+            prompt,
+            description=prompt,
+            runner=args.runner,
+            role="doctor",
+        )
+        _print_json(project.dispatch_task(created["task"]["id"], runner=args.runner, dry_run=args.dry_run))
     elif args.agent_command == "run":
         created = project.create_task(
             args.prompt,
@@ -102,8 +115,25 @@ def cmd_task(project: rail.Project, args: argparse.Namespace):
 def cmd_workflow(project: rail.Project, args: argparse.Namespace):
     if args.workflow_command == "list":
         _print_json(project.list_workflows())
+    elif args.workflow_command == "templates":
+        _print_json(project.workflow_templates())
+    elif args.workflow_command == "init":
+        _print_json(project.init_workflow(args.workflow_id, force=args.force, template=args.template))
+    elif args.workflow_command == "show":
+        _print_json(project.show_workflow(args.workflow_id))
+    elif args.workflow_command == "validate":
+        result = project.validate_workflow(args.workflow_id)
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
     elif args.workflow_command == "run":
         _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
+    elif args.workflow_command == "execute":
+        _print_json(project.execute_workflow(args.workflow_id, dry_run=args.dry_run, force=args.force))
+    elif args.workflow_command == "runs":
+        _print_json(project.workflow_runs(limit=args.limit))
+    elif args.workflow_command == "status":
+        _print_json(project.workflow_status(args.run_id))
 
 def cmd_graph(project: rail.Project, args: argparse.Namespace):
     if args.graph_command == "build":
@@ -304,6 +334,15 @@ def main():
     a_parser = subparsers.add_parser("agent", help="Run local CLI agents as KRAIL workers")
     a_subs = a_parser.add_subparsers(dest="agent_command")
     a_subs.add_parser("list", help="List configured local CLI agents")
+    ap = a_subs.add_parser("prompt", help="Render a project role prompt")
+    ap.add_argument("role", help="Role name, e.g. doctor, platform, research, coding")
+    ap.add_argument("--task", help="Optional task text to include in the rendered prompt")
+    aks = a_subs.add_parser("scaffold-krail", help="Write KRAIL doctor/platform prompts and skills")
+    aks.add_argument("--force", action="store_true", help="Overwrite existing KRAIL prompt files")
+    ad = a_subs.add_parser("doctor", help="Create and dispatch a KRAIL doctor agent task")
+    ad.add_argument("--prompt", help="Override the default doctor task prompt")
+    ad.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    ad.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
     ar = a_subs.add_parser("run", help="Create and dispatch a one-off local agent task")
     ar.add_argument("prompt", help="Task prompt")
     ar.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
@@ -331,10 +370,27 @@ def main():
     wf_parser = subparsers.add_parser("workflow", help="Run pack-defined workflow stubs")
     wf_subs = wf_parser.add_subparsers(dest="workflow_command")
     wf_subs.add_parser("list", help="List workflows from active pack")
+    wf_subs.add_parser("templates", help="List built-in workflow templates")
+    wi = wf_subs.add_parser("init", help="Create a local workflow spec under research_plan/workflows")
+    wi.add_argument("workflow_id")
+    wi.add_argument("--template", choices=["project_doctor", "weekly_research_review", "rag_refresh", "paper_ingest", "release_readiness"])
+    wi.add_argument("--force", action="store_true")
+    ws = wf_subs.add_parser("show", help="Show a local workflow spec")
+    ws.add_argument("workflow_id")
+    wv = wf_subs.add_parser("validate", help="Validate a local workflow spec")
+    wv.add_argument("workflow_id")
     wr = wf_subs.add_parser("run", help="Create and dispatch a workflow task")
     wr.add_argument("workflow_id")
     wr.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
     wr.add_argument("--dry-run", action="store_true")
+    wx = wf_subs.add_parser("execute", help="Execute a local workflow spec")
+    wx.add_argument("workflow_id")
+    wx.add_argument("--dry-run", action="store_true")
+    wx.add_argument("--force", action="store_true", help="Bypass workflow lock")
+    wrl = wf_subs.add_parser("runs", help="List local workflow runs")
+    wrl.add_argument("--limit", type=int, default=20)
+    wst = wf_subs.add_parser("status", help="Show a local workflow run result")
+    wst.add_argument("run_id")
 
     # Markdown graph
     graph_parser = subparsers.add_parser("graph", help="Build and query markdown-frontmatter graphs")
