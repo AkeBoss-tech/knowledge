@@ -212,8 +212,25 @@ cache/
 .DS_Store
 .rail/
 .krail/
+!examples/**/.krail/
+!examples/**/.krail/pack.yaml
 packages/api/.rail_state/
 *.pid
 api_debug.log
 backend.log
 uploaded_key
+
+# Local pilot projects and transient KRAIL project runtime state.
+generated_projects/
+pilots/
+examples/**/.rail/workspaces/
+examples/**/research_plan/tasks/*.json
+examples/**/research_plan/work_orders/*.json
+examples/**/research_plan/sessions/
+examples/**/research_plan/audits/
+examples/**/research_plan/stuck_reports/
+examples/**/.session.lock
+examples/**/.commands.lock
+*.duckdb
+*.sqlite
+*.sqlite3
