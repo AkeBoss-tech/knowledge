@@ -13,7 +13,7 @@ Routes:
     POST /runners/{runner}/sessions/{session_id}/messages      send_message
     POST /runners/{runner}/sessions/{session_id}/approve       approve
     POST /runners/{runner}/sessions/{session_id}/cancel        cancel
-    POST /runners/{runner}/sessions/{session_id}/ingest-events fetch + persist events to Convex
+    POST /runners/{runner}/sessions/{session_id}/ingest-events fetch + persist events to local store
 """
 from __future__ import annotations
 
@@ -42,9 +42,9 @@ class CreateSessionRequest(BaseModel):
     allowed_secrets: dict[str, str] = {}
     acceptance_criteria: list[str] = []
 
-    # Optional Convex IDs — recorded against the session in Convex when provided
-    convex_task_id: str | None = None
-    convex_agent_session_id: str | None = None
+    # Optional local store IDs — recorded against the session in local store when provided
+    store_task_id: str | None = None
+    store_agent_session_id: str | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -57,8 +57,8 @@ class ApproveRequest(BaseModel):
 
 
 class IngestEventsRequest(BaseModel):
-    """Optionally link the persisted events to a Convex agent_session row."""
-    convex_agent_session_id: str | None = None
+    """Optionally link the persisted events to a local store agent_session row."""
+    store_agent_session_id: str | None = None
     debug_only: bool = False
 
 
@@ -164,7 +164,7 @@ async def probe_runner_endpoint(
 
 @router.post("/{runner}/sessions")
 async def create_session(
-    runner: str = FPath(..., description="Runner name, e.g. 'jules'"),
+    runner: str = FPath(..., description="Runner name, e.g. 'codex_cli'"),
     data: CreateSessionRequest = Body(...),
 ) -> dict[str, Any]:
     """Create a new runner session for the given task payload.
@@ -199,10 +199,10 @@ async def create_session(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Runner error: {e}")
 
-    # Persist a lightweight record in Convex if a task or session ID was provided.
-    if data.convex_task_id or data.convex_agent_session_id:
+    # Persist a lightweight record in local store if a task or session ID was provided.
+    if data.store_task_id or data.store_agent_session_id:
         try:
-            from app.services.convex_client import convex
+            from app.services.local_store import local_store
             from app.runners.base import RunnerEvent, RunnerEventType
 
             event = RunnerEvent(
@@ -216,11 +216,11 @@ async def create_session(
                 },
                 raw_payload=result.get("raw", {}),
             )
-            await convex.mutation(
+            await local_store.mutation(
                 "runnerEvents:append",
                 {
-                    "agentSessionId": data.convex_agent_session_id,
-                    **event.to_convex_dict(),
+                    "agentSessionId": data.store_agent_session_id,
+                    **event.to_store_dict(),
                     "createdAt": int(time.time() * 1000),
                 },
             )
@@ -253,7 +253,7 @@ async def list_events(
     All events are returned as RunnerEvent dicts (``event_type``,
     ``session_id``, ``normalized_payload``, ``debug_visibility``).
     Raw vendor payloads are omitted from the default response; use
-    ``/ingest-events`` to persist the full payload in Convex.
+    ``/ingest-events`` to persist the full payload in local store.
     """
     adapter = _get_runner(runner)
     try:
@@ -299,7 +299,7 @@ async def approve(
 ) -> dict[str, Any]:
     """Signal human approval for a pending gate (plan approval / task start).
 
-    Optionally record the approval in Convex if an ``approvalId`` is provided.
+    Optionally record the approval in local store if an ``approvalId`` is provided.
     """
     adapter = _get_runner(runner)
     payload: dict[str, Any] = {}
@@ -321,8 +321,8 @@ async def cancel(
 ) -> dict[str, Any]:
     """Request cancellation of an in-progress session.
 
-    Records a CANCELLED event in Convex (best-effort).
-    Jules has no native cancel endpoint; the adapter records the intent only.
+    Records a CANCELLED event in local store (best-effort).
+    Local CLI adapters may record cancellation intent if native cancellation is unavailable.
     """
     adapter = _get_runner(runner)
     try:
@@ -332,7 +332,7 @@ async def cancel(
 
     # Persist cancellation event (best-effort)
     try:
-        from app.services.convex_client import convex
+        from app.services.local_store import local_store
         from app.runners.base import RunnerEvent, RunnerEventType
 
         event = RunnerEvent(
@@ -341,10 +341,10 @@ async def cancel(
             normalized_payload={"runner": runner, "reason": "user_requested"},
             raw_payload={},
         )
-        await convex.mutation(
+        await local_store.mutation(
             "runnerEvents:append",
             {
-                **event.to_convex_dict(),
+                **event.to_store_dict(),
                 "createdAt": int(time.time() * 1000),
             },
         )
@@ -361,7 +361,7 @@ async def ingest_events(
     data: IngestEventsRequest = Body(default_factory=IngestEventsRequest),
 ) -> dict[str, Any]:
     """Fetch all current events from the runner, normalize them, and persist
-    them into the Convex ``runnerEvents`` table.
+    them into the local store ``runnerEvents`` table.
 
     This endpoint bridges the runner adapter and the operational database:
     the planner can call it after any session activity to ensure the DB stays
@@ -380,14 +380,14 @@ async def ingest_events(
 
     persisted: list[dict[str, Any]] = []
     try:
-        from app.services.convex_client import convex
+        from app.services.local_store import local_store
         for event in events:
             try:
-                await convex.mutation(
+                await local_store.mutation(
                     "runnerEvents:append",
                     {
-                        "agentSessionId": data.convex_agent_session_id,
-                        **event.to_convex_dict(),
+                        "agentSessionId": data.store_agent_session_id,
+                        **event.to_store_dict(),
                         "createdAt": int(time.time() * 1000),
                     },
                 )
@@ -401,7 +401,7 @@ async def ingest_events(
                     "error": str(persist_err),
                 })
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Convex persistence error: {e}")
+        raise HTTPException(status_code=503, detail=f"local store persistence error: {e}")
 
     return {
         "session_id": session_id,
@@ -609,7 +609,7 @@ async def ask_question(
     )
 
     if agent_session:
-        from app.services.convex_client import convex
+        from app.services.local_store import local_store
         event = RunnerEvent(
             event_type=RunnerEventType.QUESTION_ASKED,
             session_id=session_id,
@@ -621,11 +621,11 @@ async def ask_question(
             },
             raw_payload=resolution,
         )
-        await convex.mutation(
+        await local_store.mutation(
             "runnerEvents:append",
             {
                 "agentSessionId": agent_session["_id"],
-                **event.to_convex_dict(),
+                **event.to_store_dict(),
                 "createdAt": int(time.time() * 1000),
             },
         )

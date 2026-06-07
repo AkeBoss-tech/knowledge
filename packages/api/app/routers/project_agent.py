@@ -25,7 +25,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import llm_service, planner_runtime
 from app.services.agent_service import PROJECT_AGENT_DATA_TOOLS, _execute_tool
 from app.services import planner_service
@@ -49,7 +49,7 @@ class ProjectChatRequest(BaseModel):
 # System prompt
 # ---------------------------------------------------------------------------
 
-PROJECT_SYSTEM_PROMPT = """You are a project assistant for RAIL (Rutgers Agentic Intelligence Labs).
+PROJECT_SYSTEM_PROMPT = """You are a project assistant for KRAIL.
 You help researchers set up, configure, and debug their data hydration projects.
 
 ## Platform overview
@@ -451,11 +451,11 @@ async def _persist_project_patch(project: dict, patch: dict) -> dict:
         )
         return refreshed
 
-    await convex.mutation("projects:updateById", {"projectId": project["_id"], **patch})
+    await local_store.mutation("projects:updateById", {"projectId": project["_id"], **patch})
     try:
         refreshed = await planner_service.resolve_project_reference(str(project.get("slug") or ""))
     except Exception:
-        refreshed = await convex.query("projects:getById", {"projectId": project["_id"]})
+        refreshed = await local_store.query("projects:getById", {"projectId": project["_id"]})
     return refreshed or {**project, **patch}
 
 
@@ -481,13 +481,13 @@ async def _execute_project_tool(name: str, args: dict, project_id: str) -> dict:
         config_type = args.get("config_type", "all")
         result: dict = {}
         if config_type in ("apis", "all"):
-            items = await convex.query("configs:listApis", {}) or []
+            items = await local_store.query("configs:listApis", {}) or []
             result["apis"] = [{"name": c["name"], "slug": c["slug"]} for c in items]
         if config_type in ("ontologies", "all"):
-            items = await convex.query("configs:listOntologies", {}) or []
+            items = await local_store.query("configs:listOntologies", {}) or []
             result["ontologies"] = [{"name": c["name"], "slug": c["slug"]} for c in items]
         if config_type in ("pipelines", "all"):
-            items = await convex.query("configs:listPipelines", {}) or []
+            items = await local_store.query("configs:listPipelines", {}) or []
             result["pipelines"] = [{"name": c["name"], "slug": c["slug"]} for c in items]
         return result
 
@@ -551,7 +551,7 @@ async def _execute_project_tool(name: str, args: dict, project_id: str) -> dict:
 
     if name == "get_recent_jobs":
         limit = min(args.get("limit", 5), 20)
-        jobs = await convex.query(
+        jobs = await local_store.query(
             "jobs:listByProject",
             {"projectSlug": await _resolve_project_slug(project_id), "limit": limit},
         )
@@ -570,7 +570,7 @@ async def _execute_project_tool(name: str, args: dict, project_id: str) -> dict:
 
     if name == "get_job_logs":
         job_id = args["job_id"]
-        logs = await convex.query("jobs:getLogs", {"jobId": job_id, "limit": 200})
+        logs = await local_store.query("jobs:getLogs", {"jobId": job_id, "limit": 200})
         if not logs:
             return {"logs": []}
         lines = [f"[{l.get('level', 'info')}] {l.get('message', '')}" for l in logs]
@@ -604,7 +604,7 @@ async def _execute_project_tool(name: str, args: dict, project_id: str) -> dict:
         if config_type == "pipelines":
             steps = parsed.get("steps", [])
             payload["referencedApiSlugs"] = [s["api"] for s in steps if "api" in s]
-        await convex.mutation(mutation_map[config_type], payload)
+        await local_store.mutation(mutation_map[config_type], payload)
         return {"created": True, "slug": args["slug"], "type": config_type}
 
     if name == "search_data_registry":
@@ -625,7 +625,7 @@ async def _execute_project_tool(name: str, args: dict, project_id: str) -> dict:
         }
         payload["projectSlug"] = await _resolve_project_slug(project_id)
         try:
-            doc_id = await convex.mutation("context:create", payload)
+            doc_id = await local_store.mutation("context:create", payload)
             return {"saved": True, "id": doc_id, "name": args["name"]}
         except Exception as e:
             return {"saved": False, "error": str(e)}
@@ -743,13 +743,13 @@ class AgentTaskRequest(BaseModel):
 async def run_agent_task(req: AgentTaskRequest):
     """
     Fire off an autonomous agent task. The agent runs to completion without
-    further user interaction. Progress is tracked in Convex as an executionJob.
-    Returns {jobId} immediately; subscribe to Convex executions:get to watch.
+    further user interaction. Progress is tracked in local store as an executionJob.
+    Returns {jobId} immediately; subscribe to local store executions:get to watch.
     """
     now = int(time.time() * 1000)
 
-    # Create a Convex execution job to track this agent run
-    job_result = await convex.mutation("executions:create", {
+    # Create a local store execution job to track this agent run
+    job_result = await local_store.mutation("executions:create", {
         "type": "code",
         "input": req.goal,
         "projectId": req.project_id,
@@ -759,7 +759,7 @@ async def run_agent_task(req: AgentTaskRequest):
 
     async def _run():
         try:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "running",
                 "startedAt": int(time.time() * 1000),
@@ -777,7 +777,7 @@ async def run_agent_task(req: AgentTaskRequest):
             )
             transcript = [result.get("assistantMessage", "")]
 
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "success",
                 "finishedAt": int(time.time() * 1000),
@@ -785,7 +785,7 @@ async def run_agent_task(req: AgentTaskRequest):
             })
 
         except Exception as exc:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "failed",
                 "finishedAt": int(time.time() * 1000),

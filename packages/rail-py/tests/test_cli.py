@@ -46,10 +46,6 @@ MINIMAL_RAIL_YAML = textwrap.dedent(
       sequential_execution: true
       planner_thread_mode: "project"
       default_planner_role: "planner"
-
-    frontend:
-      topic_index_mode: "filesystem"
-      artifact_index_mode: "filesystem"
     """
 )
 

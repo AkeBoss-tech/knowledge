@@ -376,7 +376,7 @@ def _resolve_ontology_yaml(
         return ontology_yaml, []
     if engine_root is None:
         return None, [
-            f"Ontology '{onto_ref}' is not in Convex and engine_root is unset — "
+            f"Ontology '{onto_ref}' is not in local store and engine_root is unset — "
             "cannot load configs/ontology/{onto_ref}.yaml"
         ]
 
@@ -404,7 +404,7 @@ def _resolve_ontology_yaml(
             path = fallback
         else:
             return None, [
-                f"Ontology '{onto_ref_str}' not found in Convex and no file at {path} "
+                f"Ontology '{onto_ref_str}' not found in local store and no file at {path} "
                 f"(or fallback core.yaml)"
             ]
     try:
@@ -467,7 +467,7 @@ def validate_pipeline_runnable(
         raw = api_yaml_by_slug.get(api_slug)
         if raw is None:
             errors.append(
-                f"steps[{i}] api '{api_slug}': no API config YAML (missing in Convex or bundle)"
+                f"steps[{i}] api '{api_slug}': no API config YAML (missing in local store or bundle)"
             )
             continue
 

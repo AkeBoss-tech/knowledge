@@ -270,11 +270,11 @@ def build_session_detail(
     project_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """
-    Return a frontend-ready rich detail object for a single runner session.
+    Return a rich detail object for a single runner session.
 
     Reads session.ndjson, commands.ndjson, and state.json from *session_path*
     and produces the four observability layers required by the command-center
-    frontend spec.
+    API client contract.
     """
     root = Path(session_path)
     proj_root = Path(project_root) if project_root else None

@@ -1,7 +1,7 @@
 """
 Runner abstraction — base interface and shared data models.
 
-All runner adapters (Jules, future Claude Code, etc.) implement BaseRunner and
+All runner adapters (Codex CLI, Claude Code, etc.) implement BaseRunner and
 emit normalized RunnerEvent objects so the planner can consume a vendor-agnostic
 stream of session lifecycle events.
 """
@@ -55,8 +55,8 @@ class RunnerEvent:
     raw_payload: dict[str, Any] = field(default_factory=dict)
     debug_visibility: bool = False
 
-    def to_convex_dict(self) -> dict[str, Any]:
-        """Serialise for the Convex ``runner_events:append`` mutation."""
+    def to_store_dict(self) -> dict[str, Any]:
+        """Serialise for the local store ``runner_events:append`` mutation."""
         return {
             "eventType": self.event_type.value,
             "sessionId": self.session_id,
@@ -75,7 +75,7 @@ class TaskPayload:
     """Vendor-neutral task payload sent to a runner on session creation.
 
     The runner adapter is responsible for transforming this into whatever
-    format the backend vendor expects (e.g. Jules prompt, Claude task).
+    format the backend vendor expects (e.g. Codex task, Claude task).
     """
     project_slug: str
     role: str
@@ -189,7 +189,7 @@ class BaseRunner(ABC):
 
     @property
     def name(self) -> str:
-        """Short identifier for this runner (e.g. 'jules', 'claude_code')."""
+        """Short identifier for this runner (e.g. 'codex_cli', 'claude_code')."""
         return type(self).__name__.lower().replace("runner", "")
 
     @property

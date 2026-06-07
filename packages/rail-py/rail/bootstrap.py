@@ -196,13 +196,6 @@ def bootstrap_future_project(
           archive_script: "scripts/archive-workspace.sh"
           nonconcurrent_run: true
           checkpoint_mode: "git-ref"
-
-        frontend:
-          topic_index_mode: "filesystem"
-          artifact_index_mode: "filesystem"
-          show_repo_tree: true
-          show_task_board_snapshot: true
-          default_home_view: "project_home"
         """
     )
 
@@ -544,7 +537,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             else
               echo "→ Installing engine from GitHub..."
               pip install --quiet \\
-                "git+https://github.com/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs.git#subdirectory=packages/engine"
+                "git+https://github.com/AkeBoss-tech/knowledge.git#subdirectory=packages/engine"
             fi
 
             LOCAL_RAIL_PY="$RAIL_PROJECT_ROOT/../../packages/rail-py"
@@ -554,7 +547,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             else
               echo "→ Installing rail-py from GitHub..."
               pip install --quiet \\
-                "git+https://github.com/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs.git#subdirectory=packages/rail-py"
+                "git+https://github.com/AkeBoss-tech/knowledge.git#subdirectory=packages/rail-py"
             fi
 
             # 2. Common data science deps used by analysis scripts
@@ -834,41 +827,6 @@ Never promote hypotheses that still rely on unsupported or stale claims.
               }
             }
             ```
-
-            ### Option 2 — Remote URL (SSE / streamable-http)
-
-            When RAIL is deployed as a hosted service, the MCP server can run in HTTP mode:
-
-            ```bash
-            rail-mcp --transport sse --host 0.0.0.0 --port 8001 --project your-slug
-            # or for the newer transport:
-            rail-mcp --transport streamable-http --port 8001 --project your-slug
-            ```
-
-            Agents then connect by URL — no local install needed:
-
-            ```json
-            {
-              "mcpServers": {
-                "rail": {
-                  "url": "http://your-rail-host:8001/sse"
-                }
-              }
-            }
-            ```
-
-            For streamable-http:
-
-            ```json
-            {
-              "mcpServers": {
-                "rail": {
-                  "url": "http://your-rail-host:8001/mcp"
-                }
-              }
-            }
-            ```
-
             ## Available tools
 
             | Tool | When to use |

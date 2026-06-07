@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services import sql_service, project_artifacts_service
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 router = APIRouter(prefix="/sql", tags=["sql"])
 
@@ -44,7 +44,7 @@ async def run_sql(
         if hydration_id:
             create_args["hydrationId"] = hydration_id
 
-        result = await convex.mutation("executions:create", create_args)
+        result = await local_store.mutation("executions:create", create_args)
         job_id = result["jobId"]
 
         # 2. Resolve hydration path
@@ -60,7 +60,7 @@ async def run_sql(
             duck = art.duckdb_path
             
         # 3. Execute
-        await convex.mutation("executions:updateStatus", {
+        await local_store.mutation("executions:updateStatus", {
             "jobId": job_id,
             "status": "running",
             "startedAt": int(time.time() * 1000)
@@ -72,7 +72,7 @@ async def run_sql(
         res = await loop.run_in_executor(None, lambda: sql_service.run_query(req.query, duckdb_path=duck))
         
         # 4. Report success
-        await convex.mutation("executions:updateStatus", {
+        await local_store.mutation("executions:updateStatus", {
             "jobId": job_id,
             "status": "success",
             "finishedAt": int(time.time() * 1000),
@@ -82,7 +82,7 @@ async def run_sql(
 
     except Exception as e:
         if job_id:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "failed",
                 "finishedAt": int(time.time() * 1000),

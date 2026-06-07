@@ -2,7 +2,7 @@ import asyncio
 from croniter import croniter  # pip install croniter
 from datetime import datetime
 import time
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import planner_service
 
 FREQUENCY_TO_CRON = {
@@ -56,7 +56,7 @@ class SchedulerService:
             self._task.cancel()
 
     async def _loop(self):
-        """Poll Convex every 30 seconds for due schedules."""
+        """Poll local store every 30 seconds for due schedules."""
         while self._running:
             try:
                 await self._tick()
@@ -66,12 +66,12 @@ class SchedulerService:
 
     async def _tick(self):
         now_ms = int(time.time() * 1000)
-        schedules = await convex.query("schedules:listActive", {})
+        schedules = await local_store.query("schedules:listActive", {})
 
         for sched in schedules:
             # Check if window has expired
             if sched.get("windowEndsAt") and now_ms > sched["windowEndsAt"]:
-                await convex.mutation("schedules:update", {
+                await local_store.mutation("schedules:update", {
                     "id": sched["_id"],
                     "status": "completed",
                     "enabled": False,
@@ -106,14 +106,14 @@ class SchedulerService:
                 else:
                     next_ms = now_ms + 3_600_000  # fallback 1h
 
-                await convex.mutation("schedules:update", {
+                await local_store.mutation("schedules:update", {
                     "id": sched["_id"],
                     "lastRunAt": now_ms,
                     "lastJobId": job_id,
                     "nextRunAt": next_ms,
                 })
             except Exception as e:
-                await convex.mutation("schedules:update", {
+                await local_store.mutation("schedules:update", {
                     "id": sched["_id"],
                     "status": "error",
                 })

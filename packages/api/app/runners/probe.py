@@ -196,37 +196,11 @@ async def _probe_local_cli(profile: RunnerProfile) -> ProbeResult:
 
 
 async def _probe_hosted_api(profile: RunnerProfile) -> ProbeResult:
-    """Probe a hosted_api runner: are credentials in the environment?
+    """Probe a hosted_api runner.
 
-    Only Jules at present. The credential env var is hardcoded here because
-    it's well-known and the profile YAML doesn't yet have a `credentials`
-    field — a future iteration could lift it into the profile.
+    Hosted runners are not part of the local-first default set, so this remains
+    a generic fallback for profiles that may be added later.
     """
-    notes: list[str] = []
-    if profile.name == "jules":
-        api_key = os.environ.get("JULES_API_KEY") or ""
-        if api_key:
-            return ProbeResult(
-                runner_name=profile.name,
-                installed=ProbeCheck(status=CheckStatus.PASS, detail="JULES_API_KEY present"),
-                authenticated=ProbeCheck(
-                    status=CheckStatus.SKIP,
-                    detail="auth not probed (avoids outbound API calls); first dispatch will surface auth errors",
-                ),
-                version=None,
-                readiness=ReadinessLevel.YELLOW,
-                notes=["credentials present; auth verified on first dispatch"],
-            )
-        return ProbeResult(
-            runner_name=profile.name,
-            installed=ProbeCheck(status=CheckStatus.FAIL, detail="JULES_API_KEY not set"),
-            authenticated=ProbeCheck(status=CheckStatus.SKIP, detail="no credentials to probe"),
-            version=None,
-            readiness=ReadinessLevel.RED,
-            notes=["set JULES_API_KEY in environment to enable this runner"],
-        )
-
-    # Generic hosted_api with no specific credential check.
     return ProbeResult(
         runner_name=profile.name,
         installed=ProbeCheck(

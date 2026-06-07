@@ -11,7 +11,7 @@ from app.services.policy_resolver import RuntimePolicy, resolve_role_policy
 from app.services.yaml_service import load_agent_prompts, parse
 
 
-SUPPORTED_RUNNERS = {"jules", "claude_code", "gemini_cli", "cursor_cli", "codex_cli"}
+SUPPORTED_RUNNERS = {"claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"}
 ROLE_ALIASES = {
     "researcher": "research",
     "analyst": "data",
@@ -51,7 +51,7 @@ def _role_path(project_root: Path, manifest: Any, role: str) -> Path:
 
 
 def _normalize_runner_name(name: str | None, default_name: str) -> str:
-    normalized = (name or default_name or "jules").strip()
+    normalized = (name or default_name or "codex_cli").strip()
     if normalized not in SUPPORTED_RUNNERS:
         return default_name
     return normalized

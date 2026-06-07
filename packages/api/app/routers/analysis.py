@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services import project_artifacts_service, sql_service, ontology_service
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.execution_manager import execution_manager
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -85,7 +85,7 @@ async def run_code_analysis(
         )
     from app.services import subprocess_code_runner
 
-    # 1. Create Job record (Convex schema: projectId, not projectSlug)
+    # 1. Create Job record (local store schema: projectId, not projectSlug)
     create_args: dict = {
         "type": "code",
         "input": req.code,
@@ -99,10 +99,10 @@ async def run_code_analysis(
         create_args["cellId"] = cell_id
     if hydration_id:
         create_args["hydrationId"] = hydration_id
-    result = await convex.mutation("executions:create", create_args)
+    result = await local_store.mutation("executions:create", create_args)
     job_id = result["jobId"]
 
-    # 2. Resolve hydration path (project_id from UI is Convex Id; projectSlug also works)
+    # 2. Resolve hydration path (project_id from UI is local store Id; projectSlug also works)
     duck = None
     if hydration_id:
         # TODO: Resolve specific hydration path
@@ -114,7 +114,7 @@ async def run_code_analysis(
         duck = art.duckdb_path
 
     if not sql_service.is_ready(duck):
-        await convex.mutation("executions:updateStatus", {
+        await local_store.mutation("executions:updateStatus", {
             "jobId": job_id,
             "status": "failed",
             "errorMessage": "DuckDB mirror not ready. Run a hydration job first."

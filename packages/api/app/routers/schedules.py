@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.scheduler_service import parse_frequency, parse_window
 import time
 
@@ -22,12 +22,12 @@ class UpdateScheduleRequest(BaseModel):
 @router.get("/")
 async def list_schedules(project_slug: str | None = None):
     if project_slug:
-        return await convex.query("schedules:listByProject", {"projectSlug": project_slug})
-    return await convex.query("schedules:list", {})
+        return await local_store.query("schedules:listByProject", {"projectSlug": project_slug})
+    return await local_store.query("schedules:list", {})
 
 @router.get("/{id}")
 async def get_schedule(id: str):
-    sched = await convex.query("schedules:get", {"id": id})
+    sched = await local_store.query("schedules:get", {"id": id})
     if not sched:
         raise HTTPException(status_code=404, detail="Schedule not found")
     return sched
@@ -65,7 +65,7 @@ async def create_schedule(req: CreateScheduleRequest):
         if window_ends_at is not None:
             payload["windowEndsAt"] = window_ends_at
 
-        sched_id = await convex.mutation("schedules:create", payload)
+        sched_id = await local_store.mutation("schedules:create", payload)
         return {"id": sched_id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -88,19 +88,19 @@ async def update_schedule(id: str, req: UpdateScheduleRequest):
             updates["enabled"] = req.enabled
             updates["status"] = "active" if req.enabled else "paused"
 
-        return await convex.mutation("schedules:update", updates)
+        return await local_store.mutation("schedules:update", updates)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{id}")
 async def remove_schedule(id: str):
-    await convex.mutation("schedules:remove", {"id": id})
+    await local_store.mutation("schedules:remove", {"id": id})
     return {"status": "ok"}
 
 @router.post("/{id}/pause")
 async def pause_schedule(id: str):
-    return await convex.mutation("schedules:pause", {"id": id})
+    return await local_store.mutation("schedules:pause", {"id": id})
 
 @router.post("/{id}/resume")
 async def resume_schedule(id: str):
-    return await convex.mutation("schedules:resume", {"id": id})
+    return await local_store.mutation("schedules:resume", {"id": id})

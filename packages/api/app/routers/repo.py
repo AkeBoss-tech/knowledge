@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services import planner_service
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.repo_contract_service import ensure_project_boot, manifest_validation_http_detail
 from rail.bootstrap import bootstrap_future_project
 from rail.manifest import ManifestValidationError
@@ -90,7 +90,7 @@ async def init_repo(slug: str, data: RepoInitRequest):
 
     project_id = str(project.get("_id") or "")
     if project_id and not project_id.startswith("local:"):
-        await convex.mutation("projects:updateById", {
+        await local_store.mutation("projects:updateById", {
             "projectId": project_id,
             "localRepoPath": str(target),
         })

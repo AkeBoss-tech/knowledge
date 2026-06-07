@@ -194,12 +194,12 @@ async def run_research_burst(
                 status="running",
                 approval_state="granted",
                 runner="codex_cli",
-                latestRunSummary=f"Research burst launched session {result['convex_session_id']}",
+                latestRunSummary=f"Research burst launched session {result['store_session_id']}",
             )
             launched_sessions.append(
                 {
                     "taskId": str(task["_id"]),
-                    "sessionId": result.get("convex_session_id"),
+                    "sessionId": result.get("store_session_id"),
                 }
             )
         except Exception:

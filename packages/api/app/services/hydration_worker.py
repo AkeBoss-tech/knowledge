@@ -1,5 +1,5 @@
 """
-Runs a hydration job as a subprocess, streams stdout to Convex jobLogs,
+Runs a hydration job as a subprocess, streams stdout to local store jobLogs,
 and updates job/step status in real time.
 """
 import asyncio
@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from app.core.config import settings
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.storage_service import storage
 from app.services.yaml_service import parse as parse_config_yaml, validate_pipeline_runnable
 from app.services import connector_service, planner_service
@@ -75,7 +75,7 @@ async def _resolve_project_from_job_doc(job_doc: dict | None) -> tuple[str | Non
             project_doc = None
         if not project_doc:
             try:
-                project_doc = await convex.query("projects:getById", {"projectId": project_id})
+                project_doc = await local_store.query("projects:getById", {"projectId": project_id})
             except Exception:
                 project_doc = None
 
@@ -118,7 +118,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
     await emit("info", "[job] Starting hydration — pre-flight validation, then engine run")
 
     try:
-        # ── Pre-flight: same checks as API enqueue, logged to Convex for the job detail page ──
+        # ── Pre-flight: same checks as API enqueue, logged to local store for the job detail page ──
         await emit("info", "[preflight] Checking pipeline ↔ ontology ↔ data sources (wiring)")
         try:
             pipe_spec = parse_config_yaml(pipeline_content)
@@ -134,7 +134,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
 
         await emit("info", f"[preflight] Ontology ref: {onto_ref!r}")
         if onto_ref in onto_configs:
-            await emit("info", "[preflight] Ontology source: Convex (stored ontology config)")
+            await emit("info", "[preflight] Ontology source: local store (stored ontology config)")
         else:
             fp = settings.engine_root / "configs" / "ontology" / f"{onto_ref}.yaml"
             if not fp.is_file():
@@ -161,7 +161,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
             for slug in missing_apis:
                 await emit(
                     "error",
-                    f"[preflight] Step references api={slug!r} but no YAML was loaded (missing in Convex or referencedApiSlugs)",
+                    f"[preflight] Step references api={slug!r} but no YAML was loaded (missing in local store or referencedApiSlugs)",
                 )
             raise RuntimeError(f"Missing API configs for: {missing_apis}")
 
@@ -263,13 +263,13 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
             # Resolve ontology config
             onto_ref = pipeline_spec.get("ontology", "core")
             if onto_ref in onto_configs:
-                # Use user-provided ontology from Convex/Local
+                # Use user-provided ontology from local store/Local
                 out_name = f"{Path(str(onto_ref)).stem}.yaml"
                 onto_path = onto_dir / out_name
                 merged_onto = _merge_kernel(onto_configs[onto_ref])
                 onto_path.write_text(merged_onto)
                 pipeline_spec["ontology"] = str(onto_path)
-                await emit("info", f"[setup] Ontology YAML → {onto_path.relative_to(tmpdir)} (from Project/Convex, merged with kernel)")
+                await emit("info", f"[setup] Ontology YAML → {onto_path.relative_to(tmpdir)} (from Project/local store, merged with kernel)")
             else:
                 # Fall back to engine defaults
                 # We check these in order:
@@ -317,7 +317,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
                 project_id = None
                 project_doc = None
                 try:
-                    job_doc = await convex.query("jobs:get", {"jobId": job_id})
+                    job_doc = await local_store.query("jobs:get", {"jobId": job_id})
                     project_id, project_doc = await _resolve_project_from_job_doc(job_doc)
                 except Exception as e:
                     logger.warning("[%s] Error checking job info for incremental mode: %s", job_id, e)
@@ -436,7 +436,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
             project_doc_for_registry = None
             job_doc_for_registry = None
             try:
-                job_doc = await convex.query("jobs:get", {"jobId": job_id})
+                job_doc = await local_store.query("jobs:get", {"jobId": job_id})
                 job_doc_for_registry = job_doc
                 project_id, project_doc_for_registry = await _resolve_project_from_job_doc(job_doc)
             except Exception:
@@ -450,7 +450,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
                     settings.engine_root / "ontology" / "embeddings.db"
                 )
                 now_ms = int(time.time() * 1000)
-                await convex.mutation(
+                await local_store.mutation(
                     "projects:updateById",
                     {
                         "projectId": project_id,
@@ -533,7 +533,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
         try:
             await asyncio.shield(_persist_interrupted())
         except Exception:
-            logger.exception("[%s] Could not persist interrupted state to Convex", job_id)
+            logger.exception("[%s] Could not persist interrupted state to local store", job_id)
         raise
 
     except Exception as exc:
@@ -547,7 +547,7 @@ async def run(job_id: str, pipeline_content: str, api_configs: dict[str, str], o
             seq_holder[0] += 1
             await _log(job_id, "error", f"[job] Failed: {exc}", seq=seq_holder[0])
         except Exception:
-            logger.exception("[%s] Could not append failure log to Convex", job_id)
+            logger.exception("[%s] Could not append failure log to local store", job_id)
 
 
 async def _log(job_id: str, level: str, message: str, seq: int, step: Union[str, None] = None):
@@ -560,7 +560,7 @@ async def _log(job_id: str, level: str, message: str, seq: int, step: Union[str,
     else:
         logger.info("%s", text)
     if not job_id:
-        logger.warning("Skipping Convex appendLog: job_id is missing (seq=%s)", seq)
+        logger.warning("Skipping local store appendLog: job_id is missing (seq=%s)", seq)
         return
     try:
         payload: dict = {
@@ -572,10 +572,10 @@ async def _log(job_id: str, level: str, message: str, seq: int, step: Union[str,
         }
         if step is not None:
             payload["stepName"] = step
-        await convex.mutation("jobs:appendLog", payload)
+        await local_store.mutation("jobs:appendLog", payload)
     except Exception:
         logger.exception(
-            "[%s] Convex appendLog failed (seq=%s) — UI may show no logs; message was: %s",
+            "[%s] local store appendLog failed (seq=%s) — UI may show no logs; message was: %s",
             job_id,
             seq,
             message[:500],
@@ -584,15 +584,15 @@ async def _log(job_id: str, level: str, message: str, seq: int, step: Union[str,
 
 async def _update_job(job_id: str, fields: dict):
     try:
-        await convex.mutation("jobs:updateJob", {"jobId": job_id, **fields})
+        await local_store.mutation("jobs:updateJob", {"jobId": job_id, **fields})
     except Exception:
-        logger.exception("[%s] Convex updateJob failed fields=%s", job_id, list(fields.keys()))
+        logger.exception("[%s] local store updateJob failed fields=%s", job_id, list(fields.keys()))
 
 
 
 async def _update_step(job_id: str, step_name: str, status: str, row_count: Union[int, None] = None):
     try:
-        await convex.mutation("jobs:updateStep", {
+        await local_store.mutation("jobs:updateStep", {
             "jobId": job_id,
             "stepName": step_name,
             "status": status,
@@ -600,4 +600,4 @@ async def _update_step(job_id: str, step_name: str, status: str, row_count: Unio
             "timestamp": int(time.time() * 1000),
         })
     except Exception:
-        logger.exception("[%s] Convex updateStep failed step=%s status=%s", job_id, step_name, status)
+        logger.exception("[%s] local store updateStep failed step=%s status=%s", job_id, step_name, status)

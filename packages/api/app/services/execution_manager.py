@@ -4,7 +4,7 @@ import time
 from typing import Dict, Optional, Any
 from dataclasses import dataclass
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 logger = logging.getLogger("rail.execution_manager")
 
@@ -68,8 +68,8 @@ class ExecutionManager:
             job.task.cancel()
             logger.info(f"Job {job_id} task cancelled.")
 
-        # 3. Update Convex status
-        await convex.mutation("executions:updateStatus", {
+        # 3. Update local store status
+        await local_store.mutation("executions:updateStatus", {
             "jobId": job_id,
             "status": "cancelled",
             "finishedAt": int(time.time() * 1000),

@@ -31,28 +31,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Keep CONVEX_URL and NEXT_PUBLIC_CONVEX_URL separate so server-side and future
-    # client-side consumers can evolve independently.
-    convex_url_env: str = Field(default="", validation_alias="CONVEX_URL")
-    next_public_convex_url: str = Field(
-        default="",
-        validation_alias="NEXT_PUBLIC_CONVEX_URL",
-    )
-    convex_deploy_key: str = ""
-
-    @property
-    def convex_url(self) -> str:
-        raw = (self.convex_url_env or "").strip() or (
-            self.next_public_convex_url or ""
-        ).strip()
-        if not raw:
-            return ""
-        if not raw.startswith(("http://", "https://")):
-            raw = f"https://{raw.lstrip('/')}"
-        return raw
-
     # Engine
     engine_root: Path = Path(__file__).parents[3] / "engine"
+    local_store_path: Path = Field(
+        default=Path(__file__).parents[4] / ".krail" / "store.json",
+        validation_alias="LOCAL_STORE_PATH",
+    )
     rail_cache_dir: Path = Path("/tmp/rail_cache")
     storage_backend: str = "local"   # "local" | "s3"
 
@@ -80,7 +64,7 @@ class Settings(BaseSettings):
     github_app_id: str = Field(default="", validation_alias="GITHUB_APP_ID")
     github_app_private_key_raw: str = Field(default="", validation_alias="GITHUB_APP_PRIVATE_KEY")
     github_webhook_secret: str = Field(default="", validation_alias="GITHUB_WEBHOOK_SECRET")
-    github_app_org: str = Field(default="Rutgers-Economics-Labs", validation_alias="GITHUB_APP_ORG")
+    github_app_org: str = Field(default="", validation_alias="GITHUB_APP_ORG")
 
     @property
     def github_app_private_key(self) -> str:
@@ -94,16 +78,7 @@ class Settings(BaseSettings):
         # Unescape literal \n into actual newlines
         return raw.replace("\\n", "\n")
 
-    # Jules runner
-    jules_api_key: str = Field(default="", validation_alias="JULES_API_KEY")
-    jules_api_url: str = Field(
-        default="https://jules.googleapis.com/v1alpha",
-        validation_alias="JULES_API_URL",
-    )
-    jules_source: str = Field(
-        default="sources/github/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs",
-        validation_alias="JULES_SOURCE",
-    )
+    # Local CLI runners
     claude_code_command: str = Field(default="claude", validation_alias="CLAUDE_CODE_COMMAND")
     gemini_cli_command: str = Field(default="gemini", validation_alias="GEMINI_CLI_COMMAND")
     cursor_cli_command: str = Field(default="agent", validation_alias="CURSOR_CLI_COMMAND")

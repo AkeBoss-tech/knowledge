@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from rail.integrity import ResearchIntegrityRepo, sync_sources_from_configs
+from rail.knowledge import KnowledgeRuntime
 from rail.manifest import RailManifest, boot_validate_project, load_manifest
 
 
@@ -32,6 +33,8 @@ class LocalEngine:
 
         if self.engine_path:
             sys.path.insert(0, str(self.engine_path))
+
+        self.knowledge = KnowledgeRuntime(self.project_path)
 
     def _integrity_service_module(self):
         api_root = Path(__file__).parent.parent.parent / "api"

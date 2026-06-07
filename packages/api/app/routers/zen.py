@@ -7,7 +7,7 @@ from app.models.zen import (
     ZenResponse, ZenProject, ZenActiveRun, ZenTruth, 
     ZenDecision, ZenPlan, ZenAttention, ZenArtifact
 )
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import running_agent_service, planner_service, session_files, command_center_service
 from app.services.integrity_service import load_integrity_indexes
 from app.services.command_center_service import list_project_artifacts

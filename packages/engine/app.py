@@ -8,8 +8,8 @@ import streamlit.components.v1 as components
 from owlready2 import World
 from pyvis.network import Network
 
-st.set_page_config(page_title="RAIL Explorer", layout="wide")
-st.title("Rutgers Agentic Intelligence Labs")
+st.set_page_config(page_title="KRAIL Explorer", layout="wide")
+st.title("KRAIL Explorer")
 
 # --- Load ontology ---
 db_path = "ontology/onto.db"
@@ -610,4 +610,4 @@ with tab4:
 
 
 st.markdown("---")
-st.caption("Rutgers Agentic Intelligence Labs — 2026")
+st.caption("KRAIL — 2026")

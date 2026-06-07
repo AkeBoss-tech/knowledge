@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import planner_service
 
 
@@ -138,7 +138,7 @@ async def _sync_context_doc_as_integrity_source(
             pass
     except Exception:
         # Don't fail the context endpoint if the integrity sync hits a
-        # validator quirk — the context doc itself is already saved in Convex.
+        # validator quirk — the context doc itself is already saved in local store.
         pass
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -213,7 +213,7 @@ async def upload_context(
     }
     payload.update(await _context_create_payload_project_fields(project_id))
     payload.pop("projectId", None)
-    doc_id = await convex.mutation("context:create", payload)
+    doc_id = await local_store.mutation("context:create", payload)
     await _sync_context_doc_as_integrity_source(
         project_id=project_id,
         doc_id=str(doc_id) if doc_id else "",
@@ -241,7 +241,7 @@ async def add_url(req: AddUrlRequest):
         "url": req.url,
     }
     payload.update(await _context_create_payload_project_fields(req.project_id))
-    doc_id = await convex.mutation("context:create", payload)
+    doc_id = await local_store.mutation("context:create", payload)
     await _sync_context_doc_as_integrity_source(
         project_id=req.project_id,
         doc_id=str(doc_id) if doc_id else "",
@@ -267,7 +267,7 @@ async def add_text(req: AddTextRequest):
         "content": req.content[:100_000],
     }
     payload.update(await _context_create_payload_project_fields(req.project_id))
-    doc_id = await convex.mutation("context:create", payload)
+    doc_id = await local_store.mutation("context:create", payload)
     await _sync_context_doc_as_integrity_source(
         project_id=req.project_id,
         doc_id=str(doc_id) if doc_id else "",
@@ -281,10 +281,10 @@ async def add_text(req: AddTextRequest):
 @router.get("/list")
 async def list_context(project_id: str | None = None):
     payload = await _context_create_payload_project_fields(project_id)
-    return await convex.query("context:list", payload if payload.get("projectSlug") else {})
+    return await local_store.query("context:list", payload if payload.get("projectSlug") else {})
 
 
 @router.delete("/{doc_id}")
 async def delete_context(doc_id: str):
-    await convex.mutation("context:remove", {"id": doc_id})
+    await local_store.mutation("context:remove", {"id": doc_id})
     return {"deleted": True}

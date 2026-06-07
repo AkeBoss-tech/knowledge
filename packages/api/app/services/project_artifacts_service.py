@@ -8,7 +8,7 @@ Projects are hydrated via jobs that produce:
   - embeddings.db (semantic search index)
 
 After hydration success, we persist the active artifact pointers onto the project doc
-in Convex so API reads can reliably select the right ontology per project.
+in local store so API reads can reliably select the right ontology per project.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import settings
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.storage_service import storage
 from app.services import ontology_service
 
@@ -49,7 +49,7 @@ async def _materialize(storage_key_or_path: str, *, filename: str, project_id: s
         if not p.is_absolute():
             # Assume relative to repo root if not absolute
             repo_root = Path(__file__).resolve().parents[1] # app/services
-            repo_root = repo_root.parents[2] # RutgersAgenticIntelligenceLabs
+            repo_root = repo_root.parents[2]
             p = repo_root / p
         
         p = p.resolve() # Handle symlinks and .. to ensure a canonical string for state mapping
@@ -166,7 +166,7 @@ async def find_latest_success_job_with_outputs(project: dict) -> dict | None:
 
     if slug:
         try:
-            jobs_list = await convex.query(
+            jobs_list = await local_store.query(
                 "jobs:listByProject",
                 {"projectSlug": slug, "limit": 50},
             )
@@ -178,7 +178,7 @@ async def find_latest_success_job_with_outputs(project: dict) -> dict | None:
                     return j
 
     try:
-        recent = await convex.query("jobs:list", {"limit": 200})
+        recent = await local_store.query("jobs:list", {"limit": 200})
     except Exception:
         recent = None
     if not recent:
@@ -197,11 +197,11 @@ async def find_latest_success_job_with_outputs(project: dict) -> dict | None:
 
 async def resolve(project_id: str) -> ProjectArtifacts:
     # 1. Try resolving by Internal ID first
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     
     # 2. If not found, try resolving by Slug
     if not project:
-        project = await convex.query("projects:get", {"slug": project_id})
+        project = await local_store.query("projects:get", {"slug": project_id})
         
     if not project:
         raise RuntimeError(f"Project '{project_id}' not found (tried ID and Slug)")
@@ -215,7 +215,7 @@ async def resolve(project_id: str) -> ProjectArtifacts:
     if not db_key:
         last_job = project.get("lastJobId")
         if last_job:
-            job = await convex.query("jobs:get", {"jobId": last_job})
+            job = await local_store.query("jobs:get", {"jobId": last_job})
             if job and job.get("outputDbPath"):
                 db_key = job["outputDbPath"]
                 owl_key = job.get("outputOwlPath") or owl_key

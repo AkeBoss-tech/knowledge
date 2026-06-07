@@ -3,7 +3,7 @@ Data quality analysis for RAIL ontology DuckDB databases.
 
 Endpoints:
   GET  /quality/report   — per-table row counts, null rates, distinct counts, freshness
-  POST /quality/snapshot — save current counts to Convex (for diff tracking)
+  POST /quality/snapshot — save current counts to local store (for diff tracking)
   GET  /quality/diff     — compare the last two snapshots
 """
 
@@ -155,7 +155,7 @@ class SnapshotRequest(BaseModel):
 
 @router.post("/snapshot")
 async def save_snapshot(req: SnapshotRequest):
-    """Save current entity counts to Convex for diff tracking."""
+    """Save current entity counts to local store for diff tracking."""
     db_path = await _resolve_db_path(req.project_id)
     if not db_path or not sql_service.is_ready(db_path):
         return {"error": "No database loaded for this project"}
@@ -195,7 +195,7 @@ async def save_snapshot(req: SnapshotRequest):
     if req.project_id:
         payload["projectSlug"] = req.project_id
 
-    snapshot_id = await convex.mutation("quality:saveSnapshot", payload)
+    snapshot_id = await local_store.mutation("quality:saveSnapshot", payload)
     return {"snapshotId": snapshot_id, "tableCount": len(counts), "createdAt": now}
 
 
@@ -208,10 +208,10 @@ async def get_diff(
     project_ref = project_id or project_slug
     params: dict = {}
     if project_ref:
-        # The Convex query expects 'projectSlug'
+        # The local store query expects 'projectSlug'
         params["projectSlug"] = project_ref
 
-    snapshots = await convex.query("quality:listSnapshots", {**params, "limit": 2})
+    snapshots = await local_store.query("quality:listSnapshots", {**params, "limit": 2})
     if not snapshots or not isinstance(snapshots, list) or len(snapshots) < 2:
         return {
             "hasDiff": False,

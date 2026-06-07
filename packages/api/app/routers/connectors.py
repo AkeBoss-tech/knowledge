@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 import yaml
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import connector_service
 from app.services.yaml_service import validate
 
@@ -26,7 +26,7 @@ async def list_connectors(q: str | None = None, tags: str | None = Query(None, d
 
 @router.get("/{slug}")
 async def get_connector(slug: str):
-    result = await convex.query("connectors:getBySlug", {"slug": slug})
+    result = await local_store.query("connectors:getBySlug", {"slug": slug})
     if not result:
         raise HTTPException(404, detail=f"Connector '{slug}' not found")
     return result
@@ -36,7 +36,7 @@ async def create_connector(req: CreateConnectorRequest):
     errors = validate("api", req.content)
     if errors:
         raise HTTPException(422, detail=errors)
-    return await convex.mutation("connectors:create", req.model_dump())
+    return await local_store.mutation("connectors:create", req.model_dump())
 
 @router.put("/{slug}")
 async def update_connector(slug: str, req: CreateConnectorRequest):
@@ -46,11 +46,11 @@ async def update_connector(slug: str, req: CreateConnectorRequest):
     # Exclude slug from updates if necessary, though it should match the path
     updates = req.model_dump()
     updates["slug"] = slug
-    return await convex.mutation("connectors:update", updates)
+    return await local_store.mutation("connectors:update", updates)
 
 @router.delete("/{slug}")
 async def delete_connector(slug: str):
-    return await convex.mutation("connectors:remove", {"slug": slug})
+    return await local_store.mutation("connectors:remove", {"slug": slug})
 
 @router.post("/{slug}/validate")
 async def validate_connector(slug: str, req: CreateConnectorRequest):

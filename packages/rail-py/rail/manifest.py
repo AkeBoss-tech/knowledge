@@ -9,10 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 
 HydrationMode = Literal["full", "incremental"]
-RunnerName = Literal["jules", "claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"]
+RunnerName = Literal["claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"]
 PlannerThreadMode = Literal["project"]
-IndexMode = Literal["filesystem"]
-HomeView = Literal["planner", "project_home", "artifacts"]
 WorkspaceMode = Literal["isolated"]
 CheckpointMode = Literal["git-ref", "none"]
 AutonomyMode = Literal["assisted", "supervised_autopilot", "autopilot"]
@@ -118,7 +116,7 @@ class AgentsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     roles_dir: str = "agents"
-    default_runner: RunnerName = "jules"
+    default_runner: RunnerName = "codex_cli"
     runner_policy: RunnerPolicySection = Field(default_factory=RunnerPolicySection)
     sequential_execution: bool = True
     approval_required_for_write_runs: bool | None = None
@@ -156,16 +154,6 @@ class IntegritySection(BaseModel):
     require_lineage_for_final_artifacts: bool = True
     require_evidence_for_report_claims: bool = True
     stale_outputs_block_promotion: bool = True
-
-
-class FrontendSection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    topic_index_mode: IndexMode = "filesystem"
-    artifact_index_mode: IndexMode = "filesystem"
-    show_repo_tree: bool = True
-    show_task_board_snapshot: bool = True
-    default_home_view: HomeView = "project_home"
 
 
 class WorkspacesSection(BaseModel):
@@ -328,7 +316,6 @@ class RailManifest(BaseModel):
     secrets: SecretsSection = Field(default_factory=SecretsSection)
     lifecycle: LifecycleSection = Field(default_factory=LifecycleSection)
     workspaces: WorkspacesSection = Field(default_factory=WorkspacesSection)
-    frontend: FrontendSection
 
     @model_validator(mode="after")
     def _validate_hydration_inside_ontology_root(self) -> "RailManifest":

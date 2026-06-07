@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import requests
 
 from app.services import planner_service
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.document_service import preview_document
 from app.services.scrape_service import preview_table
 from app.services.yaml_service import validate, parse
@@ -33,7 +33,7 @@ class ValidateRequest(BaseModel):
 
 
 class ValidatePipelineRequest(BaseModel):
-    """Deep validation: Convex API/ontology registry + ontology alignment + transforms."""
+    """Deep validation: local store API/ontology registry + ontology alignment + transforms."""
     content: str
 
 
@@ -88,7 +88,7 @@ async def validate_config(req: ValidateRequest):
 
 @router.post("/pipelines/validate")
 async def validate_pipeline_config(req: ValidatePipelineRequest):
-    errors = await validate_stored_pipeline(convex, {"content": req.content})
+    errors = await validate_stored_pipeline(local_store, {"content": req.content})
     return {"valid": len(errors) == 0, "errors": errors}
 
 
@@ -116,7 +116,7 @@ async def doc_preview(req: DocumentPreviewRequest):
 
 @router.get("/apis")
 async def list_api_configs():
-    return await convex.query("configs:listApis", {})
+    return await local_store.query("configs:listApis", {})
 
 
 @router.post("/apis")
@@ -126,7 +126,7 @@ async def create_api_config(req: CreateConfigRequest, project_id: str | None = Q
         raise HTTPException(422, detail=errors)
     parsed = parse(req.content)
     project = await _get_project_for_save(project_id)
-    result = await convex.mutation("configs:createApi", {
+    result = await local_store.mutation("configs:createApi", {
         **req.model_dump(),
         "parsedSpec": parsed,
         "sourceType": parsed.get("type", "api"),
@@ -147,7 +147,7 @@ async def create_api_config(req: CreateConfigRequest, project_id: str | None = Q
 
 @router.get("/apis/{slug}")
 async def get_api_config(slug: str):
-    result = await convex.query("configs:getApi", {"slug": slug})
+    result = await local_store.query("configs:getApi", {"slug": slug})
     if not result:
         raise HTTPException(404, detail=f"API config '{slug}' not found")
     return result
@@ -160,8 +160,8 @@ async def update_api_config(slug: str, req: CreateConfigRequest, project_id: str
         raise HTTPException(422, detail=errors)
     parsed = parse(req.content)
     project = await _get_project_for_save(project_id)
-    previous = await convex.query("configs:getApi", {"slug": slug})
-    result = await convex.mutation("configs:updateApi", {
+    previous = await local_store.query("configs:getApi", {"slug": slug})
+    result = await local_store.mutation("configs:updateApi", {
         "slug": slug,
         "content": req.content,
         "parsedSpec": parsed,
@@ -185,14 +185,14 @@ async def update_api_config(slug: str, req: CreateConfigRequest, project_id: str
 
 @router.delete("/apis/{slug}")
 async def delete_api_config(slug: str):
-    return await convex.mutation("configs:deleteApi", {"slug": slug})
+    return await local_store.mutation("configs:deleteApi", {"slug": slug})
 
 
 # ── Ontology configs ────────────────────────────────────────────────────────
 
 @router.get("/ontologies")
 async def list_ontology_configs():
-    return await convex.query("configs:listOntologies", {})
+    return await local_store.query("configs:listOntologies", {})
 
 
 @router.post("/ontologies")
@@ -202,7 +202,7 @@ async def create_ontology_config(req: CreateConfigRequest, project_id: str | Non
         raise HTTPException(422, detail=errors)
     parsed = parse(req.content)
     project = await _get_project_for_save(project_id)
-    result = await convex.mutation("configs:createOntology", {
+    result = await local_store.mutation("configs:createOntology", {
         "slug": req.slug,
         "name": req.name,
         "content": req.content,
@@ -226,7 +226,7 @@ async def create_ontology_config(req: CreateConfigRequest, project_id: str | Non
 
 @router.get("/ontologies/{slug}")
 async def get_ontology_config(slug: str):
-    result = await convex.query("configs:getOntology", {"slug": slug})
+    result = await local_store.query("configs:getOntology", {"slug": slug})
     if not result:
         raise HTTPException(404, detail=f"Ontology config '{slug}' not found")
     return result
@@ -239,8 +239,8 @@ async def update_ontology_config(slug: str, req: CreateConfigRequest, project_id
         raise HTTPException(422, detail=errors)
     parsed = parse(req.content)
     project = await _get_project_for_save(project_id)
-    previous = await convex.query("configs:getOntology", {"slug": slug})
-    result = await convex.mutation("configs:updateOntology", {
+    previous = await local_store.query("configs:getOntology", {"slug": slug})
+    result = await local_store.mutation("configs:updateOntology", {
         "slug": slug,
         "content": req.content,
         "parsedSpec": parsed,
@@ -263,25 +263,25 @@ async def update_ontology_config(slug: str, req: CreateConfigRequest, project_id
 
 @router.delete("/ontologies/{slug}")
 async def delete_ontology_config(slug: str):
-    return await convex.mutation("configs:deleteOntology", {"slug": slug})
+    return await local_store.mutation("configs:deleteOntology", {"slug": slug})
 
 
 # ── Pipeline configs ────────────────────────────────────────────────────────
 
 @router.get("/pipelines")
 async def list_pipeline_configs():
-    return await convex.query("configs:listPipelines", {})
+    return await local_store.query("configs:listPipelines", {})
 
 
 @router.post("/pipelines")
 async def create_pipeline_config(req: CreateConfigRequest, project_id: str | None = Query(None, alias="projectId")):
-    deep = await validate_stored_pipeline(convex, {"content": req.content})
+    deep = await validate_stored_pipeline(local_store, {"content": req.content})
     if deep:
         raise HTTPException(422, detail=deep)
     parsed = parse(req.content)
     api_slugs = list({step["api"] for step in parsed.get("steps", []) if "api" in step})
     project = await _get_project_for_save(project_id)
-    result = await convex.mutation("configs:createPipeline", {
+    result = await local_store.mutation("configs:createPipeline", {
         **req.model_dump(),
         "parsedSpec": parsed,
         "referencedApiSlugs": api_slugs,
@@ -302,7 +302,7 @@ async def create_pipeline_config(req: CreateConfigRequest, project_id: str | Non
 
 @router.get("/pipelines/{slug}")
 async def get_pipeline_config(slug: str):
-    result = await convex.query("configs:getPipeline", {"slug": slug})
+    result = await local_store.query("configs:getPipeline", {"slug": slug})
     if not result:
         raise HTTPException(404, detail=f"Pipeline config '{slug}' not found")
     return result
@@ -310,14 +310,14 @@ async def get_pipeline_config(slug: str):
 
 @router.put("/pipelines/{slug}")
 async def update_pipeline_config(slug: str, req: CreateConfigRequest, project_id: str | None = Query(None, alias="projectId")):
-    deep = await validate_stored_pipeline(convex, {"content": req.content})
+    deep = await validate_stored_pipeline(local_store, {"content": req.content})
     if deep:
         raise HTTPException(422, detail=deep)
     parsed = parse(req.content)
     api_slugs = list({step["api"] for step in parsed.get("steps", []) if "api" in step})
     project = await _get_project_for_save(project_id)
-    previous = await convex.query("configs:getPipeline", {"slug": slug})
-    result = await convex.mutation("configs:updatePipeline", {
+    previous = await local_store.query("configs:getPipeline", {"slug": slug})
+    result = await local_store.mutation("configs:updatePipeline", {
         "slug": slug,
         "content": req.content,
         "parsedSpec": parsed,
@@ -342,4 +342,4 @@ async def update_pipeline_config(slug: str, req: CreateConfigRequest, project_id
 
 @router.delete("/pipelines/{slug}")
 async def delete_pipeline_config(slug: str):
-    return await convex.mutation("configs:deletePipeline", {"slug": slug})
+    return await local_store.mutation("configs:deletePipeline", {"slug": slug})

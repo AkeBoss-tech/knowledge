@@ -11,7 +11,7 @@ from app.services import planner_runtime, planner_service, running_agent_service
 from app.services import goal_service
 from app.runners import session_lifecycle
 from app.services.audit_service import audit_gate_status
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.decision_service import list_decision_events, mark_decision_event, raise_decision_event
 from app.services.hydration_registry_service import get_hydration_status
 from app.services.integrity_service import evaluate_integrity_gate, summarize_agent_workflow_health
@@ -1793,7 +1793,7 @@ async def _mark_project_completed(project: dict[str, Any]) -> None:
         if any(root.is_dir() and any(root.glob("*.yaml")) for root in pipeline_roots):
             derived_status = "ready"
     try:
-        await convex.mutation(
+        await local_store.mutation(
             "projects:updateById",
             {
                 "projectId": project_id,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Detect or install optional agent / coding CLIs used with RAIL workers.
+# Detect or install optional agent / coding CLIs used with KRAIL workers.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,7 +32,7 @@ echo "  GitHub CLI      https://cli.github.com/"
 echo "  Cursor          https://cursor.com/download (desktop app; CLI optional)"
 echo "  GitHub Copilot  ships inside VS Code / JetBrains / Cursor — no standalone CLI"
 echo ""
-echo "RAIL platform:   $ROOT/scripts/install-rail.sh"
+echo "KRAIL platform:  $ROOT/scripts/install-rail.sh"
 echo ""
 
 if [[ "$OS" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then

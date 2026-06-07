@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from rail.bootstrap import bootstrap_future_project
 from rail.manifest import ManifestValidationError, load_manifest
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services import ontology_service, sql_service
 from app.services import hydration_worker
 from app.services.project_artifacts_service import find_latest_success_job_with_outputs
@@ -471,7 +471,7 @@ ALLOWED_REPRODUCIBILITY_MODES = {"deterministic", "manual", "non_reproducible"}
 ALLOWED_TASK_APPROVAL_STATES = {"pending", "granted"}
 ALLOWED_APPROVAL_STATUSES = {"pending", "granted", "rejected", "approved"}
 ALLOWED_APPROVAL_TYPES = {"run_task", "research_launch"}
-ALLOWED_TASK_RUNNERS = {"default", "jules", "claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"}
+ALLOWED_TASK_RUNNERS = {"default", "claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"}
 ALLOWED_TASK_PRIORITIES = {"high", "medium", "low"}
 ALLOWED_TASK_AGENT_ROLES = {"research", "data", "coding", "artifact", "health", "planner"}
 ALLOWED_PLANNER_MESSAGE_ROLES = {"user", "assistant", "system"} | ALLOWED_TASK_AGENT_ROLES
@@ -570,16 +570,16 @@ def _validate_planner_task_runner(runner: str | None) -> None:
     if runner not in {None, ""} and runner not in ALLOWED_TASK_RUNNERS:
         raise HTTPException(
             status_code=422,
-            detail="Planner task runner must be one of: default, jules, claude_code, gemini_cli, cursor_cli, codex_cli, copilot_cli.",
+            detail="Planner task runner must be one of: default, claude_code, gemini_cli, cursor_cli, codex_cli, copilot_cli.",
         )
 
 
 def _normalize_runner_name(runner: str | None) -> str:
-    normalized = str(runner or "jules").strip().lower()
+    normalized = str(runner or "codex_cli").strip().lower()
     if normalized not in ALLOWED_TASK_RUNNERS:
         raise HTTPException(
             status_code=422,
-            detail="Runner session runnerName must be one of: default, jules, claude_code, gemini_cli, cursor_cli, codex_cli, copilot_cli.",
+            detail="Runner session runnerName must be one of: default, claude_code, gemini_cli, cursor_cli, codex_cli, copilot_cli.",
         )
     return normalized
 
@@ -829,7 +829,7 @@ def _csv_query_param(value: str | None) -> list[str] | None:
     return parsed or None
 
 
-# Catalog projects are now managed in Convex.
+# Catalog projects are now managed in local store.
 
 
 def _projects_base_dir() -> Path:
@@ -838,7 +838,7 @@ def _projects_base_dir() -> Path:
 
 
 async def _known_project(slug: str) -> dict | None:
-    return await convex.query("projects:getBySlug", {"slug": slug})
+    return await local_store.query("projects:getBySlug", {"slug": slug})
 
 
 def _manifest_metadata(root: Path, fallback: dict) -> dict:
@@ -863,7 +863,7 @@ def _manifest_metadata(root: Path, fallback: dict) -> dict:
 async def _upsert_known_project_record(defn: dict, root: Path) -> dict:
     metadata = _manifest_metadata(root, defn)
     slug = metadata.get("slug") or defn["slug"]
-    existing = await convex.query("projects:getBySlug", {"slug": slug})
+    existing = await local_store.query("projects:getBySlug", {"slug": slug})
     payload = {
         "name": metadata.get("name") or defn["name"],
         "slug": slug,
@@ -877,16 +877,16 @@ async def _upsert_known_project_record(defn: dict, root: Path) -> dict:
     if metadata.get("pipelineConfigSlug"):
         payload["pipelineConfigSlug"] = metadata["pipelineConfigSlug"]
     if existing:
-        await convex.mutation(
+        await local_store.mutation(
             "projects:updateById",
             {
                 "projectId": existing["_id"],
                 **{key: value for key, value in payload.items() if key != "slug"},
             },
         )
-        return await convex.query("projects:getBySlug", {"slug": slug}) or {**existing, **payload}
-    project_id = await convex.mutation("projects:create", payload)
-    return await convex.query("projects:getById", {"projectId": project_id}) or {**payload, "_id": project_id}
+        return await local_store.query("projects:getBySlug", {"slug": slug}) or {**existing, **payload}
+    project_id = await local_store.mutation("projects:create", payload)
+    return await local_store.query("projects:getById", {"projectId": project_id}) or {**payload, "_id": project_id}
 
 
 async def _catalog_row(project: dict) -> dict:
@@ -1190,7 +1190,7 @@ async def create_project(data: CreateProjectRequest):
             "object_properties": []
         }
         for template_slug in ontology_templates:
-            tpl = await convex.query("ontologyTemplates:getBySlug", {"slug": template_slug})
+            tpl = await local_store.query("ontologyTemplates:getBySlug", {"slug": template_slug})
             if tpl and tpl.get("content"):
                 tpl_content = yaml.safe_load(tpl["content"])
                 merged_onto["classes"].extend(tpl_content.get("classes", []))
@@ -1199,7 +1199,7 @@ async def create_project(data: CreateProjectRequest):
 
         # Create as the project's initial ontologyConfig
         config_slug = f"{data.slug}-ontology"
-        await convex.mutation("configs:createOntology", {
+        await local_store.mutation("configs:createOntology", {
             "name": f"{data.name} Ontology",
             "slug": config_slug,
             "content": yaml.dump(merged_onto),
@@ -1238,13 +1238,13 @@ async def create_project(data: CreateProjectRequest):
                 detail=f"Automatic GitHub bootstrap failed: {exc}",
             )
 
-    project_id = await convex.mutation("projects:create", project_data)
-    return await convex.query("projects:getBySlug", {"slug": data.slug})
+    project_id = await local_store.mutation("projects:create", project_data)
+    return await local_store.query("projects:getBySlug", {"slug": data.slug})
 
 
 @router.get("")
 async def list_projects_catalog():
-    projects = _dedupe_projects_for_catalog(await convex.query("projects:list", {}) or [])
+    projects = _dedupe_projects_for_catalog(await local_store.query("projects:list", {}) or [])
     rows = []
     for project in projects:
         try:
@@ -1340,7 +1340,7 @@ async def bootstrap_future_project_route(data: BootstrapFutureProjectRequest):
         default_branch=data.defaultBranch,
         message="chore: initial future RAIL project scaffold",
     )
-    project_id = await convex.mutation(
+    project_id = await local_store.mutation(
         "projects:create",
         {
             "name": data.name,
@@ -1354,7 +1354,7 @@ async def bootstrap_future_project_route(data: BootstrapFutureProjectRequest):
             "defaultBranch": data.defaultBranch,
         },
     )
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     if not project:
         raise HTTPException(status_code=404, detail="Project could not be loaded after bootstrap")
     await planner_service.ensure_planner_thread(project_id)
@@ -1366,7 +1366,7 @@ async def bootstrap_future_project_route(data: BootstrapFutureProjectRequest):
         message_type="system",
     )
     await planner_service.sync_planner_files(project, board)
-    return await convex.query("projects:getById", {"projectId": project_id})
+    return await local_store.query("projects:getById", {"projectId": project_id})
 
 
 @router.post("/from-brief/preview")
@@ -1384,7 +1384,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
     preview = await build_preview(data.brief, model=data.model)
     project_meta = preview["project"]
     slug = project_meta["slug"]
-    existing = await convex.query("projects:getBySlug", {"slug": slug})
+    existing = await local_store.query("projects:getBySlug", {"slug": slug})
     if existing:
         raise HTTPException(409, f"Project '{slug}' already exists")
 
@@ -1406,7 +1406,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
             status_code=502,
             detail=f"GitHub repo creation failed: {exc}. Check that the GitHub App has 'administration: write' permission on the org.",
         )
-    project_id = await convex.mutation(
+    project_id = await local_store.mutation(
         "projects:create",
         {
             "name": project_meta["name"],
@@ -1425,7 +1425,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
     created_source_slugs: list[str] = []
     for source in ready_or_draft_sources:
         parsed_source = yaml.safe_load(source["content"]) or {}
-        await convex.mutation(
+        await local_store.mutation(
             "configs:createApi",
             {
                 "name": source["name"],
@@ -1439,7 +1439,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
         )
         created_source_slugs.append(source["slug"])
 
-    await convex.mutation(
+    await local_store.mutation(
         "configs:createOntology",
         {
             "name": ontology["name"],
@@ -1450,7 +1450,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
             "isPublic": False,
         },
     )
-    await convex.mutation(
+    await local_store.mutation(
         "configs:createPipeline",
         {
             "name": pipeline["name"],
@@ -1463,7 +1463,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
         },
     )
 
-    await convex.mutation(
+    await local_store.mutation(
         "projects:updateById",
         {
             "projectId": project_id,
@@ -1476,7 +1476,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
         },
     )
 
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     if not project:
         raise HTTPException(status_code=404, detail="Project could not be loaded after creation")
     rail_path = repo_root / "rail.yaml"
@@ -1532,7 +1532,7 @@ async def create_project_from_brief(data: CreateProjectFromBriefRequest):
         except Exception as exc:
             await record_publish_failure(project_id, str(exc))
 
-    updated = await convex.query("projects:getById", {"projectId": project_id})
+    updated = await local_store.query("projects:getById", {"projectId": project_id})
     return {
         "project": updated,
         "preview": preview,
@@ -1549,37 +1549,37 @@ async def register_artifacts_from_job(
     body: RegisterArtifactsBody | None = Body(None),
 ):
     """
-    Copy ontology artifact paths from a successful hydration job onto the Convex project.
+    Copy ontology artifact paths from a successful hydration job onto the local store project.
 
     Use when hydration finished but the project doc was never updated (428 Sync Required).
     Defaults to the latest successful job for this project that has outputDbPath.
     Optional JSON body: {"output_db_path": "/abs/path/onto.db", "output_owl_path": "..."} to set paths without job lookup.
     """
-    project = await convex.query("projects:getBySlug", {"slug": slug})
+    project = await local_store.query("projects:getBySlug", {"slug": slug})
     if not project:
         raise HTTPException(404, "Project not found")
 
     job: dict | None = None
     db_key: str | None = None
     owl_key: str | None = None
-    last_job_convex_id: str | None = None
+    last_job_store_id: str | None = None
 
     if body and body.output_db_path:
         db_key = body.output_db_path.strip()
         owl_key = body.output_owl_path
         if job_id:
-            j = await convex.query("jobs:get", {"jobId": job_id})
+            j = await local_store.query("jobs:get", {"jobId": job_id})
             if j:
-                last_job_convex_id = j["_id"]
+                last_job_store_id = j["_id"]
     elif job_id:
-        job = await convex.query("jobs:get", {"jobId": job_id})
+        job = await local_store.query("jobs:get", {"jobId": job_id})
         if not job:
             raise HTTPException(404, "Job not found")
         if job.get("status") not in ("success", "completed"):
             raise HTTPException(400, "Job is not in success status")
         db_key = job.get("outputDbPath")
         owl_key = job.get("outputOwlPath")
-        last_job_convex_id = job["_id"]
+        last_job_store_id = job["_id"]
     else:
         job = await find_latest_success_job_with_outputs(project)
         if not job:
@@ -1591,7 +1591,7 @@ async def register_artifacts_from_job(
             )
         db_key = job.get("outputDbPath")
         owl_key = job.get("outputOwlPath")
-        last_job_convex_id = job["_id"]
+        last_job_store_id = job["_id"]
 
     if not db_key:
         raise HTTPException(400, "Job has no outputDbPath stored")
@@ -1610,12 +1610,12 @@ async def register_artifacts_from_job(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    if last_job_convex_id is not None:
-        await convex.mutation(
+    if last_job_store_id is not None:
+        await local_store.mutation(
             "projects:updateById",
             {
                 "projectId": project["_id"],
-                "lastJobId": last_job_convex_id,
+                "lastJobId": last_job_store_id,
             },
         )
 
@@ -1635,7 +1635,7 @@ async def register_artifacts_from_job(
 
     return {
         "ok": True,
-        "jobId": last_job_convex_id,
+        "jobId": last_job_store_id,
         "activeOntologyDbPath": db_key,
         "activeOntologyDuckdbPath": duckdb_path,
     }
@@ -1645,19 +1645,19 @@ async def register_artifacts_from_job(
 async def clear_hydration(slug: str):
     """
     Clear the active ontology artifact paths and reset the project status to 'ready'.
-    The artifact files on disk are NOT deleted — only the Convex project record is patched.
+    The artifact files on disk are NOT deleted — only the local store project record is patched.
     """
-    project = await convex.query("projects:getBySlug", {"slug": slug})
+    project = await local_store.query("projects:getBySlug", {"slug": slug})
     if not project:
         raise HTTPException(404, "Project not found")
 
-    await convex.mutation("projects:clearHydration", {"projectId": project["_id"]})
+    await local_store.mutation("projects:clearHydration", {"projectId": project["_id"]})
     return {"ok": True, "slug": slug, "status": "ready"}
 
 
 @router.post("/{slug}/sync-metadata")
 async def sync_project_metadata(slug: str, data: ProjectMetadataSyncRequest):
-    project = await convex.query("projects:getBySlug", {"slug": slug})
+    project = await local_store.query("projects:getBySlug", {"slug": slug})
     if not project:
         raise HTTPException(404, "Project not found")
 
@@ -1667,11 +1667,11 @@ async def sync_project_metadata(slug: str, data: ProjectMetadataSyncRequest):
         if inferred_repo:
             patch["github"] = inferred_repo
 
-    await convex.mutation("projects:updateById", {
+    await local_store.mutation("projects:updateById", {
         "projectId": project["_id"],
         **patch,
     })
-    updated = await convex.query("projects:getById", {"projectId": project["_id"]})
+    updated = await local_store.query("projects:getById", {"projectId": project["_id"]})
 
     publish_result = None
     should_publish_manifest = any(field in patch for field in MANIFEST_BACKED_FIELDS)
@@ -1691,7 +1691,7 @@ async def sync_project_metadata(slug: str, data: ProjectMetadataSyncRequest):
 async def get_project_context(slug: str):
     """Returns a structured context snapshot for agent initialization."""
     print(f"  [context] resolving for slug={slug}")
-    project = await convex.query("projects:getBySlug", {"slug": slug})
+    project = await local_store.query("projects:getBySlug", {"slug": slug})
     if not project:
         raise HTTPException(404, "Project not found")
 
@@ -1726,11 +1726,11 @@ async def get_project_context(slug: str):
             print(f"  [context] ontology load failed for {slug}: {e}")
             pass
 
-    # Fetch data sources (Convex + Local Fallback)
+    # Fetch data sources (local store + Local Fallback)
     api_slugs = project.get("apiConfigSlugs", [])
     found_slugs = set()
     for slug_s in api_slugs:
-        cfg = await convex.query("configs:getApiBySlug", {"slug": slug_s})
+        cfg = await local_store.query("configs:getApiBySlug", {"slug": slug_s})
         if cfg:
             context["data_sources"].append({"slug": cfg["slug"], "name": cfg["name"]})
             found_slugs.add(slug_s)
@@ -1749,10 +1749,10 @@ async def get_project_context(slug: str):
                         context["data_sources"].append({"slug": yml.stem, "name": cfg["name"]})
             except Exception: pass
 
-    # Fetch pipeline info (Convex + Local Fallback)
+    # Fetch pipeline info (local store + Local Fallback)
     pipeline_slug = project.get("pipelineConfigSlug")
     if pipeline_slug:
-        pipeline = await convex.query("configs:getPipelineBySlug", {"slug": pipeline_slug})
+        pipeline = await local_store.query("configs:getPipelineBySlug", {"slug": pipeline_slug})
         if pipeline:
             context["pipelines"].append({"slug": pipeline["slug"], "name": pipeline["name"]})
         else:
@@ -2679,7 +2679,7 @@ async def heartbeat_project_device(slug: str, data: DeviceHeartbeatRequest):
         "hostname": data.hostname or metadata["hostname"],
         "platform": data.platform or metadata["platform"],
     }
-    device_row_id = await convex.mutation("devices:heartbeat", payload)
+    device_row_id = await local_store.mutation("devices:heartbeat", payload)
     return {"projectId": project["_id"], "device": {**payload, "rowId": device_row_id}}
 
 
@@ -2727,8 +2727,8 @@ async def rerun_project_hydration(
 
     pipeline_slug = _configured_pipeline_slug(project, project_root, data.pipelineSlug)
     
-    # Try to find a registered pipeline in Convex first to get a valid ID
-    pipeline_record = await convex.query("configs:getPipeline", {"slug": pipeline_slug})
+    # Try to find a registered pipeline in local store first to get a valid ID
+    pipeline_record = await local_store.query("configs:getPipeline", {"slug": pipeline_slug})
     pipeline_id = pipeline_record["_id"] if pipeline_record else None
 
     local_configs = _local_hydration_configs(project_root, pipeline_slug)
@@ -2739,7 +2739,7 @@ async def rerun_project_hydration(
         # If no registered ID, we must use a fallback format that the database accepts
         effective_pipeline_id = pipeline_id or f"local_{pipeline_slug}"
         
-        mutation_result = await convex.mutation(
+        mutation_result = await local_store.mutation(
             "jobs:create",
             {
                 "pipelineConfigId": effective_pipeline_id,
@@ -2754,7 +2754,7 @@ async def rerun_project_hydration(
         )
         job_id = mutation_result.get("jobId") if isinstance(mutation_result, dict) else None
         if not job_id:
-            raise HTTPException(500, f"Convex jobs:create did not return a jobId (got {mutation_result!r})")
+            raise HTTPException(500, f"local store jobs:create did not return a jobId (got {mutation_result!r})")
         background_tasks.add_task(hydration_worker.run, job_id, pipeline_content, api_configs, onto_configs)
         result = {"jobId": job_id, "status": "queued", "source": "project_repo"}
     else:
@@ -2808,8 +2808,8 @@ async def run_project_data_pipeline(
 @router.get("/{slug}/settings/secrets")
 async def list_project_secrets(slug: str):
     project = await planner_service.get_project_by_slug(slug)
-    secrets = await convex.query("projectSecrets:listByProject", {"projectId": project["_id"]}) or []
-    policies = await convex.query("agentSecretPolicies:listByProject", {"projectId": project["_id"]}) or []
+    secrets = await local_store.query("projectSecrets:listByProject", {"projectId": project["_id"]}) or []
+    policies = await local_store.query("agentSecretPolicies:listByProject", {"projectId": project["_id"]}) or []
     normalized_policies = [
         dict(policy)
         | {
@@ -2844,7 +2844,7 @@ async def list_project_secrets(slug: str):
 async def upsert_project_secret(slug: str, data: ProjectSecretUpsertRequest):
     project = await planner_service.get_project_by_slug(slug)
     encrypted = encrypt_secret_value(data.plaintextValue)
-    secret_id = await convex.mutation(
+    secret_id = await local_store.mutation(
         "projectSecrets:upsert",
         {
             "projectId": project["_id"],
@@ -2858,7 +2858,7 @@ async def upsert_project_secret(slug: str, data: ProjectSecretUpsertRequest):
 @router.get("/{slug}/settings/agent-secret-policies")
 async def list_agent_secret_policies(slug: str):
     project = await planner_service.get_project_by_slug(slug)
-    policies = await convex.query("agentSecretPolicies:listByProject", {"projectId": project["_id"]}) or []
+    policies = await local_store.query("agentSecretPolicies:listByProject", {"projectId": project["_id"]}) or []
     normalized_policies = [
         dict(policy)
         | {
@@ -2876,7 +2876,7 @@ async def list_agent_secret_policies(slug: str):
 async def upsert_agent_secret_policy(slug: str, data: AgentSecretPolicyUpsertRequest):
     project = await planner_service.get_project_by_slug(slug)
     agent_role = _normalize_agent_role(data.agentRole, field_name="Agent secret policy role")
-    policy_id = await convex.mutation(
+    policy_id = await local_store.mutation(
         "agentSecretPolicies:upsert",
         {
             "projectId": project["_id"],
@@ -2890,7 +2890,7 @@ async def upsert_agent_secret_policy(slug: str, data: AgentSecretPolicyUpsertReq
 @router.delete("/{slug}/settings/secrets/{key_name}")
 async def delete_project_secret(slug: str, key_name: str):
     project = await planner_service.get_project_by_slug(slug)
-    await convex.mutation(
+    await local_store.mutation(
         "projectSecrets:deleteByKey",
         {"projectId": project["_id"], "keyName": key_name},
     )
@@ -2901,7 +2901,7 @@ async def delete_project_secret(slug: str, key_name: str):
 async def delete_agent_secret_policy(slug: str, agent_role: str):
     project = await planner_service.get_project_by_slug(slug)
     normalized_role = _normalize_agent_role(agent_role, field_name="Agent secret policy role")
-    await convex.mutation(
+    await local_store.mutation(
         "agentSecretPolicies:deleteByRole",
         {"projectId": project["_id"], "agentRole": normalized_role},
     )
@@ -3071,7 +3071,7 @@ async def create_project_runner_session(
     # Start polling in background
     background_tasks.add_task(
         session_lifecycle.poll_session_until_done,
-        result["convex_session_id"],
+        result["store_session_id"],
         project_id=project["_id"],
     )
 
@@ -3137,7 +3137,7 @@ async def get_project_runner_session_files(slug: str, session_id: str):
 @router.get("/{slug}/runner/sessions/{session_id}/detail")
 async def get_project_runner_session_detail(slug: str, session_id: str):
     """
-    Rich, frontend-ready session detail object.
+    Rich session detail object for API clients.
 
     Returns all four agent-observability layers from the command-center spec:
       Layer 1 – executive summary (currentFocus, status, workspaceBranch, ...)
@@ -3146,7 +3146,7 @@ async def get_project_runner_session_detail(slug: str, session_id: str):
       Layer 4 – commands and messages (recentCommands, recentMessages, ...)
 
     Also includes inline review-file content (summary, diff, todos,
-    verification) so the frontend does not need a separate file-read call for
+    verification) so clients do not need a separate file-read call for
     the most common detail views.
     """
     from app.services.session_detail_service import build_session_detail
@@ -3183,11 +3183,11 @@ async def get_project_repo_file(slug: str, path: str):
     """
     Read a file from the project's local Git repository by repo-relative path.
 
-    Used by the frontend repo browser and deep-linked review files
+    Used by API clients and deep-linked review files
     (research_plan/current_plan.md, task_board.md, sessions/**/summary.md, etc.)
 
     Returns the file content as a string plus metadata about the file type
-    so the frontend can choose the right renderer (markdown, yaml, json, text).
+    so clients can choose the right renderer (markdown, yaml, json, text).
 
     Raises 404 for missing files and 400 for path-traversal attempts.
     """

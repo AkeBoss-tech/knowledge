@@ -228,13 +228,6 @@ def default_manifest(project: dict[str, Any]) -> dict[str, Any]:
             "nonconcurrent_run": True,
             "checkpoint_mode": "git-ref",
         },
-        "frontend": {
-            "topic_index_mode": "filesystem",
-            "artifact_index_mode": "filesystem",
-            "show_repo_tree": True,
-            "show_task_board_snapshot": True,
-            "default_home_view": "project_home",
-        },
     }
 
 

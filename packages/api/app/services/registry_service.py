@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 
 RegistryEntry = dict[str, object]
@@ -243,7 +243,7 @@ def _normalize_custom_entry(entry: dict) -> RegistryEntry:
 
 async def list_custom_entries(limit: int = 200) -> list[RegistryEntry]:
     try:
-        results = await convex.query("registry:list", {"limit": limit})
+        results = await local_store.query("registry:list", {"limit": limit})
     except Exception:
         return []
     return [_normalize_custom_entry(item) for item in (results or [])]
@@ -263,12 +263,12 @@ async def create_registry_entry(entry: RegistryEntry) -> dict:
         "exampleYaml": str(entry["exampleYaml"]),
         "updatedAt": int(updated_at) if updated_at is not None else None,
     }
-    await convex.mutation("registry:create", payload)
+    await local_store.mutation("registry:create", payload)
     return payload | {"id": payload["sourceId"], "updatedAt": payload["updatedAt"] or 0}
 
 
 async def get_registry_entry(provider: str, source_id: str) -> RegistryEntry | None:
-    custom = await convex.query("registry:get", {"provider": provider, "sourceId": source_id})
+    custom = await local_store.query("registry:get", {"provider": provider, "sourceId": source_id})
     if custom:
         return _normalize_custom_entry(custom)
 

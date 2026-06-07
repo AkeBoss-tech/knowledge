@@ -1,5 +1,5 @@
 """
-RAIL MCP Server — exposes the RAIL platform as MCP tools for AI agents.
+KRAIL MCP Server — exposes the local knowledge runtime as MCP tools for AI agents.
 
 Configuration via environment variables:
   RAIL_PROJECT   Project slug (required unless --local)
@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 import rail
 
-mcp = FastMCP("RAIL Platform")
+mcp = FastMCP("KRAIL")
 
 # ---------------------------------------------------------------------------
 # Lazy project singleton — resolved on first tool call
@@ -91,6 +91,65 @@ def search_entities(query: str) -> str:
         query: Search term (e.g. "Middlesex County unemployment").
     """
     return _json(_get_project().search(query))
+
+
+@mcp.tool()
+def search(query: str, limit: int = 10, explain: bool = False) -> str:
+    """
+    Search local project evidence. Returns ranked records, not synthesis.
+
+    Args:
+        query: Search query.
+        limit: Maximum number of hits.
+        explain: Include ranking-signal notes when available.
+    """
+    project = _get_project()
+    if hasattr(project._backend, "knowledge"):
+        return _json(project._backend.knowledge.search(query, limit=limit, explain=explain))
+    return _json({"query": query, "hits": project.search(query)[:limit]})
+
+
+@mcp.tool()
+def think(query: str, limit: int = 5) -> str:
+    """
+    Synthesize from retrieved project evidence with explicit gaps and conflicts.
+
+    Args:
+        query: Question to answer from the project knowledge base.
+        limit: Maximum evidence records to include.
+    """
+    return _json(_get_project().think(query, limit=limit))
+
+
+@mcp.tool()
+def capture(text: str = "", file_path: str = "", url: str = "", type: str = "note", workflow: str = "") -> str:
+    """
+    Capture a note, local file, or URL into the local project's topics/inbox.
+
+    This is local-write only. Remote deployments should expose a narrower
+    propose/candidate flow before allowing writes.
+    """
+    return _json(
+        _get_project().capture(
+            text,
+            file_path=file_path or None,
+            url=url or None,
+            kind=type,
+            workflow=workflow or None,
+        )
+    )
+
+
+@mcp.tool()
+def doctor() -> str:
+    """Check local project health: manifest, core paths, active pack, and capture inbox."""
+    return _json(_get_project().doctor())
+
+
+@mcp.tool()
+def pack_active() -> str:
+    """Return the active knowledge pack for this local project, if one is configured."""
+    return _json(_get_project().pack("active"))
 
 
 @mcp.tool()

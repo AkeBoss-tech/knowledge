@@ -333,7 +333,7 @@ async def run_data_agent(
     Run one Gemini data agent in an agentic loop with tools.
 
     Args:
-        project:       Convex project record (must have localRepoPath)
+        project:       local store project record (must have localRepoPath)
         task:          What the agent should accomplish
         extra_context: Extra info to prepend to the prompt
 

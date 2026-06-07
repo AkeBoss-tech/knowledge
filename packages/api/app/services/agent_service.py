@@ -18,7 +18,7 @@ from app.core.config import settings
 # System prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are an AI research assistant for RAIL (Rutgers Agentic Intelligence Labs).
+SYSTEM_PROMPT = """You are an AI research assistant for KRAIL.
 RAIL is a platform for building and querying economic knowledge graphs from structured data sources.
 
 You can autonomously help researchers by:
@@ -405,7 +405,7 @@ async def _execute_tool(
 
     elif name == "run_sql":
         from app.services import sql_service
-        from app.services.convex_client import convex
+        from app.services.local_store import local_store
 
         duck = await _resolve_duckdb_path(project_slug=project_slug, project_id=project_id)
         if not duck:
@@ -417,7 +417,7 @@ async def _execute_tool(
             }
 
         # Create a job for the agent's SQL query
-        job_result = await convex.mutation("executions:create", {
+        job_result = await local_store.mutation("executions:create", {
             "type": "sql",
             "input": args["query"],
             "triggeredBy": "agent",
@@ -426,7 +426,7 @@ async def _execute_tool(
         job_id = job_result["jobId"]
 
         try:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "running",
                 "startedAt": int(time.time() * 1000)
@@ -439,7 +439,7 @@ async def _execute_tool(
                 lambda q=args["query"], d=duck: sql_service.run_query(q, duckdb_path=d),
             )
 
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "success",
                 "finishedAt": int(time.time() * 1000),
@@ -447,7 +447,7 @@ async def _execute_tool(
             })
             return res
         except Exception as e:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "failed",
                 "finishedAt": int(time.time() * 1000),
@@ -515,7 +515,7 @@ async def _execute_tool(
 
     elif name == "execute_python":
         from app.services import subprocess_code_runner
-        from app.services.convex_client import convex
+        from app.services.local_store import local_store
         from app.services.execution_manager import execution_manager
         import asyncio
 
@@ -534,7 +534,7 @@ async def _execute_tool(
             }
 
         # Create a job for the agent's Python code
-        job_result = await convex.mutation("executions:create", {
+        job_result = await local_store.mutation("executions:create", {
             "type": "code",
             "input": args["code"],
             "triggeredBy": "agent",

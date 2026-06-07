@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import AsyncGenerator, List, Tuple
 
 from app.core.config import settings
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.execution_manager import execution_manager
 
 logger = logging.getLogger("rail.subprocess_code")
@@ -83,7 +83,7 @@ async def _stream_output(
     output_accumulator: List[str],
     seq_counter: List[int],
 ):
-    """Read lines from a stream and push to Convex logs."""
+    """Read lines from a stream and push to local store logs."""
     while True:
         line_b = await stream.readline()
         if not line_b:
@@ -91,9 +91,9 @@ async def _stream_output(
         line = line_b.decode(errors="replace")
         output_accumulator.append(line)
         
-        # Push to Convex
+        # Push to local store
         try:
-            await convex.mutation("jobs:appendLog", {
+            await local_store.mutation("jobs:appendLog", {
                 "jobId": job_id,
                 "seq": seq_counter[0],
                 "level": level,
@@ -102,7 +102,7 @@ async def _stream_output(
             })
             seq_counter[0] += 1
         except Exception as e:
-            logger.error(f"Failed to push log to Convex: {e}")
+            logger.error(f"Failed to push log to local store: {e}")
 
 async def run_user_code(
     code: str,
@@ -175,7 +175,7 @@ async def run_user_code(
         logger.info("subprocess execute: %s (cwd=%s docker=%s job=%s)", cmd, cwd, use_docker, job_id)
 
         if job_id:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "running",
                 "startedAt": int(time.time() * 1000)
@@ -213,7 +213,7 @@ async def run_user_code(
             await proc.wait()
             error_msg = f"Execution timed out after {timeout_seconds}s"
             if job_id:
-                await convex.mutation("executions:updateStatus", {
+                await local_store.mutation("executions:updateStatus", {
                     "jobId": job_id,
                     "status": "failed",
                     "finishedAt": int(time.time() * 1000),
@@ -269,7 +269,7 @@ async def run_user_code(
             result["artifacts"] = uploaded
 
         if job_id:
-            await convex.mutation("executions:updateStatus", {
+            await local_store.mutation("executions:updateStatus", {
                 "jobId": job_id,
                 "status": "success" if not result.get("error") else "failed",
                 "finishedAt": int(time.time() * 1000),

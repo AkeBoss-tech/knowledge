@@ -821,7 +821,7 @@ async def _execute_planner_tool_inner(project: dict[str, Any], name: str, args: 
             status="running",
             runner=selected_runner,
             approval_state="granted",
-            latestRunSummary=f"Session {result['convex_session_id']} started with {selected_runner}",
+            latestRunSummary=f"Session {result['store_session_id']} started with {selected_runner}",
         )
         await planner_service.sync_planner_files(project, board)
         return result

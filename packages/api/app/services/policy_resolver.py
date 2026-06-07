@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class RunnerPolicy(BaseModel):
-    default: str = "jules"
+    default: str = "codex_cli"
     approval_required: bool = True
     max_retries: Optional[int] = None
     timeout_minutes: Optional[int] = None
@@ -38,7 +38,7 @@ def resolve_runner_policy(runner: dict | None) -> RunnerPolicy:
     if not runner:
         return RunnerPolicy()
     return RunnerPolicy(
-        default=runner.get("default") or "jules",
+        default=runner.get("default") or "codex_cli",
         approval_required=runner.get("approval_required", True),
         max_retries=runner.get("max_retries"),
         timeout_minutes=runner.get("timeout_minutes"),

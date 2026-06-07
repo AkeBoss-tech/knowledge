@@ -38,7 +38,7 @@ from app.services.audit_service import write_post_run_audit
 from app.services.integrity_service import get_integrity_repo
 from app.services import planner_service, running_agent_service, session_files
 from app.services.autonomy_policy import activity_key_for_role, evaluate_autonomy_policy
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 from app.services.decision_service import raise_decision_event
 from app.services import hydration_registry_service, project_artifacts_service
 from app.services.integrity_service import evaluate_integrity_gate, summarize_agent_workflow_health
@@ -305,46 +305,12 @@ ARTIFACT_SUFFIXES = {".md", ".pdf", ".png", ".svg", ".jpg", ".jpeg", ".html", ".
 SCRIPT_LINEAGE_SUFFIXES = {".py", ".sh", ".sql", ".ipynb", ".r", ".js", ".ts", ".tsx", ".jsx"}
 _VERIFICATION_PATH_RE = re.compile(r"([A-Za-z0-9_./\\-]+\.(?:ya?ml|csv|tsv|jsonl?|parquet|xlsx?|md|pdf|png|svg|jpe?g|html?|py|sh))")
 LOCAL_CLI_RUNNERS = {"claude_code", "codex_cli", "gemini_cli", "cursor_cli", "copilot_cli"}
-ALLOWED_RUNNER_NAMES = LOCAL_CLI_RUNNERS | {"default", "jules"}
+DEFAULT_LOCAL_RUNNER = "codex_cli"
+ALLOWED_RUNNER_NAMES = LOCAL_CLI_RUNNERS | {"default"}
 INTERNAL_WORKFLOW_DATASET_PATHS = {"ontology/.rail_hydration.json"}
 
 
-async def resolve_jules_api_key(project_id: str | None, agent_role: str = "data") -> str:
-    from app.core.config import settings
-
-    if project_id:
-        try:
-            from app.services.secret_service import resolve_secrets_for_role
-
-            secrets = await resolve_secrets_for_role(project_id, agent_role)
-            project_key = secrets.get("JULES_API_KEY") or ""
-            if project_key:
-                return project_key
-        except Exception:
-            pass
-
-    global_key = (settings.jules_api_key or "").strip()
-    if not global_key:
-        raise RuntimeError(
-            "No Jules API key available. Set JULES_API_KEY in the environment "
-            "or store it as a project secret named 'JULES_API_KEY'."
-        )
-    return global_key
-
-
-def resolve_runner_for_project(runner_name: str = "jules", *, api_key: str | None = None, source: str | None = None) -> Any:
-    if runner_name == "jules":
-        from app.core.config import settings
-        from app.runners.jules import JulesRunner
-
-        if not api_key:
-            raise RuntimeError("Jules runner requires an API key")
-        return JulesRunner(
-            api_key=api_key,
-            api_url=settings.jules_api_url,
-            source=source or settings.jules_source,
-        )
-
+def resolve_runner_for_project(runner_name: str = DEFAULT_LOCAL_RUNNER) -> Any:
     return RunnerFactory.get(runner_name)
 
 
@@ -373,7 +339,7 @@ def _normalize_runner_name_for_project(
             if normalized_manifest not in ALLOWED_RUNNER_NAMES - {"default"}:
                 raise ValueError(f"Unsupported default runner in manifest: {manifest_name}")
             return normalized_manifest
-    return "jules"
+    return DEFAULT_LOCAL_RUNNER
 
 
 def _project_root(project_record: dict[str, Any]) -> Path | None:
@@ -1259,7 +1225,7 @@ async def _ensure_workspace_rail_cli(project_root: Path, workspace_root: Path) -
             "pip",
             "install",
             "--quiet",
-            "git+https://github.com/Rutgers-Economics-Labs/RutgersAgenticIntelligenceLabs.git#subdirectory=packages/rail-py",
+            "git+https://github.com/AkeBoss-tech/knowledge.git#subdirectory=packages/rail-py",
         ],
         cwd=workspace_root,
     )
@@ -1356,7 +1322,7 @@ async def _repair_stale_running_agents_for_project(
 
 async def _ingest_local_cli_runner_events(
     *,
-    convex_session_id: str,
+    store_session_id: str,
     session: dict[str, Any],
     root: Path,
 ) -> dict[str, Any]:
@@ -1367,7 +1333,7 @@ async def _ingest_local_cli_runner_events(
     if not isinstance(runner, LocalCLIRunner):
         raise RuntimeError(f"Runner {runner_name} is not a local CLI runner")
 
-    external_id = session.get("externalSessionId") or state.get("external_session_id") or convex_session_id
+    external_id = session.get("externalSessionId") or state.get("external_session_id") or store_session_id
     stdout_offset = int(state.get("runner_stdout_offset") or 0)
     stderr_offset = int(state.get("runner_stderr_offset") or 0)
     new_stdout_offset, stdout_lines = _read_log_delta(runtime["stdout"], stdout_offset)
@@ -1390,7 +1356,7 @@ async def _ingest_local_cli_runner_events(
             runner_event_type=progress.event_type.value,
             debug_visibility=progress.debug_visibility,
         )
-        await _relay_runner_event(convex_session_id, session, progress)
+        await _relay_runner_event(store_session_id, session, progress)
         for event in runner._derived_events_from_stdout_line(str(external_id), text):
             file_event_type = EVENT_TYPE_MAP.get(event.event_type.value, "status_changed")
             payload = _event_payload(event)
@@ -1404,7 +1370,7 @@ async def _ingest_local_cli_runner_events(
                     session_files.update_state(root, review_status="review")
                 elif status in {"failed", "cancelled"}:
                     session_files.update_state(root, review_status="needs_changes")
-            await _relay_runner_event(convex_session_id, session, event)
+            await _relay_runner_event(store_session_id, session, event)
 
     for text in stderr_lines:
         progress = RunnerEvent(
@@ -1423,7 +1389,7 @@ async def _ingest_local_cli_runner_events(
             runner_event_type=progress.event_type.value,
             debug_visibility=progress.debug_visibility,
         )
-        await _relay_runner_event(convex_session_id, session, progress)
+        await _relay_runner_event(store_session_id, session, progress)
 
     session_files.update_state(
         root,
@@ -1461,7 +1427,7 @@ async def _ingest_local_cli_runner_events(
                     if runtime["pid"].exists()
                     else None,
                 )
-            await _relay_runner_event(convex_session_id, session, event)
+            await _relay_runner_event(store_session_id, session, event)
         state = session_files.read_state(root)
 
     pid = None
@@ -1992,10 +1958,10 @@ async def _run_workspace_verification(
     )
 
 
-async def archive_session_workspace(convex_session_id: str) -> dict[str, Any]:
-    session = await running_agent_service.get_running_agent(convex_session_id)
+async def archive_session_workspace(store_session_id: str) -> dict[str, Any]:
+    session = await running_agent_service.get_running_agent(store_session_id)
     if not session:
-        raise ValueError(f"Session {convex_session_id} not found")
+        raise ValueError(f"Session {store_session_id} not found")
     project = await _load_project(session.get("projectId"), session.get("projectSlug"))
     project_root = _project_root(project or {})
     if project_root is None:
@@ -2014,7 +1980,7 @@ async def archive_session_workspace(convex_session_id: str) -> dict[str, Any]:
         project_root=project_root,
         workspace_root=workspace_root,
         session_root=session_root,
-        session_id=convex_session_id,
+        session_id=store_session_id,
         role=session.get("role") or "agent",
         base_branch=base_branch,
         workspace_branch=workspace_branch,
@@ -2032,7 +1998,7 @@ def _certify_session_result_if_present(
     project_root: Path,
     workspace_root: Path | None,
     session_root: Path,
-    convex_session_id: str,
+    store_session_id: str,
     session: dict[str, Any],
     terminal_status: str | None,
     review_status: str,
@@ -2075,10 +2041,10 @@ def _certify_session_result_if_present(
     candidates: list[Path] = []
     if workspace_root is not None:
         candidates.append(
-            workspace_root / "research_plan" / "sessions" / role / convex_session_id / "session_result.json"
+            workspace_root / "research_plan" / "sessions" / role / store_session_id / "session_result.json"
         )
         candidates.append(
-            workspace_root / "research_plan" / "sessions" / convex_session_id / "session_result.json"
+            workspace_root / "research_plan" / "sessions" / store_session_id / "session_result.json"
         )
         candidates.append(workspace_root / "session_result.json")
     candidates.append(session_root / "session_result.json")
@@ -2092,7 +2058,7 @@ def _certify_session_result_if_present(
             _log.warning(
                 "Promotion-class session %s completed without session_result.json; "
                 "marking complete_unverified.",
-                convex_session_id,
+                store_session_id,
             )
             session_files.update_state(session_root, session_result_certified=False)
             summary.setdefault("blockers", [])
@@ -2108,7 +2074,7 @@ def _certify_session_result_if_present(
     # Re-load the WorkOrder if one was written at session launch.
     work_order = None
     try:
-        work_order = _load_work_order_for_session(project_root, convex_session_id)
+        work_order = _load_work_order_for_session(project_root, store_session_id)
     except Exception:
         pass
 
@@ -2134,7 +2100,7 @@ def _certify_session_result_if_present(
                 issues = [str(_exc)]
         cert = _Cert()
     except Exception as _exc:
-        _log.warning("certify_session_result raised unexpectedly for %s: %s", convex_session_id, _exc)
+        _log.warning("certify_session_result raised unexpectedly for %s: %s", store_session_id, _exc)
         return
 
     # Track B: Record domain progress in the progress ledger
@@ -2148,7 +2114,7 @@ def _certify_session_result_if_present(
         # 1. Update Ledger
         liveness_service.record_session_result(
             project_root,
-            convex_session_id,
+            store_session_id,
             raw,
             role=role,
             runner_name=runner_name,
@@ -2157,10 +2123,10 @@ def _certify_session_result_if_present(
         # 2. Update Research State (Claims, Sources, Memo)
         parsed = SessionResult.model_validate(raw)
         closure_updates = loop_closure.apply_session_results(project_root, parsed)
-        _log.info(f"Session {convex_session_id} loop closure updates: {closure_updates}")
+        _log.info(f"Session {store_session_id} loop closure updates: {closure_updates}")
         
     except Exception as _exc:
-        _log.warning("Liveness tracking / Loop closure failed for %s: %s", convex_session_id, _exc)
+        _log.warning("Liveness tracking / Loop closure failed for %s: %s", store_session_id, _exc)
 
     session_files.update_state(
         session_root,
@@ -2168,13 +2134,13 @@ def _certify_session_result_if_present(
         session_result_issues=cert.issues or [],
     )
     if cert.passed:
-        _log.info("Session %s: session_result.json certified OK.", convex_session_id)
+        _log.info("Session %s: session_result.json certified OK.", store_session_id)
         return
 
     issues_str = "; ".join(cert.issues[:5])
     _log.warning(
         "Session %s: session_result.json certification FAILED: %s",
-        convex_session_id,
+        store_session_id,
         issues_str,
     )
     if is_promotion_role:
@@ -2193,7 +2159,7 @@ def _certify_session_result_if_present(
 
 async def _finalize_workspace_review(
     *,
-    convex_session_id: str,
+    store_session_id: str,
     session: dict[str, Any],
     project: dict[str, Any],
     project_root: Path,
@@ -2223,13 +2189,13 @@ async def _finalize_workspace_review(
                 project=project,
                 project_root=project_root,
                 session_root=session_root,
-                session_id=convex_session_id,
+                session_id=store_session_id,
                 session=session,
                 changed_files=changed_files,
             )
         return
     workspace_root = Path(workspace_path)
-    workspace_branch = state.get("workspace_branch") or f"{session.get('role') or 'agent'}-{convex_session_id}"
+    workspace_branch = state.get("workspace_branch") or f"{session.get('role') or 'agent'}-{store_session_id}"
     review_status = state.get("review_status") or "pending"
     config = _workspace_config(project_root)
     changed_files = await _list_changed_files(workspace_root)
@@ -2309,7 +2275,7 @@ async def _finalize_workspace_review(
             project_root=project_root,
             workspace_root=workspace_root,
             session_root=session_root,
-            session_id=convex_session_id,
+            session_id=store_session_id,
             role=session.get("role") or "agent",
             base_branch=base_branch,
             workspace_branch=workspace_branch,
@@ -2323,7 +2289,7 @@ async def _finalize_workspace_review(
         project_root=project_root,
         workspace_root=workspace_root,
         session_root=session_root,
-        session_id=convex_session_id,
+        session_id=store_session_id,
         task_id=_session_task_id(session, session_root),
         status=terminal_status or "unknown",
         role=session.get("role") or "agent",
@@ -2339,7 +2305,7 @@ async def _finalize_workspace_review(
         project_root=project_root,
         workspace_root=workspace_root,
         summary=summary,
-        session_id=convex_session_id,
+        session_id=store_session_id,
         task_id=_session_task_id(session, session_root),
         role=session.get("role") or "agent",
         verification_command=config.get("verification_script"),
@@ -2405,7 +2371,7 @@ async def _finalize_workspace_review(
             project=project,
             project_root=project_root,
             session_root=session_root,
-            session_id=convex_session_id,
+            session_id=store_session_id,
             session=session,
             changed_files=changed_files,
         )
@@ -2418,7 +2384,7 @@ async def _finalize_workspace_review(
         project_root=project_root,
         workspace_root=workspace_root,
         session_root=session_root,
-        convex_session_id=convex_session_id,
+        store_session_id=store_session_id,
         session=session,
         terminal_status=terminal_status,
         review_status=review_status,
@@ -2462,7 +2428,7 @@ async def _finalize_workspace_review(
                 github_repo,
                 base_branch,
                 workspace_branch,
-                commit_message=f"chore(autopilot): merge audited workspace {workspace_branch} → {base_branch} [{convex_session_id}]",
+                commit_message=f"chore(autopilot): merge audited workspace {workspace_branch} → {base_branch} [{store_session_id}]",
             )
         except Exception as merge_exc:
             merge_error = str(merge_exc)
@@ -2501,7 +2467,7 @@ async def _finalize_workspace_review(
             project=project,
             status="blocked",
             blockerCategory="publish_failure",
-            latestRunSummary=f"Connector publish failed for session {convex_session_id}: {publish_error}",
+            latestRunSummary=f"Connector publish failed for session {store_session_id}: {publish_error}",
         )
         await raise_decision_event(
             project,
@@ -2511,7 +2477,7 @@ async def _finalize_workspace_review(
             summary=f"Connector publish failed for task {resolved_task_id}: {publish_error}",
             evidence_refs=[
                 f"task:{resolved_task_id}",
-                f"runner_session:{convex_session_id}",
+                f"runner_session:{store_session_id}",
                 f"session_state:{session_root / 'state.json'}",
             ],
             recommended_actions=[
@@ -2553,7 +2519,7 @@ async def _finalize_workspace_review(
             )
         elif summary.get("recommended_next_tasks"):
             summary_bits.append(str((summary.get("recommended_next_tasks") or [])[0]))
-        latest_summary = ". ".join(bit for bit in summary_bits if bit) or f"Session {convex_session_id} completed."
+        latest_summary = ". ".join(bit for bit in summary_bits if bit) or f"Session {store_session_id} completed."
         await planner_service.update_task(
             resolved_task_id,
             project=project,
@@ -2573,9 +2539,9 @@ def _sync_file_status(root: Path, status: str) -> None:
 
 async def _load_project(project_id: str | None, project_slug: str | None) -> dict[str, Any] | None:
     if project_id:
-        return await convex.query("projects:getById", {"projectId": project_id})
+        return await local_store.query("projects:getById", {"projectId": project_id})
     if project_slug:
-        return await convex.query("projects:getBySlug", {"slug": project_slug})
+        return await local_store.query("projects:getBySlug", {"slug": project_slug})
     return None
 
 
@@ -2678,7 +2644,7 @@ async def create_runner_session(
     project_id: str | None,
     project_slug: str | None,
     task_id: str | None,
-    runner_name: str = "jules",
+    runner_name: str = DEFAULT_LOCAL_RUNNER,
     role: str,
     task_description: str,
     repo_url: str,
@@ -2760,22 +2726,7 @@ async def create_runner_session(
         if auditor_blocker:
             raise RuntimeError(auditor_blocker)
 
-    # Deriving Jules source from repo_url (e.g. sources/github/OWNER/REPO)
-    jules_source = None
-    if runner_name == "jules":
-        from app.core.config import settings
-        jules_source = settings.jules_source # Default
-        if "github.com/" in repo_url:
-            clean_url = repo_url.split("github.com/")[-1].replace(".git", "")
-            jules_source = f"sources/github/{clean_url}"
-
-    # Sync to GitHub before launching cloud runner (Jules)
-    if runner_name == "jules" and project:
-        from app.services import planner_service
-        await planner_service.git_sync(project, f"chore: sync for {role} session")
-
-    api_key = await resolve_jules_api_key(project_id, secret_role) if runner_name == "jules" else None
-    runner = resolve_runner_for_project(runner_name, api_key=api_key, source=jules_source)
+    runner = resolve_runner_for_project(runner_name)
     allowed_secrets: dict[str, str] = {}
     if project_id:
         try:
@@ -2965,7 +2916,7 @@ async def create_runner_session(
         )
 
         return {
-            "convex_session_id": running_session_id,
+            "store_session_id": running_session_id,
             "external_session_id": None,
             "status": "pending_dispatch",
             "url": None,
@@ -3021,7 +2972,7 @@ async def create_runner_session(
 
 
     return {
-        "convex_session_id": running_session_id,
+        "store_session_id": running_session_id,
         "external_session_id": external_id,
         "status": result.get("status", "running"),
         "url": result.get("url"),
@@ -3031,18 +2982,18 @@ async def create_runner_session(
 
 
 async def get_runner_session(
-    convex_session_id: str,
+    store_session_id: str,
     *,
     sync_from_runner: bool = True,
     project_id: str | None = None,
 ) -> dict[str, Any]:
-    session = await running_agent_service.get_running_agent(convex_session_id)
+    session = await running_agent_service.get_running_agent(store_session_id)
     project = await _load_project(project_id or (session.get("projectId") if session else None), session.get("projectSlug") if session else None)
     project_root = _project_root(project or {})
-    root = _resolve_session_root_path(session, project_root=project_root) if session else _find_file_backed_session_root(project_root, convex_session_id)
+    root = _resolve_session_root_path(session, project_root=project_root) if session else _find_file_backed_session_root(project_root, store_session_id)
     if not session:
         if not root or not root.exists():
-            raise ValueError(f"Session {convex_session_id} not found")
+            raise ValueError(f"Session {store_session_id} not found")
         state = session_files.read_state(root)
         role = state.get("role") or root.parent.name
         if (
@@ -3059,7 +3010,7 @@ async def get_runner_session(
             )
         ):
             synthetic_session = {
-                "_id": convex_session_id,
+                "_id": store_session_id,
                 "projectId": project_id,
                 "projectSlug": project.get("slug") if project else None,
                 "role": role,
@@ -3069,7 +3020,7 @@ async def get_runner_session(
                 "taskId": _session_task_id({}, root),
             }
             await _finalize_workspace_review(
-                convex_session_id=convex_session_id,
+                store_session_id=store_session_id,
                 session=synthetic_session,
                 project=project or {},
                 project_root=project_root,
@@ -3078,14 +3029,14 @@ async def get_runner_session(
             )
             state = session_files.read_state(root)
         result: dict[str, Any] = {
-            "_id": convex_session_id,
+            "_id": store_session_id,
             "projectId": project_id,
             "projectSlug": project.get("slug") if project else None,
             "role": role,
             "runner": state.get("runner") or "codex_cli",
             "externalSessionId": state.get("external_session_id"),
             "status": state.get("status") or "completed",
-            "title": state.get("title") or f"[{role}] {convex_session_id}",
+            "title": state.get("title") or f"[{role}] {store_session_id}",
         }
         result["fileState"] = state
         result["summaryPath"] = str(root / "summary.md")
@@ -3097,27 +3048,22 @@ async def get_runner_session(
         result["summaryPath"] = str(root / "summary.md")
 
     external_id = session.get("externalSessionId")
-    runner_name = session.get("runner", "jules")
+    runner_name = session.get("runner", DEFAULT_LOCAL_RUNNER)
     if sync_from_runner and external_id:
         try:
             if runner_name in LOCAL_CLI_RUNNERS and root and root.exists():
                 runner_info = await _ingest_local_cli_runner_events(
-                    convex_session_id=convex_session_id,
+                    store_session_id=store_session_id,
                     session=session,
                     root=root,
                 )
             else:
-                api_key = (
-                    await resolve_jules_api_key(project_id or session.get("projectId"), session.get("role") or "data")
-                    if runner_name == "jules"
-                    else None
-                )
-                runner = resolve_runner_for_project(runner_name, api_key=api_key)
+                runner = resolve_runner_for_project(runner_name)
                 runner_info = await runner.get_session(external_id)
             normalized = runner_info.get("normalized_status", "")
             new_status = STATUS_MAP.get(normalized, runner_info.get("status", "running"))
             await running_agent_service.update_running_agent(
-                convex_session_id,
+                store_session_id,
                 status=new_status,
             )
             if root and root.exists():
@@ -3134,7 +3080,7 @@ async def get_runner_session(
                 )
                 if needs_finalization:
                     try:
-                        await ingest_session_events(convex_session_id, project_id=project_id)
+                        await ingest_session_events(store_session_id, project_id=project_id)
                     except Exception:
                         pass
                     refreshed_state = session_files.read_state(root)
@@ -3150,7 +3096,7 @@ async def get_runner_session(
                     if still_needs_finalization:
                         if project_root is not None:
                             await _finalize_workspace_review(
-                                convex_session_id=convex_session_id,
+                                store_session_id=store_session_id,
                                 session=session,
                                 project=project or {},
                                 project_root=project_root,
@@ -3181,7 +3127,7 @@ async def get_runner_session(
         )
         if still_needs_finalization and project_root is not None:
             await _finalize_workspace_review(
-                convex_session_id=convex_session_id,
+                store_session_id=store_session_id,
                 session=session,
                 project=project or {},
                 project_root=project_root,
@@ -3194,7 +3140,7 @@ async def get_runner_session(
 
 
 async def poll_session_until_done(
-    convex_session_id: str,
+    store_session_id: str,
     *,
     project_id: str | None = None,
     max_polls: int = 120,
@@ -3203,11 +3149,11 @@ async def poll_session_until_done(
     for _ in range(max_polls):
         await asyncio.sleep(poll_interval_seconds)
         try:
-            await ingest_session_events(convex_session_id, project_id=project_id)
+            await ingest_session_events(store_session_id, project_id=project_id)
         except Exception:
             pass
         result = await get_runner_session(
-            convex_session_id,
+            store_session_id,
             sync_from_runner=True,
             project_id=project_id,
         )
@@ -3215,27 +3161,27 @@ async def poll_session_until_done(
             return result
 
     raise TimeoutError(
-        f"Session {convex_session_id} did not complete after {max_polls * poll_interval_seconds}s"
+        f"Session {store_session_id} did not complete after {max_polls * poll_interval_seconds}s"
     )
 
 
 async def cancel_runner_session(
-    convex_session_id: str,
+    store_session_id: str,
     *,
     project_id: str | None = None,
 ) -> dict[str, Any]:
-    session = await running_agent_service.get_running_agent(convex_session_id)
+    session = await running_agent_service.get_running_agent(store_session_id)
     had_runtime_session = session is not None
     project = await _load_project(project_id or (session.get("projectId") if session else None), session.get("projectSlug") if session else None)
     project_root = _project_root(project or {})
-    root = _resolve_session_root_path(session, project_root=project_root) if session else _find_file_backed_session_root(project_root, convex_session_id)
+    root = _resolve_session_root_path(session, project_root=project_root) if session else _find_file_backed_session_root(project_root, store_session_id)
     if not session:
         if not root or not root.exists():
-            raise ValueError(f"Session {convex_session_id} not found")
+            raise ValueError(f"Session {store_session_id} not found")
         state = session_files.read_state(root)
         role = state.get("role") or root.parent.name
         session = {
-            "_id": convex_session_id,
+            "_id": store_session_id,
             "projectId": project_id,
             "projectSlug": project.get("slug") if project else None,
             "role": role,
@@ -3245,15 +3191,10 @@ async def cancel_runner_session(
         }
 
     external_id = session.get("externalSessionId")
-    runner_name = session.get("runner", "jules")
+    runner_name = session.get("runner", DEFAULT_LOCAL_RUNNER)
     if external_id:
         try:
-            api_key = (
-                await resolve_jules_api_key(project_id or session.get("projectId"), session.get("role") or "data")
-                if runner_name == "jules"
-                else None
-            )
-            runner = resolve_runner_for_project(runner_name, api_key=api_key)
+            runner = resolve_runner_for_project(runner_name)
             await runner.cancel(external_id)
         except Exception:
             pass
@@ -3271,7 +3212,7 @@ async def cancel_runner_session(
             # session and reconciliation does not flag it as a stale audit.
             try:
                 await _finalize_workspace_review(
-                    convex_session_id=convex_session_id,
+                    store_session_id=store_session_id,
                     session=session,
                     project=project or {},
                     project_root=project_root,
@@ -3283,51 +3224,46 @@ async def cancel_runner_session(
 
     if had_runtime_session:
         await running_agent_service.finalize_running_agent(
-            convex_session_id,
+            store_session_id,
             status="cancelled",
             ended_at=int(time.time() * 1000),
         )
-    return {"convex_session_id": convex_session_id, "status": "cancelled"}
+    return {"store_session_id": store_session_id, "status": "cancelled"}
 
 
 async def ingest_session_events(
-    convex_session_id: str,
+    store_session_id: str,
     *,
     project_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    session = await running_agent_service.get_running_agent(convex_session_id)
+    session = await running_agent_service.get_running_agent(store_session_id)
     if not session:
-        raise ValueError(f"Session {convex_session_id} not found")
+        raise ValueError(f"Session {store_session_id} not found")
 
     external_id = session.get("externalSessionId")
     if not external_id:
         return []
 
-    runner_name = session.get("runner", "jules")
+    runner_name = session.get("runner", DEFAULT_LOCAL_RUNNER)
     project = await _load_project(project_id or session.get("projectId"), session.get("projectSlug"))
     project_root = _project_root(project or {})
     root = _resolve_session_root_path(session, project_root=project_root)
     if runner_name in LOCAL_CLI_RUNNERS and root and root.exists():
         info = await _ingest_local_cli_runner_events(
-            convex_session_id=convex_session_id,
+            store_session_id=store_session_id,
             session=session,
             root=root,
         )
         state = session_files.read_state(root)
         if state.get("status") in TERMINAL_STATUSES:
             await running_agent_service.finalize_running_agent(
-                convex_session_id,
+                store_session_id,
                 status=state["status"],
                 ended_at=int(time.time() * 1000),
             )
         return [{"event_type": info.get("normalized_status", "progress"), "debug_visibility": False}]
 
-    api_key = (
-        await resolve_jules_api_key(project_id or session.get("projectId"), session.get("role") or "data")
-        if runner_name == "jules"
-        else None
-    )
-    runner = resolve_runner_for_project(runner_name, api_key=api_key)
+    runner = resolve_runner_for_project(runner_name)
     events = await runner.list_events(external_id)
     state = session_files.read_state(root) if root and root.exists() else {}
     cursor = int(state.get("runner_event_cursor", 0))
@@ -3349,7 +3285,7 @@ async def ingest_session_events(
                     session_files.update_state(root, review_status="review")
                 elif status in {"failed", "cancelled"}:
                     session_files.update_state(root, review_status="needs_changes")
-        await _relay_runner_event(convex_session_id, session, event)
+        await _relay_runner_event(store_session_id, session, event)
         ingested.append(
             {
                 "event_type": event.event_type.value,
@@ -3363,7 +3299,7 @@ async def ingest_session_events(
         if state.get("status") in TERMINAL_STATUSES:
             if project_root is not None:
                 await _finalize_workspace_review(
-                    convex_session_id=convex_session_id,
+                    store_session_id=store_session_id,
                     session=session,
                     project=project or {},
                     project_root=project_root,
@@ -3372,7 +3308,7 @@ async def ingest_session_events(
                 )
                 state = session_files.read_state(root)
             await running_agent_service.finalize_running_agent(
-                convex_session_id,
+                store_session_id,
                 status=state["status"],
                 ended_at=int(time.time() * 1000),
             )
@@ -3381,16 +3317,16 @@ async def ingest_session_events(
 
 
 async def append_session_command(
-    convex_session_id: str,
+    store_session_id: str,
     *,
     command_type: str,
     content: str | None = None,
     payload: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    session = await running_agent_service.get_running_agent(convex_session_id)
+    session = await running_agent_service.get_running_agent(store_session_id)
     if not session:
-        raise ValueError(f"Session {convex_session_id} not found")
+        raise ValueError(f"Session {store_session_id} not found")
     project = await _load_project(session.get("projectId"), session.get("projectSlug"))
     project_root = _project_root(project or {})
     root = _resolve_session_root_path(session, project_root=project_root)
@@ -3407,13 +3343,8 @@ async def append_session_command(
         return command
     external_id = session.get("externalSessionId")
     if external_id:
-        runner_name = session.get("runner", "jules")
-        api_key = (
-            await resolve_jules_api_key(session.get("projectId"), session.get("role") or "data")
-            if runner_name == "jules"
-            else None
-        )
-        runner = resolve_runner_for_project(runner_name, api_key=api_key)
+        runner_name = session.get("runner", DEFAULT_LOCAL_RUNNER)
+        runner = resolve_runner_for_project(runner_name)
         if command_type == "inject_message" and content:
             await runner.send_message(external_id, content)
         elif command_type == "approve":
@@ -3425,39 +3356,39 @@ async def append_session_command(
 
 
 async def _relay_runner_event(
-    convex_session_id: str,
+    store_session_id: str,
     session_record: dict[str, Any],
     event: RunnerEvent,
 ) -> None:
     if event.event_type == RunnerEventType.APPROVAL_REQUESTED:
-        await _relay_approval_requested(convex_session_id, session_record, event)
+        await _relay_approval_requested(store_session_id, session_record, event)
     elif event.event_type == RunnerEventType.QUESTION_ASKED:
-        await _relay_question_asked(convex_session_id, session_record, event)
+        await _relay_question_asked(store_session_id, session_record, event)
     elif event.event_type in {RunnerEventType.COMPLETED, RunnerEventType.FAILED, RunnerEventType.CANCELLED}:
         await _relay_terminal_status(session_record, event)
 
 
 async def _relay_approval_requested(
-    convex_session_id: str,
+    store_session_id: str,
     session_record: dict[str, Any],
     event: RunnerEvent,
 ) -> None:
     project_id = session_record.get("projectId")
     if not project_id:
         return
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     if not project:
         return
 
     existing = await planner_service.list_approvals(project)
     for approval in existing:
-        if approval.get("agentSessionId") == convex_session_id and approval.get("status") == "pending":
+        if approval.get("agentSessionId") == store_session_id and approval.get("status") == "pending":
             return
 
     await planner_service.create_approval(
         project=project,
         task_id=_session_task_id(session_record),
-        agent_session_id=convex_session_id,
+        agent_session_id=store_session_id,
         approval_type=event.normalized_payload.get("activity_key") or "run_task",
         status="pending",
         requested_by_role=session_record.get("role") or "agent",
@@ -3467,14 +3398,14 @@ async def _relay_approval_requested(
 
 
 async def _relay_question_asked(
-    convex_session_id: str,
+    store_session_id: str,
     session_record: dict[str, Any],
     event: RunnerEvent,
 ) -> None:
     project_id = session_record.get("projectId")
     if not project_id:
         return
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     if not project:
         return
     question_text = (
@@ -3487,7 +3418,7 @@ async def _relay_question_asked(
         role="assistant",
         content=f"[Question from {session_record.get('role') or 'agent'}] {question_text}",
         message_type="question",
-        session_id=convex_session_id,
+        session_id=store_session_id,
     )
     from app.services.decision_service import raise_decision_event
 
@@ -3496,8 +3427,8 @@ async def _relay_question_asked(
         source="runner",
         event_type="awaiting_input",
         severity="needs_planner",
-        summary=f"Worker {convex_session_id} asked for input: {question_text}",
-        evidence_refs=[f"runner_session:{convex_session_id}"],
+        summary=f"Worker {store_session_id} asked for input: {question_text}",
+        evidence_refs=[f"runner_session:{store_session_id}"],
         recommended_actions=[
             "Answer worker if policy-safe",
             "Ask user for sensitive or ambiguous input",
@@ -3510,7 +3441,7 @@ async def _relay_terminal_status(session_record: dict[str, Any], event: RunnerEv
     project_id = session_record.get("projectId")
     if not project_id:
         return
-    project = await convex.query("projects:getById", {"projectId": project_id})
+    project = await local_store.query("projects:getById", {"projectId": project_id})
     if not project:
         return
     project_root = _project_root(project)

@@ -2,7 +2,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services.convex_client import convex
+from app.services.local_store import local_store
 
 router = APIRouter(prefix="/ontology-templates", tags=["ontology-templates"])
 
@@ -28,13 +28,13 @@ class OntologyTemplateUpdate(BaseModel):
 async def list_templates(tags: str | None = Query(None)):
     if tags:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        return await convex.query("ontologyTemplates:listByTag", {"tags": tag_list})
-    return await convex.query("ontologyTemplates:list", {})
+        return await local_store.query("ontologyTemplates:listByTag", {"tags": tag_list})
+    return await local_store.query("ontologyTemplates:list", {})
 
 
 @router.get("/{slug}")
 async def get_template(slug: str):
-    tpl = await convex.query("ontologyTemplates:getBySlug", {"slug": slug})
+    tpl = await local_store.query("ontologyTemplates:getBySlug", {"slug": slug})
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
     return tpl
@@ -43,8 +43,8 @@ async def get_template(slug: str):
 @router.post("/")
 async def create_template(req: OntologyTemplateRequest):
     try:
-        await convex.mutation("ontologyTemplates:create", req.model_dump())
-        return await convex.query("ontologyTemplates:getBySlug", {"slug": req.slug})
+        await local_store.mutation("ontologyTemplates:create", req.model_dump())
+        return await local_store.query("ontologyTemplates:getBySlug", {"slug": req.slug})
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -54,8 +54,8 @@ async def update_template(slug: str, req: OntologyTemplateUpdate):
     try:
         update_data = req.model_dump(exclude_none=True)
         update_data["slug"] = slug
-        await convex.mutation("ontologyTemplates:update", update_data)
-        return await convex.query("ontologyTemplates:getBySlug", {"slug": slug})
+        await local_store.mutation("ontologyTemplates:update", update_data)
+        return await local_store.query("ontologyTemplates:getBySlug", {"slug": slug})
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -63,7 +63,7 @@ async def update_template(slug: str, req: OntologyTemplateUpdate):
 @router.delete("/{slug}")
 async def delete_template(slug: str):
     try:
-        await convex.mutation("ontologyTemplates:remove", {"slug": slug})
+        await local_store.mutation("ontologyTemplates:remove", {"slug": slug})
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -71,7 +71,7 @@ async def delete_template(slug: str):
 
 @router.post("/{slug}/validate")
 async def validate_template(slug: str):
-    tpl = await convex.query("ontologyTemplates:getBySlug", {"slug": slug})
+    tpl = await local_store.query("ontologyTemplates:getBySlug", {"slug": slug})
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
 

@@ -2,9 +2,12 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 import rail
+from rail.bootstrap import bootstrap_future_project
+from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
 
 def _print_json(data: Any):
     print(json.dumps(data, indent=2))
@@ -24,8 +27,43 @@ def _get_project(args: argparse.Namespace) -> rail.Project:
         api_key=args.api_key,
     )
 
+def cmd_init(args: argparse.Namespace):
+    target = Path(args.directory).resolve()
+    name = args.name or target.name
+    root = bootstrap_future_project(target, name=name, slug=args.slug)
+    project = rail.local(str(root))
+    if args.pack:
+        project.pack("use", args.pack)
+    _print_json({"status": "initialized", "path": str(root), "pack": args.pack})
+
 def cmd_search(project: rail.Project, args: argparse.Namespace):
-    _print_json(project.search(args.query))
+    if hasattr(project._backend, "knowledge"):
+        _print_json(project._backend.knowledge.search(args.query, limit=args.limit, explain=args.explain))
+    else:
+        _print_json(project.search(args.query))
+
+def cmd_think(project: rail.Project, args: argparse.Namespace):
+    _print_json(project.think(args.query, limit=args.limit))
+
+def cmd_capture(project: rail.Project, args: argparse.Namespace):
+    text = args.text or ""
+    if args.stdin:
+        text = sys.stdin.read()
+    _print_json(
+        project.capture(
+            text,
+            file_path=args.file,
+            url=args.url,
+            kind=args.type,
+            workflow=args.workflow,
+        )
+    )
+
+def cmd_doctor(project: rail.Project, args: argparse.Namespace):
+    _print_json(project.doctor())
+
+def cmd_pack(project: rail.Project, args: argparse.Namespace):
+    _print_json(project.pack(args.pack_command, getattr(args, "pack_id", None)))
 
 def cmd_query(project: rail.Project, args: argparse.Namespace):
     if args.command == "sql":
@@ -115,7 +153,7 @@ def cmd_ask(project: rail.Project, args: argparse.Namespace):
     _print_json(project.ask(args.question, session_id=getattr(args, "session", None)))
 
 def main():
-    parser = argparse.ArgumentParser(prog="rail", description="RAIL CLI")
+    parser = argparse.ArgumentParser(prog="rail", description="KRAIL CLI")
     parser.add_argument("--project", help="Project slug (overrides RAIL_PROJECT)")
     parser.add_argument("--api-url", help="API URL (overrides RAIL_API_URL)")
     parser.add_argument("--api-key", help="API Key (overrides RAIL_API_KEY)")
@@ -124,9 +162,49 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
+    # Init
+    init_parser = subparsers.add_parser("init", help="Initialize a local knowledge project")
+    init_parser.add_argument("directory", help="Project directory")
+    init_parser.add_argument("--name", help="Project display name")
+    init_parser.add_argument("--slug", help="Project slug")
+    init_parser.add_argument("--pack", choices=["research-intelligence", "company-brain", "software-architecture", "policy-compiler"], help="Activate a knowledge pack")
+
     # Search
-    s_parser = subparsers.add_parser("search", help="Search ontology entities")
+    s_parser = subparsers.add_parser("search", help="Search local project evidence")
     s_parser.add_argument("query", help="Search query")
+    s_parser.add_argument("--limit", type=int, default=10)
+    s_parser.add_argument("--explain", action="store_true", help="Explain local ranking signals")
+
+    # Think
+    t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
+    t_parser.add_argument("query", help="Question to answer")
+    t_parser.add_argument("--limit", type=int, default=5)
+
+    # Capture
+    c_parser = subparsers.add_parser("capture", help="Capture a note, file, URL, or stdin into topics/inbox")
+    c_parser.add_argument("text", nargs="?", help="Text to capture")
+    c_parser.add_argument("--file", help="File to capture")
+    c_parser.add_argument("--url", help="URL to record")
+    c_parser.add_argument("--stdin", action="store_true", help="Read capture text from stdin")
+    c_parser.add_argument("--type", default="note", help="Capture type")
+    c_parser.add_argument("--workflow", help="Workflow hint for later triage")
+
+    # Doctor
+    subparsers.add_parser("doctor", help="Check local project health")
+
+    # Packs
+    p_parser = subparsers.add_parser("pack", help="Manage knowledge packs")
+    p_subs = p_parser.add_subparsers(dest="pack_command")
+    p_subs.add_parser("active", help="Show active pack")
+    p_subs.add_parser("list", help="List built-in packs")
+    show_p = p_subs.add_parser("show", help="Show a pack")
+    show_p.add_argument("pack_id")
+    use_p = p_subs.add_parser("use", help="Activate a pack")
+    use_p.add_argument("pack_id")
+    validate_p = p_subs.add_parser("validate", help="Validate active pack or named pack")
+    validate_p.add_argument("pack_id", nargs="?")
+    p_subs.add_parser("detect", help="Detect active and suggested packs")
+    p_subs.add_parser("suggest", help="Suggest a pack from project files")
 
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
@@ -190,10 +268,37 @@ def main():
         parser.print_help()
         return
 
+    if args.command == "init":
+        cmd_init(args)
+        return
+
+    if args.command == "pack" and args.pack_command in {"list", "show"}:
+        if args.pack_command == "list":
+            _print_json({"packs": list(DEFAULT_PACKS.values())})
+        else:
+            pack = DEFAULT_PACKS.get(args.pack_id)
+            if not pack:
+                print(f"Error: unknown pack {args.pack_id}", file=sys.stderr)
+                sys.exit(1)
+            _print_json(pack)
+        return
+
+    if args.command == "pack" and args.pack_command == "validate" and getattr(args, "pack_id", None):
+        _print_json(KnowledgeRuntime(".").validate_pack(args.pack_id))
+        return
+
     project = _get_project(args)
 
     if args.command == "search":
         cmd_search(project, args)
+    elif args.command == "think":
+        cmd_think(project, args)
+    elif args.command == "capture":
+        cmd_capture(project, args)
+    elif args.command == "doctor":
+        cmd_doctor(project, args)
+    elif args.command == "pack":
+        cmd_pack(project, args)
     elif args.command == "query":
         cmd_query(project, args)
     elif args.command == "hydrate":
@@ -210,6 +315,8 @@ def main():
         cmd_result(project, args)
     elif args.command == "ask":
         cmd_ask(project, args)
+    elif args.command == "reconcile":
+        cmd_reconcile(project, args)
 
 if __name__ == "__main__":
     main()

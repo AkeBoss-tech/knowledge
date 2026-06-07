@@ -206,12 +206,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# RAIL Specifics
+# KRAIL local state
 packages/engine/cache/
 cache/
-state/work-orders/.jules-runner-state.json
 .DS_Store
 .rail/
+.krail/
 packages/api/.rail_state/
 *.pid
 api_debug.log
