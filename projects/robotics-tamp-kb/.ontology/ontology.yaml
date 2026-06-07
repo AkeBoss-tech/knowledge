@@ -1,0 +1,29 @@
+uri: http://krail.local/ontology/robotics-tamp
+classes:
+  - name: Planner
+  - name: Paper
+  - name: Package
+  - name: Benchmark
+  - name: Concept
+  - name: Video
+  - name: ResearchQuestion
+  - name: LabProject
+data_properties:
+  - name: hasName
+    range: string
+  - name: hasUrl
+    range: string
+  - name: hasSummary
+    range: string
+  - name: hasStatus
+    range: string
+object_properties:
+  - name: relatesTo
+    domain: Concept
+    range: Concept
+  - name: evaluatedBy
+    domain: Planner
+    range: Benchmark
+  - name: implementedIn
+    domain: Concept
+    range: Package
