@@ -360,21 +360,63 @@ class KnowledgeRuntime:
 
     def doctor(self) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
 
         def check(name: str, ok: bool, detail: str) -> None:
             checks.append({"name": name, "ok": ok, "detail": detail})
 
+        def warn(name: str, ok: bool, detail: str) -> None:
+            if not ok:
+                warnings.append({"name": name, "detail": detail})
+
         manifest_path = self.project_path / "rail.yaml"
         check("manifest", manifest_path.exists(), "rail.yaml exists" if manifest_path.exists() else "rail.yaml missing")
-        for rel in [".ontology", "topics", "research_plan", "agents", "artifacts"]:
+        for rel in [".ontology", "topics", "research_plan", "agents", "skills", "specs", "artifacts"]:
             path = self.project_path / rel
             check(f"path:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing")
         pack_state = self.active_pack().get("active")
         check("pack", bool(pack_state), f"active pack: {pack_state.get('id')}" if pack_state else "no active .krail/pack.yaml")
         inbox = self.project_path / "topics" / "inbox"
         check("capture_inbox", inbox.exists(), "topics/inbox exists" if inbox.exists() else "topics/inbox will be created on first capture")
+        warn(
+            "brief",
+            (self.project_path / "topics" / "brief.md").exists(),
+            "topics/brief.md is missing; pilot agents work better with a short project brief.",
+        )
+        warn(
+            "research_spec",
+            (self.project_path / "specs" / "research_question.yaml").exists(),
+            "specs/research_question.yaml is missing; add one for research pilots.",
+        )
+        warn(
+            "current_plan",
+            (self.project_path / "research_plan" / "current_plan.md").exists(),
+            "research_plan/current_plan.md is missing; workflows need a durable plan anchor.",
+        )
+        transient_dirs = [
+            ".rail/workspaces",
+            "research_plan/sessions",
+            "research_plan/audits",
+            "research_plan/stuck_reports",
+        ]
+        present_transient = [rel for rel in transient_dirs if (self.project_path / rel).exists()]
+        warn(
+            "transient_runtime_state",
+            not present_transient,
+            "transient runtime directories exist and should usually stay uncommitted: " + ", ".join(present_transient),
+        )
+        if manifest_path.exists():
+            try:
+                manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+                warn(
+                    "frontend_manifest_section",
+                    "frontend" not in manifest,
+                    "rail.yaml still has a frontend section; KRAIL projects should be headless.",
+                )
+            except Exception as exc:
+                warn("manifest_parse", False, f"could not parse rail.yaml for advisory checks: {exc}")
         ok = all(item["ok"] for item in checks if not item["name"].startswith("capture_inbox"))
-        return {"ok": ok, "checks": checks}
+        return {"ok": ok, "checks": checks, "warnings": warnings}
 
     @property
     def tasks_dir(self) -> Path:

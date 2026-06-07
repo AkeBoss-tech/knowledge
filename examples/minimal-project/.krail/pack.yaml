@@ -1,0 +1,23 @@
+id: research-intelligence
+name: Research Intelligence
+entities:
+  - Paper
+  - Method
+  - Package
+  - Dataset
+  - Benchmark
+  - Claim
+  - Limitation
+  - OpenProblem
+  - Experiment
+link_types:
+  - Paper INTRODUCES Method
+  - Package IMPLEMENTS Method
+  - Paper EVALUATES_ON Benchmark
+  - Claim SUPPORTED_BY EvidenceChunk
+  - Experiment TESTS Claim
+workflows:
+  - add_new_paper
+  - weekly_literature_refresh
+  - register_experiment
+  - build_sota_report

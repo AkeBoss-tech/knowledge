@@ -8,3 +8,4 @@ Start here:
 - [Project Layout](project-layout.md)
 - [API Runtime](api-runtime.md)
 - [GBrain Synthesis](gbrain-synthesis.md)
+- [Generated Project Hygiene](generated-project-hygiene.md)

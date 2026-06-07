@@ -1,0 +1,12 @@
+uri: http://krail.local/ontology/minimal
+classes:
+  - name: Region
+  - name: Indicator
+data_properties:
+  - name: hasName
+    domain: Region
+    range: string
+  - name: hasValue
+    domain: Indicator
+    range: float
+object_properties: []
