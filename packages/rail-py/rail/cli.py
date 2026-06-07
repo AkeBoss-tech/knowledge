@@ -178,6 +178,21 @@ def cmd_vector(project: rail.Project, args: argparse.Namespace):
     elif args.vector_command == "search":
         _print_json(project.vector_search(args.query, limit=args.limit))
 
+def cmd_sources(project: rail.Project, args: argparse.Namespace):
+    if args.sources_command == "validate":
+        result = project.sources_validate()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
+    elif args.sources_command == "list":
+        _print_json(project.sources_list())
+    elif args.sources_command == "check":
+        _print_json(project.sources_check(write=not args.no_write))
+    elif args.sources_command == "changed":
+        _print_json(project.sources_changed())
+    elif args.sources_command == "affected":
+        _print_json(project.sources_affected(source_ids=args.source_id))
+
 def cmd_ci(project: rail.Project, args: argparse.Namespace):
     if args.ci_command == "init":
         _print_json(project.ci_init(path=args.ci_path))
@@ -373,7 +388,7 @@ def main():
     wf_subs.add_parser("templates", help="List built-in workflow templates")
     wi = wf_subs.add_parser("init", help="Create a local workflow spec under research_plan/workflows")
     wi.add_argument("workflow_id")
-    wi.add_argument("--template", choices=["project_doctor", "weekly_research_review", "rag_refresh", "paper_ingest", "release_readiness"])
+    wi.add_argument("--template", choices=["project_doctor", "weekly_research_review", "rag_refresh", "paper_ingest", "release_readiness", "source_refresh"])
     wi.add_argument("--force", action="store_true")
     ws = wf_subs.add_parser("show", help="Show a local workflow spec")
     ws.add_argument("workflow_id")
@@ -425,6 +440,17 @@ def main():
     vs = vector_subs.add_parser("search", help="Search local vector chunks")
     vs.add_argument("query")
     vs.add_argument("--limit", type=int, default=10)
+
+    # Source dependencies
+    sources_parser = subparsers.add_parser("sources", help="Manage source dependencies and freshness snapshots")
+    sources_subs = sources_parser.add_subparsers(dest="sources_command")
+    sources_subs.add_parser("validate", help="Validate sources/dependencies.yaml")
+    sources_subs.add_parser("list", help="List dependency sources and affected documents")
+    sc = sources_subs.add_parser("check", help="Snapshot dependency sources and detect changes")
+    sc.add_argument("--no-write", action="store_true", help="Do not update research_plan/state/source_snapshots.json")
+    sources_subs.add_parser("changed", help="List sources marked changed by the last check")
+    sa = sources_subs.add_parser("affected", help="List documents affected by changed sources")
+    sa.add_argument("--source-id", action="append", help="Limit affected-doc lookup to a source id; can be repeated")
 
     # CI templates
     ci_parser = subparsers.add_parser("ci", help="Generate local-preview CI templates")
@@ -539,6 +565,8 @@ def main():
         cmd_graph(project, args)
     elif args.command == "vector":
         cmd_vector(project, args)
+    elif args.command == "sources":
+        cmd_sources(project, args)
     elif args.command == "ci":
         cmd_ci(project, args)
     elif args.command == "query":

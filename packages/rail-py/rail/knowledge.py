@@ -24,6 +24,14 @@ from rail.markdown_graph import (
     load_or_build_graph,
     validate_markdown_graph,
 )
+from rail.source_dependencies import (
+    affected_documents,
+    changed_sources,
+    check_sources,
+    dependency_sources,
+    load_dependency_manifest,
+    validate_dependency_manifest,
+)
 from rail.vector_store import LocalVectorStore
 
 
@@ -298,6 +306,24 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
                 "runner": "codex_cli",
                 "prompt": "Review readiness for release or handoff. Record test status, blockers, changed files, and next actions.",
             },
+        ],
+    },
+    "source_refresh": {
+        "id": "source_refresh",
+        "description": "Check source snapshots, identify affected docs, and prepare reviewed knowledge updates.",
+        "schedule": "0 8 * * 1",
+        "steps": [
+            {"id": "validate_dependencies", "kind": "command", "run": "krail --local sources validate"},
+            {"id": "check_sources", "kind": "command", "run": "krail --local sources check"},
+            {"id": "affected_docs", "kind": "command", "run": "krail --local sources affected"},
+            {
+                "id": "refresh_agent",
+                "kind": "agent",
+                "role": "research",
+                "runner": "codex_cli",
+                "prompt": "Review changed sources and affected documents. Propose evidence-backed updates, mark stale claims, and record gaps.",
+            },
+            {"id": "verify", "kind": "command", "run": "krail --local doctor && krail --local graph check && krail --local vector build"},
         ],
     },
 }
@@ -674,6 +700,14 @@ class KnowledgeRuntime:
             check(f"path:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing")
         pack_state = self.active_pack().get("active")
         check("pack", bool(pack_state), f"active pack: {pack_state.get('id')}" if pack_state else "no active .krail/pack.yaml")
+        dependency_validation = self.sources_validate()
+        check(
+            "source_dependencies",
+            dependency_validation["ok"],
+            f"{dependency_validation['sources']} sources across {dependency_validation['documents']} documents"
+            if dependency_validation["ok"]
+            else "; ".join(dependency_validation["errors"]),
+        )
         workflow_validation = self.workflow_validate_all()
         check(
             "workflows",
@@ -738,7 +772,13 @@ class KnowledgeRuntime:
             except Exception as exc:
                 warn("manifest_parse", False, f"could not parse rail.yaml for advisory checks: {exc}")
         ok = all(item["ok"] for item in checks if not item["name"].startswith("capture_inbox"))
-        return {"ok": ok, "checks": checks, "warnings": warnings, "workflow_validation": workflow_validation}
+        return {
+            "ok": ok,
+            "checks": checks,
+            "warnings": warnings,
+            "workflow_validation": workflow_validation,
+            "source_dependency_validation": dependency_validation,
+        }
 
     def graph_build(self, *, write: bool = True) -> dict[str, Any]:
         return build_markdown_graph(self.project_path, write=write)
@@ -790,6 +830,25 @@ class KnowledgeRuntime:
             result = store.search(query, limit=limit)
         return result
 
+    def sources_validate(self) -> dict[str, Any]:
+        return validate_dependency_manifest(self.project_path)
+
+    def sources_list(self) -> dict[str, Any]:
+        manifest = load_dependency_manifest(self.project_path)
+        return {
+            "manifest_path": manifest.get("path"),
+            "sources": dependency_sources(manifest),
+        }
+
+    def sources_check(self, *, write: bool = True) -> dict[str, Any]:
+        return check_sources(self.project_path, write=write)
+
+    def sources_changed(self) -> dict[str, Any]:
+        return changed_sources(self.project_path)
+
+    def sources_affected(self, *, source_ids: list[str] | None = None) -> dict[str, Any]:
+        return affected_documents(self.project_path, source_ids=source_ids)
+
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict[str, Any]:
         rel = path
         target = self.project_path / rel
@@ -818,6 +877,12 @@ jobs:
           fi
       - name: Doctor
         run: krail --local doctor
+      - name: Validate source dependencies
+        run: krail --local sources validate
+      - name: Check source snapshots
+        run: krail --local sources check
+      - name: Show affected documents
+        run: krail --local sources affected
       - name: Build markdown graph
         run: krail --local graph build
       - name: Check markdown graph

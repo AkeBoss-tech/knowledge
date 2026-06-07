@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from rail.source_dependencies import iter_document_dependencies, load_dependency_manifest
+
 
 DEFAULT_INCLUDE = ["topics/**/*.md", "research_plan/**/*.md"]
 DEFAULT_EXCLUDE = [
@@ -269,6 +271,50 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
             _add_node(nodes, from_id, {"label": from_label, "nodeType": "entity"})
             _add_node(nodes, to_id, {"label": to_label, "nodeType": "entity"})
             _add_edge(edges, from_id, rel_type, to_id, {"source": rel, "document": doc_id})
+
+    try:
+        dependency_manifest = load_dependency_manifest(root)
+        for row in iter_document_dependencies(dependency_manifest):
+            doc_path = row["document"]
+            source = row["source"]
+            source_key = str(source["id"])
+            doc_id = f"doc:{doc_path}"
+            source_id = _source_id(source_key)
+            _add_node(
+                nodes,
+                doc_id,
+                {
+                    "label": Path(doc_path).stem.replace("-", " ").replace("_", " "),
+                    "nodeType": "document",
+                    "path": doc_path,
+                },
+            )
+            _add_node(
+                nodes,
+                source_id,
+                {
+                    "label": source_key,
+                    "nodeType": "source",
+                    "sourceType": source.get("type"),
+                    "url": source.get("url"),
+                    "path": source.get("path"),
+                    "refresh": source.get("refresh"),
+                },
+            )
+            _add_edge(
+                edges,
+                doc_id,
+                "depends_on",
+                source_id,
+                {
+                    "source": dependency_manifest.get("path") or "sources/dependencies.yaml",
+                    "document": doc_id,
+                    "role": source.get("role"),
+                    "refresh": source.get("refresh"),
+                },
+            )
+    except Exception as exc:
+        warnings.append({"path": "sources/dependencies.yaml", "warning": f"could not load source dependencies: {exc}"})
 
     graph = {
         "mode": "markdown_frontmatter",

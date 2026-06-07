@@ -6,7 +6,10 @@
 
 - Local workflow specs under `research_plan/workflows/`
 - Sequential workflow execution for command and agent steps
-- Built-in workflow templates for doctor, weekly review, RAG refresh, paper ingest, and release readiness
+- Built-in workflow templates for doctor, weekly review, source refresh, RAG refresh, paper ingest, and release readiness
+- Source dependency manifests with snapshot-based change detection and affected-document lookup
+- `source_refresh` workflow template for source-aware markdown maintenance
+- Markdown graph `Document depends_on Source` edges from `sources/dependencies.yaml`
 - Workflow schema validation, run listing, and run status inspection
 - Workflow failure policy, retries, and command timeouts
 - Agent `session_result.json` template and prompt contract

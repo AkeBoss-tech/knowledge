@@ -259,6 +259,37 @@ def vector_search(query: str, limit: int = 10) -> str:
 
 
 @mcp.tool()
+def sources_validate() -> str:
+    """Validate the KRAIL source dependency manifest."""
+    return _json(_get_project().sources_validate())
+
+
+@mcp.tool()
+def sources_list() -> str:
+    """List dependency sources declared by the KRAIL source manifest."""
+    return _json(_get_project().sources_list())
+
+
+@mcp.tool()
+def sources_check(write: bool = True) -> str:
+    """Snapshot dependency sources and detect changed source hashes."""
+    return _json(_get_project().sources_check(write=write))
+
+
+@mcp.tool()
+def sources_changed() -> str:
+    """List sources marked changed by the last source check."""
+    return _json(_get_project().sources_changed())
+
+
+@mcp.tool()
+def sources_affected(source_ids_json: str = "") -> str:
+    """List markdown documents affected by changed or selected source IDs."""
+    source_ids = json.loads(source_ids_json) if source_ids_json else None
+    return _json(_get_project().sources_affected(source_ids=source_ids))
+
+
+@mcp.tool()
 def ci_init(path: str = ".github/workflows/krail-local-preview.yml") -> str:
     """Write a GitHub Actions workflow that runs KRAIL local-preview checks."""
     return _json(_get_project().ci_init(path=path))

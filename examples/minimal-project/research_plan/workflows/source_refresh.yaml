@@ -1,0 +1,21 @@
+id: source_refresh
+description: Check source snapshots, identify affected docs, and prepare reviewed updates.
+schedule: "0 8 * * 1"
+steps:
+  - id: validate_dependencies
+    kind: command
+    run: krail --local sources validate
+  - id: check_sources
+    kind: command
+    run: krail --local sources check
+  - id: affected_docs
+    kind: command
+    run: krail --local sources affected
+  - id: refresh_agent
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: Review changed sources and affected documents. Propose evidence-backed updates, stale markers, and gaps.
+  - id: verify
+    kind: command
+    run: krail --local doctor && krail --local graph check && krail --local vector build

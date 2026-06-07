@@ -36,6 +36,7 @@ def bootstrap_future_project(
         ".ontology/transforms",
         ".rail/workspaces",
         "topics",
+        "sources",
         "specs",
         "research_plan/graph",
         "research_plan/state",
@@ -274,6 +275,18 @@ def bootstrap_future_project(
         # {name} Brief
 
         Describe the project goal, important entities, sources, and open questions.
+        """
+    )
+    source_dependencies = textwrap.dedent(
+        """\
+        documents:
+          - path: topics/brief.md
+            depends_on:
+              - id: local:research-question
+                type: local_file
+                path: specs/research_question.yaml
+                role: project_spec
+                refresh: manual
         """
     )
 
@@ -624,6 +637,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
     _write(project_root / "rail.yaml", rail_yaml)
     _write(project_root / ".ontology/ontology.yaml", ontology_yaml)
     _write(project_root / "specs/research_question.yaml", research_question)
+    _write(project_root / "sources/dependencies.yaml", source_dependencies)
     _write(project_root / "topics/brief.md", brief)
     for filename, content in research_plan_files.items():
         _write(project_root / "research_plan" / filename, content)
