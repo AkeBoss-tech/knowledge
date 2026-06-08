@@ -3,7 +3,7 @@ type: api
 url: https://api.stlouisfed.org/fred/series/observations
 params:
   series_id: MEHOINUSNJA646N
-  api_key: REMOVED_FRED_API_KEY
+  api_key: ${FRED_API_KEY}
   file_type: json
   observation_start: "2010-01-01"
 response_format: json

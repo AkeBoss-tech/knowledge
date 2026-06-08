@@ -215,6 +215,8 @@ cache/
 !examples/**/.krail/
 !examples/**/.krail/pack.yaml
 packages/api/.rail_state/
+packages/api/uploaded_key
+packages/api/uploaded_key.duckdb
 *.pid
 api_debug.log
 backend.log
