@@ -10,7 +10,7 @@ from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
 
 def _print_json(data: Any):
-    print(json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2, default=str))
 
 def _get_project(args: argparse.Namespace) -> rail.Project:
     if args.local:
@@ -30,7 +30,7 @@ def _get_project(args: argparse.Namespace) -> rail.Project:
 def cmd_init(args: argparse.Namespace):
     target = Path(args.directory).resolve()
     name = args.name or target.name
-    root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode)
+    root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode, pack=args.pack)
     project = rail.local(str(root))
     if args.pack:
         project.pack("use", args.pack)
@@ -134,6 +134,21 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
         _print_json(project.workflow_runs(limit=args.limit))
     elif args.workflow_command == "status":
         _print_json(project.workflow_status(args.run_id))
+
+def cmd_schedule(project: rail.Project, args: argparse.Namespace):
+    if args.schedule_command == "install":
+        _print_json(
+            project.schedule_install(
+                args.workflow_id,
+                system=args.system,
+                schedule=args.schedule,
+                dry_run=args.dry_run,
+            )
+        )
+    elif args.schedule_command == "list":
+        _print_json(project.schedule_list())
+    elif args.schedule_command == "remove":
+        _print_json(project.schedule_remove(args.workflow_id))
 
 def cmd_graph(project: rail.Project, args: argparse.Namespace):
     if args.graph_command == "build":
@@ -407,6 +422,18 @@ def main():
     wst = wf_subs.add_parser("status", help="Show a local workflow run result")
     wst.add_argument("run_id")
 
+    # Schedules
+    schedule_parser = subparsers.add_parser("schedule", help="Generate local scheduler wrappers for workflows")
+    schedule_subs = schedule_parser.add_subparsers(dest="schedule_command")
+    si = schedule_subs.add_parser("install", help="Write a scheduler wrapper and install hint")
+    si.add_argument("workflow_id")
+    si.add_argument("--system", choices=["cron", "launchd"], default="cron")
+    si.add_argument("--schedule", help="Cron expression; launchd currently writes a daily 8am plist")
+    si.add_argument("--dry-run", action="store_true", help="Schedule workflow dry-runs instead of full execution")
+    schedule_subs.add_parser("list", help="List generated scheduler wrappers")
+    sr = schedule_subs.add_parser("remove", help="Remove generated scheduler wrapper files")
+    sr.add_argument("workflow_id")
+
     # Markdown graph
     graph_parser = subparsers.add_parser("graph", help="Build and query markdown-frontmatter graphs")
     graph_subs = graph_parser.add_subparsers(dest="graph_command")
@@ -561,6 +588,8 @@ def main():
         cmd_task(project, args)
     elif args.command == "workflow":
         cmd_workflow(project, args)
+    elif args.command == "schedule":
+        cmd_schedule(project, args)
     elif args.command == "graph":
         cmd_graph(project, args)
     elif args.command == "vector":

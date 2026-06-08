@@ -555,31 +555,62 @@ class KnowledgeRuntime:
             {"path": hit["path"], "title": hit["title"], "snippet": hit["snippet"], "score": hit["score"]}
             for hit in hits
         ]
+        citations = [
+            {
+                "ref": f"[{index}]",
+                "path": hit["path"],
+                "title": hit["title"],
+                "score": hit["score"],
+            }
+            for index, hit in enumerate(evidence, start=1)
+        ]
+        source_validation = self.sources_validate()
+        source_changes = self.sources_changed()
+        affected = self.sources_affected()
+        affected_paths = [item["path"] for item in affected.get("affected_documents", [])]
+        stale_evidence = [
+            hit for hit in evidence
+            if hit["path"] in set(affected_paths)
+        ]
         if hits:
+            cited = ", ".join(item["ref"] for item in citations[:3])
             answer = (
-                "The local knowledge repo has relevant material, but this phase-1 thinker "
-                "does not yet call an LLM. Review the evidence below for the strongest matches."
+                f"Found {len(hits)} relevant local evidence item(s). "
+                f"Use {cited} as the strongest current references. "
+                "This deterministic thinker does not fabricate synthesis; it packages evidence, source freshness, and next actions for review."
             )
-            confidence = "low"
+            confidence = "medium" if not stale_evidence and source_validation.get("ok") else "low"
         else:
             answer = "No matching local evidence was found for this question."
             confidence = "low"
+        gaps = [
+            "LLM synthesis is intentionally not faked in this local skeleton.",
+            "Default vector retrieval uses local hashed embeddings unless a model-backed provider is configured.",
+        ]
+        if not source_validation.get("ok"):
+            gaps.append("Source dependency manifest is missing or invalid.")
+        if source_changes.get("changed_sources"):
+            gaps.append("Some dependency sources are marked changed; affected documents should be reviewed before relying on them.")
         return {
             "query": query,
             "answer": answer,
             "evidence": evidence,
+            "citations": citations,
             "graph_context": search.get("graph_context"),
             "vector_hits": search.get("vector_hits", []),
+            "source_freshness": {
+                "dependency_manifest_ok": source_validation.get("ok"),
+                "changed_sources": source_changes.get("changed_sources", []),
+                "affected_documents": affected.get("affected_documents", []),
+                "stale_evidence": stale_evidence,
+            },
             "confidence": confidence,
-            "gaps": [
-                "Vector retrieval currently uses local hashed embeddings, not model embeddings.",
-                "No source freshness or claim-evidence scoring is applied yet.",
-                "LLM synthesis is intentionally not faked in this local skeleton.",
-            ],
+            "gaps": gaps,
             "conflicts": [],
             "suggested_next_actions": [
-                "Run `krail capture` to add missing notes or sources.",
-                "Run `krail doctor` to check the project structure.",
+                "Run `krail --local sources check` to refresh dependency snapshots.",
+                "Run `krail --local sources affected` to inspect stale documents.",
+                "Run `krail --local workflow execute source_refresh --dry-run` before dispatching any refresh agent.",
                 "Register important claims in the integrity ledger before promotion.",
             ],
         }
@@ -618,7 +649,7 @@ class KnowledgeRuntime:
             f"title: {_yaml_scalar(title or kind.title())}",
             f"kind: {_yaml_scalar(kind)}",
             f"type: {_yaml_scalar(kind)}",
-            f"captured_at: {_dt.datetime.now(_dt.UTC).isoformat()}",
+            f"captured_at: {_yaml_scalar(_dt.datetime.now(_dt.UTC).isoformat())}",
         ]
         if topics:
             header.append("topics:")
@@ -914,6 +945,10 @@ jobs:
     @property
     def locks_dir(self) -> Path:
         return self.krail_dir / "locks"
+
+    @property
+    def schedules_dir(self) -> Path:
+        return self.krail_dir / "schedules"
 
     def list_agents(self) -> dict[str, Any]:
         agents = []
@@ -1337,6 +1372,100 @@ krail --local graph check
         if len(matches) == 1:
             return json.loads(matches[0].read_text(encoding="utf-8"))
         raise FileNotFoundError(f"Workflow run not found: {run_id}")
+
+    def schedule_install(
+        self,
+        workflow_id: str,
+        *,
+        system: str = "cron",
+        schedule: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        if system not in {"cron", "launchd"}:
+            raise ValueError("system must be cron or launchd")
+        shown = self.workflow_show(workflow_id)
+        validation = shown.get("validation") or {}
+        if not validation.get("ok"):
+            return {"status": "invalid", "workflow": workflow_id, "validation": validation}
+        spec = shown["workflow"]
+        workflow_name = str(spec.get("id") or workflow_id)
+        slug = self._slug(workflow_name)
+        cron_schedule = schedule or str(spec.get("schedule") or "0 8 * * 1")
+        self.schedules_dir.mkdir(parents=True, exist_ok=True)
+        (self.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (self.krail_dir / "logs").mkdir(parents=True, exist_ok=True)
+        wrapper = self.project_path / "scripts" / f"krail-run-{slug}.sh"
+        dry_flag = " --dry-run" if dry_run else ""
+        wrapper.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f"cd {shlex.quote(str(self.project_path))}\n"
+            f"exec krail --local workflow execute {shlex.quote(workflow_name)}{dry_flag} >> {shlex.quote(str(self.krail_dir / 'logs' / f'{slug}.log'))} 2>&1\n",
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        descriptor = {
+            "workflow": workflow_name,
+            "system": system,
+            "schedule": cron_schedule,
+            "wrapper": str(wrapper.relative_to(self.project_path)),
+            "dry_run": dry_run,
+            "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        }
+        if system == "cron":
+            cron_line = f"{cron_schedule} {shlex.quote(str(wrapper))}"
+            descriptor["install_hint"] = f"(crontab -l 2>/dev/null; echo {shlex.quote(cron_line)}) | crontab -"
+            (self.schedules_dir / f"{slug}.cron").write_text(cron_line + "\n", encoding="utf-8")
+        else:
+            label = f"local.krail.{slug}"
+            plist = (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+                "<plist version=\"1.0\">\n"
+                "<dict>\n"
+                f"  <key>Label</key><string>{label}</string>\n"
+                "  <key>ProgramArguments</key>\n"
+                "  <array>\n"
+                f"    <string>{wrapper}</string>\n"
+                "  </array>\n"
+                "  <key>StartCalendarInterval</key>\n"
+                "  <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>\n"
+                "  <key>RunAtLoad</key><false/>\n"
+                "</dict>\n"
+                "</plist>\n"
+            )
+            plist_path = self.schedules_dir / f"{label}.plist"
+            plist_path.write_text(plist, encoding="utf-8")
+            descriptor["plist"] = str(plist_path.relative_to(self.project_path))
+            descriptor["install_hint"] = f"launchctl load {plist_path}"
+        descriptor_path = self.schedules_dir / f"{slug}.json"
+        descriptor_path.write_text(json.dumps(descriptor, indent=2) + "\n", encoding="utf-8")
+        return {"status": "written", "path": str(descriptor_path.relative_to(self.project_path)), "schedule": descriptor}
+
+    def schedule_list(self) -> dict[str, Any]:
+        schedules = []
+        for path in sorted(self.schedules_dir.glob("*.json")):
+            try:
+                schedules.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+        return {"schedules": schedules}
+
+    def schedule_remove(self, workflow_id: str) -> dict[str, Any]:
+        slug = self._slug(workflow_id)
+        removed: list[str] = []
+        for path in [
+            self.schedules_dir / f"{slug}.json",
+            self.schedules_dir / f"{slug}.cron",
+            self.project_path / "scripts" / f"krail-run-{slug}.sh",
+        ]:
+            if path.exists():
+                path.unlink()
+                removed.append(str(path.relative_to(self.project_path)))
+        for path in self.schedules_dir.glob(f"*{slug}*.plist"):
+            path.unlink()
+            removed.append(str(path.relative_to(self.project_path)))
+        return {"status": "removed", "workflow": workflow_id, "removed": removed}
 
     def workflow_list(self) -> dict[str, Any]:
         active = self.active_pack().get("active") or {}

@@ -24,11 +24,14 @@ def bootstrap_future_project(
     slug: str | None = None,
     default_branch: str = "main",
     mode: str = "ontology_first",
+    pack: str | None = None,
 ) -> Path:
     project_root = Path(target_dir).resolve()
     project_slug = slug or _slugify(name)
     if mode not in {"ontology_first", "markdown_graph"}:
         raise ValueError("mode must be ontology_first or markdown_graph")
+    active_pack = pack or "research-intelligence"
+    require_longitudinal_panel = active_pack == "research-intelligence" and mode == "ontology_first"
 
     dirs = [
         ".ontology/sources",
@@ -701,6 +704,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
 
 
             ROOT = Path(__file__).resolve().parents[1]
+            REQUIRE_LONGITUDINAL_PANEL = __REQUIRE_LONGITUDINAL_PANEL__
 
             REQUIRED_LEDGERS = [
                 "research_plan/current_plan.md",
@@ -784,7 +788,8 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             def check_panel(failures: list[str]) -> None:
                 columns, rows = load_panel_rows()
                 if not columns or not rows:
-                    fail("Missing processed longitudinal panel dataset: topics/data/processed/longitudinal_panel.csv", failures)
+                    if REQUIRE_LONGITUDINAL_PANEL:
+                        fail("Missing processed longitudinal panel dataset: topics/data/processed/longitudinal_panel.csv", failures)
                     return
 
                 lower_cols = [c.lower() for c in columns]
@@ -832,7 +837,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             if __name__ == "__main__":
                 raise SystemExit(main())
             """
-        ),
+        ).replace("__REQUIRE_LONGITUDINAL_PANEL__", repr(require_longitudinal_panel)),
     )
     _write(
         project_root / "scripts" / "archive-workspace.sh",

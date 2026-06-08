@@ -2,7 +2,18 @@
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Deterministic `think` now returns citations, source freshness, affected documents, and source-refresh next actions.
+- Local scheduler wrapper generation with `krail --local schedule install/list/remove`.
+- Manual self-hosted GitHub Actions workflow for explicit KRAIL workflow execution.
+
+### Fixed
+
+- Capture frontmatter now writes `captured_at` as a string and graph ingestion normalizes legacy YAML timestamps.
+- Markdown graph JSON and summary artifacts are deterministic across identical rebuilds.
+- CLI JSON output now stringifies datetime-like values instead of crashing.
+- `company-brain` markdown-graph scaffolds no longer require the research panel dataset during verification.
 
 ## v0.2.0-local-preview
 

@@ -159,6 +159,19 @@ krail --local graph docs --topic dual-arm-planning
 Ask for the current deterministic answer envelope:
 
 ```bash
+krail --local think "What changed in task and motion planning?"
+```
+
+`think` is still deterministic, but it now returns an operational envelope:
+
+- citations into local files
+- graph context
+- vector hits
+- source dependency freshness
+- affected documents from changed sources
+- suggested next actions such as `source_refresh`
+
+```bash
 krail --local think "what do we know about GCS feasibility?"
 ```
 
@@ -557,6 +570,17 @@ Cron can call a workflow directly:
 0 8 * * 1 cd /path/to/project && /absolute/path/to/krail --local workflow execute weekly_research_review >> .krail/cron.log 2>&1
 ```
 
+KRAIL can also generate auditable scheduler wrapper files:
+
+```bash
+krail --local schedule install source_refresh --system cron --schedule "0 8 * * 1" --dry-run
+krail --local schedule list
+krail --local schedule remove source_refresh
+```
+
+This writes wrapper files and install hints. It does not silently mutate your
+system crontab or launchd state.
+
 Dry runs create records but do not launch another agent process. Remove
 `--dry-run` only after reviewing the generated command or workflow plan.
 
@@ -666,6 +690,16 @@ Issue-triggered workflow commands always run as dry runs. They create an
 auditable plan and response, but do not launch a local agent process. Full
 agent dispatch should use a self-hosted runner path with explicit credentials
 and a separate approval policy.
+
+For explicit full dispatch, use:
+
+```text
+.github/workflows/krail-self-hosted-agent.yml
+```
+
+That workflow only runs through manual `workflow_dispatch` on a `self-hosted`
+runner. It expects local agent credentials and CLIs to live on that runner, not
+on GitHub-hosted infrastructure.
 
 By default, the issue workflow uses the repository root when it contains
 `rail.yaml`; otherwise, this package repo falls back to
@@ -1063,6 +1097,14 @@ krail --local workflow validate weekly_research_review
 krail --local workflow execute weekly_research_review --dry-run
 krail --local workflow runs
 krail --local workflow status <run_id>
+```
+
+Schedules:
+
+```bash
+krail --local schedule install source_refresh --system cron --schedule "0 8 * * 1" --dry-run
+krail --local schedule list
+krail --local schedule remove source_refresh
 ```
 
 Sources:

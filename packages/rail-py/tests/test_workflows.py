@@ -141,6 +141,25 @@ def test_dispatch_creates_session_result_template(tmp_path: Path):
     assert work_order["session_result_path"].endswith("session_result.json")
 
 
+def test_schedule_install_list_and_remove(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    runtime.workflow_init("source_refresh", template="source_refresh")
+
+    installed = runtime.schedule_install("source_refresh", schedule="15 9 * * 1", dry_run=True)
+    listed = runtime.schedule_list()
+
+    wrapper = root / installed["schedule"]["wrapper"]
+    assert installed["status"] == "written"
+    assert wrapper.exists()
+    assert "--dry-run" in wrapper.read_text(encoding="utf-8")
+    assert listed["schedules"][0]["workflow"] == "source_refresh"
+
+    removed = runtime.schedule_remove("source_refresh")
+    assert "scripts/krail-run-source-refresh.sh" in removed["removed"]
+    assert not wrapper.exists()
+
+
 def test_workflow_list_filters_malformed_pack_entries(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)

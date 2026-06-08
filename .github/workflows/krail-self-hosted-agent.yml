@@ -1,0 +1,50 @@
+name: KRAIL Self-Hosted Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_path:
+        description: "Path to the KRAIL project inside the checkout"
+        required: true
+        default: "examples/minimal-project"
+      workflow_id:
+        description: "Workflow spec id to execute"
+        required: true
+        default: "source_refresh"
+      dry_run:
+        description: "Run without launching agent steps"
+        required: true
+        default: "true"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  run-krail-workflow:
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install KRAIL package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e packages/rail-py
+
+      - name: Execute workflow
+        env:
+          PROJECT_PATH: ${{ inputs.project_path }}
+          WORKFLOW_ID: ${{ inputs.workflow_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          DRY_FLAG=""
+          if [ "$DRY_RUN" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          krail --local --path "$PROJECT_PATH" workflow execute "$WORKFLOW_ID" $DRY_FLAG
+
+      - name: Show generated state
+        run: |
+          git status --short

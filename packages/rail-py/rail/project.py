@@ -213,6 +213,21 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force)
 
+    def schedule_install(self, workflow_id: str, *, system: str = "cron", schedule: str | None = None, dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("schedule commands require local mode")
+        return self._backend.knowledge.schedule_install(workflow_id, system=system, schedule=schedule, dry_run=dry_run)
+
+    def schedule_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("schedule commands require local mode")
+        return self._backend.knowledge.schedule_list()
+
+    def schedule_remove(self, workflow_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("schedule commands require local mode")
+        return self._backend.knowledge.schedule_remove(workflow_id)
+
     def graph_build(self, *, write: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")

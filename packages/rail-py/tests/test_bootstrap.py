@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -107,3 +108,24 @@ def test_bootstrap_future_project_supports_markdown_graph_mode(tmp_path):
 
     brief = (root / "topics" / "brief.md").read_text(encoding="utf-8")
     assert "entity_type: ProjectIdea" in brief
+
+
+def test_company_brain_scaffold_verification_does_not_require_panel_dataset(tmp_path):
+    root = bootstrap_future_project(
+        tmp_path,
+        name="Company Brain",
+        slug="company-brain",
+        mode="markdown_graph",
+        pack="company-brain",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run-verification.sh"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "longitudinal_panel.csv" not in result.stdout

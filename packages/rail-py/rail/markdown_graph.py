@@ -60,6 +60,16 @@ def _as_str_list(value: Any) -> list[str]:
     return [str(item).strip() for item in _as_list(value) if str(item).strip()]
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, (_dt.date, _dt.datetime)):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return value
+
+
 def _frontmatter(text: str) -> dict[str, Any] | None:
     match = _FRONTMATTER_RE.match(text)
     if not match:
@@ -67,7 +77,7 @@ def _frontmatter(text: str) -> dict[str, Any] | None:
     loaded = yaml.safe_load(match.group(1)) or {}
     if not isinstance(loaded, dict):
         return None
-    return loaded
+    return _json_safe(loaded)
 
 
 def _matches_any(rel_path: str, patterns: list[str]) -> bool:
@@ -318,7 +328,7 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
 
     graph = {
         "mode": "markdown_frontmatter",
-        "generatedAt": _dt.datetime.now(_dt.UTC).isoformat(),
+        "generatedAt": max((doc.get("updated") for doc in documents if doc.get("updated")), default=None),
         "config": {
             "include": config.include,
             "exclude": config.exclude,
@@ -377,8 +387,6 @@ def summary_for_graph(graph: dict[str, Any]) -> str:
     )
     lines = [
         "# Markdown Graph Summary",
-        "",
-        f"Generated: {graph.get('generatedAt')}",
         "",
         f"- Documents: {graph.get('counts', {}).get('documents', 0)}",
         f"- Nodes: {graph.get('counts', {}).get('nodes', 0)}",

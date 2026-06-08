@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+import yaml
 
 import rail
 from rail.markdown_graph import (
@@ -185,6 +188,10 @@ def test_capture_can_write_graph_frontmatter_and_search_rag(tmp_path: Path):
         entity_type="Package",
     )
     assert captured["status"] == "captured"
+    captured_text = (tmp_path / captured["path"]).read_text(encoding="utf-8")
+    assert 'captured_at: "' in captured_text
+    frontmatter = yaml.safe_load(captured_text.split("---", 2)[1])
+    assert isinstance(frontmatter["captured_at"], str)
 
     graph = project.graph_build(write=False)
     assert any(node.get("label") == "PDDLStream" for node in graph["nodes"])
@@ -223,3 +230,54 @@ def test_vector_build_records_provider_metadata(tmp_path: Path):
     hits = project.vector_search("PDDLStream baseline", limit=2)
     assert hits["embedding"]["provider"] == "local_hash"
     assert hits["embedding"]["model"] == "local-test"
+
+
+def test_graph_build_handles_legacy_unquoted_yaml_timestamps(tmp_path: Path):
+    _write_project(tmp_path)
+    legacy = tmp_path / "topics" / "notes" / "legacy-capture.md"
+    legacy.write_text(
+        """\
+---
+title: Legacy Capture
+kind: webpage
+captured_at: 2026-06-08T00:02:44.804199+00:00
+entities:
+  - Olo
+entity_metadata:
+  - name: Olo
+    entity_type: Company
+---
+
+Legacy capture body.
+""",
+        encoding="utf-8",
+    )
+
+    graph = build_markdown_graph(tmp_path, write=True)
+    stored = json.loads((tmp_path / "research_plan" / "graph" / "graph.json").read_text(encoding="utf-8"))
+    legacy_doc = next(doc for doc in stored["documents"] if doc["path"] == "topics/notes/legacy-capture.md")
+
+    assert graph["counts"]["documents"] == 3
+    assert legacy_doc["updated"] == "2026-06-08T00:02:44.804199+00:00"
+
+
+def test_graph_artifacts_are_deterministic_across_identical_rebuilds(tmp_path: Path):
+    _write_project(tmp_path)
+
+    build_markdown_graph(tmp_path, write=True)
+    graph_path = tmp_path / "research_plan" / "graph" / "graph.json"
+    summary_path = tmp_path / "research_plan" / "graph" / "summary.md"
+    first = (
+        hashlib.sha256(graph_path.read_bytes()).hexdigest(),
+        hashlib.sha256(summary_path.read_bytes()).hexdigest(),
+    )
+
+    build_markdown_graph(tmp_path, write=True)
+    second = (
+        hashlib.sha256(graph_path.read_bytes()).hexdigest(),
+        hashlib.sha256(summary_path.read_bytes()).hexdigest(),
+    )
+
+    assert first == second
+    assert json.loads(graph_path.read_text(encoding="utf-8"))["generatedAt"] is None
+    assert "Generated:" not in summary_path.read_text(encoding="utf-8")

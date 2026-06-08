@@ -46,6 +46,7 @@ jobs:
             packages/rail-py/tests/test_cli.py \
             packages/rail-py/tests/test_issue_intake.py \
             packages/rail-py/tests/test_source_dependencies.py \
+            packages/rail-py/tests/test_think.py \
             packages/rail-py/tests/test_workflows.py \
             packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
