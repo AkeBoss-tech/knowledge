@@ -1,0 +1,16 @@
+id: company_profile_refresh
+description: Refresh company profile notes and source-backed claims.
+schedule: 0 8 * * 1
+steps:
+- id: check_sources
+  kind: command
+  run: krail --local sources check
+- id: profile_update
+  kind: agent
+  role: research
+  runner: auto
+  prompt: Review changed company sources and update company overview, product, team,
+    system, and policy notes with citations and gaps.
+- id: verify
+  kind: command
+  run: krail --local doctor && krail --local graph check && krail --local vector build

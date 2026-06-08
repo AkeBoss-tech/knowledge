@@ -1,0 +1,14 @@
+id: stale_doc_review
+description: Inspect changed sources and stale documents before refreshing company-brain
+  notes.
+schedule: ''
+steps:
+- id: check_sources
+  kind: command
+  run: krail --local sources check
+- id: affected_docs
+  kind: command
+  run: krail --local sources affected
+- id: think
+  kind: command
+  run: krail --local think 'Which company-brain documents may be stale?'

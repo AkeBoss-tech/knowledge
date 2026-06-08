@@ -1,0 +1,6 @@
+question: What should the company brain track each week to keep product, sales, and operations aligned?
+required_sources:
+  - product-roadmap
+  - revops-metrics
+  - support-policy
+output: research_plan/current_plan.md

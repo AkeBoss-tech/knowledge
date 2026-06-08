@@ -1,0 +1,32 @@
+documents:
+  - path: topics/brief.md
+    depends_on:
+      - id: local:research-question
+        type: local_file
+        path: specs/research_question.yaml
+        role: project_spec
+        refresh: manual
+  - path: topics/company_overview.md
+    depends_on:
+      - id: local:brief
+        type: local_file
+        path: topics/brief.md
+        role: company_context
+        refresh: manual
+      - id: source:product-roadmap
+        type: synthetic
+        path: research_plan/source_registry.md
+        role: roadmap
+        refresh: weekly
+  - path: topics/revops_stack.md
+    depends_on:
+      - id: local:brief
+        type: local_file
+        path: topics/brief.md
+        role: company_context
+        refresh: manual
+      - id: source:revops-metrics
+        type: synthetic
+        path: research_plan/source_registry.md
+        role: operating_metric
+        refresh: weekly

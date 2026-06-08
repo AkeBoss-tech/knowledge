@@ -1,0 +1,18 @@
+id: initial_company_map
+description: Create the first company map from local captures, web sources, and explicit
+  evidence.
+schedule: ''
+steps:
+- id: doctor
+  kind: command
+  run: krail --local doctor
+- id: company_map
+  kind: agent
+  role: research
+  runner: auto
+  prompt: Map the company, key products, teams, systems, policies, datasets, metrics,
+    and open source gaps. Record evidence-backed notes under topics/ and graph metadata
+    in markdown frontmatter.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build

@@ -1,0 +1,17 @@
+id: source_review
+description: Review source freshness, affected documents, and unsupported company
+  claims.
+schedule: ''
+steps:
+- id: validate_sources
+  kind: command
+  run: krail --local sources validate
+- id: affected_docs
+  kind: command
+  run: krail --local sources affected
+- id: review
+  kind: agent
+  role: doctor
+  runner: auto
+  prompt: Audit stale company-brain docs, unsupported claims, missing source metadata,
+    graph freshness, and suggested remediation tasks.

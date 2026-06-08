@@ -1,0 +1,19 @@
+id: weekly_exec_brief
+description: Prepare a concise weekly executive brief from reviewed company-brain
+  evidence.
+schedule: 0 9 * * 1
+steps:
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build
+- id: brief
+  kind: agent
+  role: research
+  runner: auto
+  prompt: Draft a short executive brief from current company-brain evidence. Include
+    citations, stale-source warnings, gaps, and next actions.
+- id: audit
+  kind: agent
+  role: doctor
+  runner: auto
+  prompt: Audit the executive brief for unsupported claims and missing evidence.

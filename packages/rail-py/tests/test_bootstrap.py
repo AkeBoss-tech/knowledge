@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 import subprocess
+import json
+import os
 from pathlib import Path
 
 import yaml
@@ -129,3 +131,60 @@ def test_company_brain_scaffold_verification_does_not_require_panel_dataset(tmp_
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "longitudinal_panel.csv" not in result.stdout
+
+
+def test_cli_init_materializes_pack_workflows_by_default(tmp_path):
+    target = tmp_path / "company-brain-project"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "init",
+            str(target),
+            "--pack",
+            "company-brain",
+            "--mode",
+            "markdown_graph",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert "company_profile_refresh" in payload["materialized_workflows"]
+    assert (target / "research_plan" / "workflows" / "company-profile-refresh.yaml").exists()
+
+
+def test_cli_init_can_skip_pack_workflow_materialization(tmp_path):
+    target = tmp_path / "company-brain-project"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "init",
+            str(target),
+            "--pack",
+            "company-brain",
+            "--mode",
+            "markdown_graph",
+            "--no-init-pack-workflows",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert "materialized_workflows" not in payload
+    assert not (target / "research_plan" / "workflows" / "company-profile-refresh.yaml").exists()

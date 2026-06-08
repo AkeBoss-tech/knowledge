@@ -534,6 +534,11 @@ materialized, available as a built-in template, or only a pack stub. Run
 `workflow init <id>` before `workflow execute` or `schedule install` so the
 workflow is reviewable in `research_plan/workflows/`.
 
+When you create a project with `krail init ... --pack <pack-id>`, KRAIL now
+materializes the selected pack's workflow specs by default. Use
+`--no-init-pack-workflows` if you want a lighter scaffold with template-only
+workflow discovery.
+
 Create a durable local workflow spec:
 
 ```bash
@@ -1170,6 +1175,7 @@ Start here:
 Examples:
 
 - [Minimal KRAIL Project](examples/minimal-project/README.md)
+- [Company Brain Example](examples/company-brain/README.md)
 
 ## For Agents
 

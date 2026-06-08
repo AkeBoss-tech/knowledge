@@ -34,9 +34,21 @@ def cmd_init(args: argparse.Namespace):
     name = args.name or target.name
     root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode, pack=args.pack)
     project = rail.local(str(root))
+    materialized_workflows: list[str] = []
     if args.pack:
         project.pack("use", args.pack)
-    _print_json({"status": "initialized", "path": str(root), "pack": args.pack, "mode": args.mode})
+        if not args.no_init_pack_workflows and hasattr(project._backend, "knowledge"):
+            active = project._backend.knowledge.active_pack().get("active") or {}
+            for workflow_id in active.get("workflows") or []:
+                if not isinstance(workflow_id, str):
+                    continue
+                result = project.init_workflow(workflow_id)
+                if result.get("status") in {"written", "exists"}:
+                    materialized_workflows.append(workflow_id)
+    payload = {"status": "initialized", "path": str(root), "pack": args.pack, "mode": args.mode}
+    if materialized_workflows:
+        payload["materialized_workflows"] = materialized_workflows
+    _print_json(payload)
 
 def cmd_search(project: rail.Project, args: argparse.Namespace):
     if hasattr(project._backend, "knowledge"):
@@ -319,6 +331,11 @@ def main():
     init_parser.add_argument("--slug", help="Project slug")
     init_parser.add_argument("--pack", choices=["research-intelligence", "company-brain", "software-architecture", "policy-compiler"], help="Activate a knowledge pack")
     init_parser.add_argument("--mode", choices=["ontology_first", "markdown_graph"], default="ontology_first", help="Project scaffold mode")
+    init_parser.add_argument(
+        "--no-init-pack-workflows",
+        action="store_true",
+        help="Skip materializing workflow specs for the selected pack during init",
+    )
 
     # Search
     s_parser = subparsers.add_parser("search", help="Search local project evidence")

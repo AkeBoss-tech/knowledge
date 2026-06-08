@@ -1,0 +1,13 @@
+id: competitor_scan
+description: Scan competitor and market signals for company-brain context.
+schedule: ''
+steps:
+- id: scan
+  kind: agent
+  role: research
+  runner: auto
+  prompt: Identify competitor, market, product, and customer signals relevant to this
+    company brain. Capture sources and separate facts from hypotheses.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build
