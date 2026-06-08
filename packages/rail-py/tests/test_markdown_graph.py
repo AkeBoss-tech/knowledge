@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import rail
@@ -199,6 +200,10 @@ def test_capture_can_write_graph_frontmatter_and_search_rag(tmp_path: Path):
     assert rag["vector_hits"]
     assert rag["rag"]["database"] == ".krail/vector.sqlite"
 
+    capture_path = tmp_path / captured["path"]
+    captured_text = capture_path.read_text(encoding="utf-8")
+    assert 'captured_at: "' in captured_text
+
 
 def test_graph_context_boosts_connected_documents(tmp_path: Path):
     _write_project(tmp_path)
@@ -223,3 +228,21 @@ def test_vector_build_records_provider_metadata(tmp_path: Path):
     hits = project.vector_search("PDDLStream baseline", limit=2)
     assert hits["embedding"]["provider"] == "local_hash"
     assert hits["embedding"]["model"] == "local-test"
+
+
+def test_markdown_graph_build_is_deterministic_across_identical_rebuilds(tmp_path: Path):
+    _write_project(tmp_path)
+
+    first = build_markdown_graph(tmp_path, write=True)
+    json_1 = (tmp_path / "research_plan" / "graph" / "graph.json").read_text(encoding="utf-8")
+    summary_1 = (tmp_path / "research_plan" / "graph" / "summary.md").read_text(encoding="utf-8")
+
+    time.sleep(0.01)
+
+    second = build_markdown_graph(tmp_path, write=True)
+    json_2 = (tmp_path / "research_plan" / "graph" / "graph.json").read_text(encoding="utf-8")
+    summary_2 = (tmp_path / "research_plan" / "graph" / "summary.md").read_text(encoding="utf-8")
+
+    assert first["generatedAt"] == second["generatedAt"]
+    assert json_1 == json_2
+    assert summary_1 == summary_2

@@ -10,7 +10,7 @@ from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
 
 def _print_json(data: Any):
-    print(json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2, default=str))
 
 def _get_project(args: argparse.Namespace) -> rail.Project:
     if args.local:

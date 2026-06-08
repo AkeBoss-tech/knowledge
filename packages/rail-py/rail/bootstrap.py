@@ -782,7 +782,10 @@ Never promote hypotheses that still rely on unsupported or stale claims.
 
 
             def check_panel(failures: list[str]) -> None:
+                outcomes = required_outcomes()
                 columns, rows = load_panel_rows()
+                if not outcomes and not columns and not rows:
+                    return
                 if not columns or not rows:
                     fail("Missing processed longitudinal panel dataset: topics/data/processed/longitudinal_panel.csv", failures)
                     return
@@ -795,7 +798,6 @@ Never promote hypotheses that still rely on unsupported or stale claims.
                     if treated_values == {"1"}:
                         fail("Panel contains treated=1 for all rows; a real control group is still missing.", failures)
 
-                outcomes = required_outcomes()
                 for outcome in outcomes:
                     if outcome == "employment":
                         present = any("employment" in c or "employed" in c for c in lower_cols)

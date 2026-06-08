@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -107,3 +108,18 @@ def test_bootstrap_future_project_supports_markdown_graph_mode(tmp_path):
 
     brief = (root / "topics" / "brief.md").read_text(encoding="utf-8")
     assert "entity_type: ProjectIdea" in brief
+
+
+def test_bootstrap_verifier_skips_panel_requirement_when_project_has_no_outcome_signals(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Company Brain", slug="company-brain", mode="markdown_graph")
+
+    result = subprocess.run(
+        [sys.executable, str(root / "scripts" / "verify_project_state.py")],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "VERIFICATION PASSED" in result.stdout

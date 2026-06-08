@@ -618,7 +618,7 @@ class KnowledgeRuntime:
             f"title: {_yaml_scalar(title or kind.title())}",
             f"kind: {_yaml_scalar(kind)}",
             f"type: {_yaml_scalar(kind)}",
-            f"captured_at: {_dt.datetime.now(_dt.UTC).isoformat()}",
+            f"captured_at: {_yaml_scalar(_dt.datetime.now(_dt.UTC).isoformat())}",
         ]
         if topics:
             header.append("topics:")

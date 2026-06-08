@@ -60,6 +60,20 @@ def _as_str_list(value: Any) -> list[str]:
     return [str(item).strip() for item in _as_list(value) if str(item).strip()]
 
 
+def _stringify_scalar(value: Any) -> Any:
+    if isinstance(value, (_dt.datetime, _dt.date)):
+        return value.isoformat()
+    return value
+
+
+def _metadata_updated(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get("updated") or metadata.get("captured_at")
+    if value is None:
+        return None
+    text = str(_stringify_scalar(value)).strip()
+    return text or None
+
+
 def _frontmatter(text: str) -> dict[str, Any] | None:
     match = _FRONTMATTER_RE.match(text)
     if not match:
@@ -207,6 +221,8 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
         sources = sorted(set(sources))
         entity_meta = _entity_metadata(metadata)
 
+        updated = _metadata_updated(metadata)
+
         documents.append(
             {
                 "id": doc_id,
@@ -217,7 +233,7 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
                 "entities": sorted(entity_meta),
                 "sources": sources,
                 "relations": len(_as_list(metadata.get("relations"))),
-                "updated": metadata.get("updated") or metadata.get("captured_at"),
+                "updated": updated,
             }
         )
         _add_node(
@@ -228,7 +244,7 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
                 "nodeType": "document",
                 "kind": kind,
                 "path": rel,
-                "updated": metadata.get("updated") or metadata.get("captured_at"),
+                "updated": updated,
             },
         )
 
@@ -316,9 +332,11 @@ def build_markdown_graph(project_path: str | Path, *, write: bool = True) -> dic
     except Exception as exc:
         warnings.append({"path": "sources/dependencies.yaml", "warning": f"could not load source dependencies: {exc}"})
 
+    generated_at = max((doc.get("updated") for doc in documents if doc.get("updated")), default=None)
+
     graph = {
         "mode": "markdown_frontmatter",
-        "generatedAt": _dt.datetime.now(_dt.UTC).isoformat(),
+        "generatedAt": generated_at,
         "config": {
             "include": config.include,
             "exclude": config.exclude,
