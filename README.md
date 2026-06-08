@@ -465,11 +465,16 @@ KRAIL can use local CLI agents as workers.
 
 Supported runner names:
 
+- `auto`
 - `codex_cli`
 - `claude_code`
 - `gemini_cli`
 - `cursor_cli`
 - `copilot_cli`
+
+Use `auto` when the project should prefer the configured default runner but
+fall back to another installed local CLI. KRAIL records both the requested
+runner and the resolved runner in task/work-order state.
 
 Check configured agents:
 
@@ -518,8 +523,16 @@ Run a workflow declared by the active pack:
 
 ```bash
 krail --local workflow list
+krail --local workflow show company_profile_refresh
+krail --local workflow init company_profile_refresh
 krail --local workflow run weekly_literature_refresh --runner codex_cli --dry-run
 ```
+
+`workflow list` includes pack-advertised workflows even before their YAML specs
+exist locally. `workflow show <id>` will tell you whether the workflow is
+materialized, available as a built-in template, or only a pack stub. Run
+`workflow init <id>` before `workflow execute` or `schedule install` so the
+workflow is reviewable in `research_plan/workflows/`.
 
 Create a durable local workflow spec:
 

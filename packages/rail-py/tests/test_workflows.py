@@ -141,6 +141,20 @@ def test_dispatch_creates_session_result_template(tmp_path: Path):
     assert work_order["session_result_path"].endswith("session_result.json")
 
 
+def test_dispatch_auto_runner_falls_back_to_available_cli(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    monkeypatch.setenv("CODEX_CLI_COMMAND", "/missing/codex")
+    monkeypatch.setenv("CLAUDE_CODE_COMMAND", sys.executable)
+
+    created = runtime.create_task("Fallback task", runner="auto", role="doctor")
+    result = runtime.dispatch_task(created["task"]["id"], dry_run=True)
+
+    assert created["task"]["runner"] == "claude_code"
+    assert result["runner"] == "claude_code"
+    assert result["work_order"]
+
+
 def test_schedule_install_list_and_remove(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)
@@ -158,6 +172,28 @@ def test_schedule_install_list_and_remove(tmp_path: Path):
     removed = runtime.schedule_remove("source_refresh")
     assert "scripts/krail-run-source-refresh.sh" in removed["removed"]
     assert not wrapper.exists()
+
+
+def test_pack_workflow_show_guides_materialization(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Company Project", slug="company-project")
+    runtime = KnowledgeRuntime(root)
+    runtime.use_pack("company-brain")
+
+    listed = runtime.workflow_list()
+    shown = runtime.workflow_show("company_profile_refresh")
+    execution = runtime.workflow_execute("company_profile_refresh", dry_run=True)
+    schedule = runtime.schedule_install("company_profile_refresh", dry_run=True)
+    initialized = runtime.workflow_init("company_profile_refresh")
+
+    available = {item["id"]: item for item in listed["available"]}
+    assert available["company_profile_refresh"]["status"] == "template_available"
+    assert shown["status"] == "template"
+    assert shown["materialized"] is False
+    assert "workflow init company_profile_refresh" in shown["next_action"]
+    assert execution["status"] == "not_materialized"
+    assert schedule["status"] == "not_materialized"
+    assert initialized["template"] == "company_profile_refresh"
+    assert initialized["workflow"]["steps"][1]["runner"] == "auto"
 
 
 def test_workflow_list_filters_malformed_pack_entries(tmp_path: Path):

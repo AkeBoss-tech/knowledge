@@ -1,6 +1,10 @@
 # Release Checklist
 
-Target: `v0.2.0-local-preview`
+Target: `v0.2.1-local-preview`
+
+Planned scope: patch release for company-brain scaffolding, deterministic graph
+artifacts, safer CLI JSON output, better `think`, local scheduler wrappers,
+workflow runner fallback, and clearer pack workflow materialization.
 
 ## Fresh Clone Smoke
 
@@ -18,6 +22,8 @@ krail --local --path examples/minimal-project graph build
 krail --local --path examples/minimal-project graph check
 krail --local --path examples/minimal-project vector build
 krail --local --path examples/minimal-project search "employment index" --rag --explain
+krail --local --path examples/minimal-project think "employment index"
+krail --local --path examples/minimal-project workflow list
 ```
 
 ## Pre-Tag Checks
@@ -29,6 +35,7 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
   packages/rail-py/tests/test_cli.py \
   packages/rail-py/tests/test_issue_intake.py \
   packages/rail-py/tests/test_source_dependencies.py \
+  packages/rail-py/tests/test_think.py \
   packages/rail-py/tests/test_workflows.py \
   packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
   packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
@@ -43,6 +50,6 @@ git diff --check
 ## Tag
 
 ```bash
-git tag -a v0.2.0-local-preview -m "KRAIL v0.2.0 local preview"
-git push origin v0.2.0-local-preview
+git tag -a v0.2.1-local-preview -m "KRAIL v0.2.1 local preview"
+git push origin v0.2.1-local-preview
 ```

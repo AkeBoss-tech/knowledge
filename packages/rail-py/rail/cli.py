@@ -9,6 +9,8 @@ import rail
 from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
 
+RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
+
 def _print_json(data: Any):
     print(json.dumps(data, indent=2, default=str))
 
@@ -371,11 +373,11 @@ def main():
     aks.add_argument("--force", action="store_true", help="Overwrite existing KRAIL prompt files")
     ad = a_subs.add_parser("doctor", help="Create and dispatch a KRAIL doctor agent task")
     ad.add_argument("--prompt", help="Override the default doctor task prompt")
-    ad.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    ad.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     ad.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
     ar = a_subs.add_parser("run", help="Create and dispatch a one-off local agent task")
     ar.add_argument("prompt", help="Task prompt")
-    ar.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    ar.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     ar.add_argument("--role", default="research")
     ar.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
 
@@ -386,14 +388,14 @@ def main():
     tc = task_subs.add_parser("create", help="Create a local task")
     tc.add_argument("title")
     tc.add_argument("--description", default="")
-    tc.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    tc.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     tc.add_argument("--workflow")
     tc.add_argument("--role", default="research")
     two = task_subs.add_parser("work-order", help="Create a work order for a task")
     two.add_argument("task_id")
     td = task_subs.add_parser("dispatch", help="Dispatch a task to a local CLI runner")
     td.add_argument("task_id")
-    td.add_argument("--runner", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    td.add_argument("--runner", choices=RUNNER_CHOICES)
     td.add_argument("--dry-run", action="store_true")
 
     # Workflows
@@ -411,7 +413,7 @@ def main():
     wv.add_argument("workflow_id")
     wr = wf_subs.add_parser("run", help="Create and dispatch a workflow task")
     wr.add_argument("workflow_id")
-    wr.add_argument("--runner", default="codex_cli", choices=["codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"])
+    wr.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     wr.add_argument("--dry-run", action="store_true")
     wx = wf_subs.add_parser("execute", help="Execute a local workflow spec")
     wx.add_argument("workflow_id")

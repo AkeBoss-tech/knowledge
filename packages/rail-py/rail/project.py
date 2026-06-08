@@ -139,7 +139,7 @@ class Project:
         title: str,
         *,
         description: str = "",
-        runner: str = "codex_cli",
+        runner: str = "auto",
         workflow: str | None = None,
         role: str = "research",
     ) -> dict:
@@ -203,7 +203,7 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_status(run_id)
 
-    def run_workflow(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict:
+    def run_workflow(self, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)

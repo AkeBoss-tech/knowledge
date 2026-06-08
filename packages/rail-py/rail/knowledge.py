@@ -84,7 +84,7 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
             "Policy GOVERNS Workflow",
             "System STORES Dataset",
         ],
-        "workflows": ["initial_company_map", "daily_refresh", "weekly_exec_brief", "stale_doc_review"],
+        "workflows": ["initial_company_map", "company_profile_refresh", "competitor_scan", "source_review", "weekly_exec_brief", "stale_doc_review"],
     },
     "software-architecture": {
         "id": "software-architecture",
@@ -326,6 +326,103 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
             {"id": "verify", "kind": "command", "run": "krail --local doctor && krail --local graph check && krail --local vector build"},
         ],
     },
+    "initial_company_map": {
+        "id": "initial_company_map",
+        "description": "Create the first company map from local captures, web sources, and explicit evidence.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {
+                "id": "company_map",
+                "kind": "agent",
+                "role": "research",
+                "runner": "auto",
+                "prompt": "Map the company, key products, teams, systems, policies, datasets, metrics, and open source gaps. Record evidence-backed notes under topics/ and graph metadata in markdown frontmatter.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "company_profile_refresh": {
+        "id": "company_profile_refresh",
+        "description": "Refresh company profile notes and source-backed claims.",
+        "schedule": "0 8 * * 1",
+        "steps": [
+            {"id": "check_sources", "kind": "command", "run": "krail --local sources check"},
+            {
+                "id": "profile_update",
+                "kind": "agent",
+                "role": "research",
+                "runner": "auto",
+                "prompt": "Review changed company sources and update company overview, product, team, system, and policy notes with citations and gaps.",
+            },
+            {"id": "verify", "kind": "command", "run": "krail --local doctor && krail --local graph check && krail --local vector build"},
+        ],
+    },
+    "competitor_scan": {
+        "id": "competitor_scan",
+        "description": "Scan competitor and market signals for company-brain context.",
+        "schedule": "",
+        "steps": [
+            {
+                "id": "scan",
+                "kind": "agent",
+                "role": "research",
+                "runner": "auto",
+                "prompt": "Identify competitor, market, product, and customer signals relevant to this company brain. Capture sources and separate facts from hypotheses.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "source_review": {
+        "id": "source_review",
+        "description": "Review source freshness, affected documents, and unsupported company claims.",
+        "schedule": "",
+        "steps": [
+            {"id": "validate_sources", "kind": "command", "run": "krail --local sources validate"},
+            {"id": "affected_docs", "kind": "command", "run": "krail --local sources affected"},
+            {
+                "id": "review",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "auto",
+                "prompt": "Audit stale company-brain docs, unsupported claims, missing source metadata, graph freshness, and suggested remediation tasks.",
+            },
+        ],
+    },
+    "weekly_exec_brief": {
+        "id": "weekly_exec_brief",
+        "description": "Prepare a concise weekly executive brief from reviewed company-brain evidence.",
+        "schedule": "0 9 * * 1",
+        "steps": [
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+            {
+                "id": "brief",
+                "kind": "agent",
+                "role": "research",
+                "runner": "auto",
+                "prompt": "Draft a short executive brief from current company-brain evidence. Include citations, stale-source warnings, gaps, and next actions.",
+            },
+            {"id": "audit", "kind": "agent", "role": "doctor", "runner": "auto", "prompt": "Audit the executive brief for unsupported claims and missing evidence."},
+        ],
+    },
+    "stale_doc_review": {
+        "id": "stale_doc_review",
+        "description": "Inspect changed sources and stale documents before refreshing company-brain notes.",
+        "schedule": "",
+        "steps": [
+            {"id": "check_sources", "kind": "command", "run": "krail --local sources check"},
+            {"id": "affected_docs", "kind": "command", "run": "krail --local sources affected"},
+            {"id": "think", "kind": "command", "run": "krail --local think 'Which company-brain documents may be stale?'"},
+        ],
+    },
+}
+
+PACK_WORKFLOW_TEMPLATE_ALIASES: dict[str, str] = {
+    "add_new_paper": "paper_ingest",
+    "weekly_literature_refresh": "weekly_research_review",
+    "build_sota_report": "weekly_research_review",
+    "register_experiment": "rag_refresh",
+    "daily_refresh": "company_profile_refresh",
 }
 
 
@@ -392,6 +489,16 @@ class KnowledgeRuntime:
     @property
     def active_pack_path(self) -> Path:
         return self.krail_dir / "pack.yaml"
+
+    def _manifest_data(self) -> dict[str, Any]:
+        path = self.project_path / "rail.yaml"
+        if not path.exists():
+            return {}
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def _iter_docs(self) -> list[Path]:
         ignored_parts = {".git", ".krail", ".rail", "__pycache__", ".pytest_cache", ".venv"}
@@ -963,7 +1070,41 @@ jobs:
                     "available": bool(executable and shutil_which(executable)),
                 }
             )
-        return {"agents": agents, "default": "codex_cli"}
+        resolved = self.resolve_runner()
+        return {"agents": agents, "default": resolved["runner"], "fallback_order": list(LOCAL_RUNNERS)}
+
+    def resolve_runner(self, preferred: str | None = None) -> dict[str, Any]:
+        candidates = [preferred] if preferred and preferred != "auto" else []
+        default_runner = self._manifest_data().get("agents", {}).get("default_runner")
+        if isinstance(default_runner, str) and default_runner and default_runner not in candidates:
+            candidates.append(default_runner)
+        candidates.extend(name for name in LOCAL_RUNNERS if name not in candidates)
+
+        checked: list[dict[str, Any]] = []
+        for candidate in candidates:
+            if not candidate:
+                continue
+            if candidate not in LOCAL_RUNNERS:
+                checked.append({"runner": candidate, "available": False, "reason": "unknown runner"})
+                continue
+            meta = LOCAL_RUNNERS[candidate]
+            command = os.environ.get(meta["command_env"], meta["default_command"])
+            executable = shlex.split(command)[0] if command else ""
+            available = bool(executable and shutil_which(executable))
+            checked.append({"runner": candidate, "command": command, "available": available})
+            if available:
+                return {"runner": candidate, "command": command, "available": True, "checked": checked}
+
+        fallback = preferred if preferred and preferred in LOCAL_RUNNERS else (default_runner if isinstance(default_runner, str) and default_runner in LOCAL_RUNNERS else "codex_cli")
+        meta = LOCAL_RUNNERS.get(fallback, LOCAL_RUNNERS["codex_cli"])
+        command = os.environ.get(meta["command_env"], meta["default_command"])
+        return {
+            "runner": fallback,
+            "command": command,
+            "available": False,
+            "checked": checked,
+            "warning": "no configured local runner executable was found; dry-run work orders can still be reviewed",
+        }
 
     def scaffold_krail_agents(self, *, force: bool = False) -> dict[str, Any]:
         written: list[str] = []
@@ -1071,19 +1212,22 @@ krail --local graph check
         title: str,
         *,
         description: str = "",
-        runner: str = "codex_cli",
+        runner: str = "auto",
         workflow: str | None = None,
         role: str = "research",
     ) -> dict[str, Any]:
         now = _dt.datetime.now(_dt.UTC)
         digest = hashlib.sha1(f"{title}:{description}:{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
         task_id = f"task_{self._slug(title)}_{digest}"
+        resolved = self.resolve_runner(runner)
         payload = {
             "id": task_id,
             "title": title,
             "description": description or title,
             "status": "ready",
-            "runner": runner,
+            "runner": resolved["runner"],
+            "requested_runner": runner,
+            "runner_resolution": resolved,
             "role": role,
             "workflow": workflow,
             "created_at": now.isoformat(),
@@ -1124,12 +1268,15 @@ krail --local graph check
         wo_id = f"wo_{task['id']}"
         role = task.get("role") or "research"
         role_prompt = self.agent_prompt(role, task=task.get("description") or task["title"]).get("prompt", "")
+        resolved = self.resolve_runner(str(task.get("runner") or task.get("requested_runner") or "auto"))
         return {
             "work_order_id": wo_id,
             "task_id": task["id"],
             "title": task["title"],
             "description": task.get("description") or task["title"],
-            "runner": task.get("runner") or "codex_cli",
+            "runner": resolved["runner"],
+            "requested_runner": task.get("requested_runner") or task.get("runner") or "auto",
+            "runner_resolution": resolved,
             "role": role,
             "workflow": task.get("workflow"),
             "allowed_paths": ["topics", "research_plan", "artifacts", "agents", "skills", "specs"],
@@ -1222,6 +1369,20 @@ krail --local graph check
                 "work_order": work_order_result["path"],
             }
 
+        if not work_order.get("runner_resolution", {}).get("available"):
+            task["status"] = "blocked"
+            task["session_id"] = session_id
+            task["blocker"] = work_order.get("runner_resolution", {}).get("warning") or f"runner unavailable: {work_order['runner']}"
+            task["runner_resolution"] = work_order.get("runner_resolution")
+            self._write_task(task_path, task)
+            return {
+                "status": "blocked",
+                "session_id": session_id,
+                "task": task,
+                "session_path": str(session_dir.relative_to(self.project_path)),
+                "runner_resolution": work_order.get("runner_resolution"),
+            }
+
         task["status"] = "running"
         task["session_id"] = session_id
         self._write_task(task_path, task)
@@ -1263,6 +1424,14 @@ krail --local graph check
     def workflow_templates(self) -> dict[str, Any]:
         return {"templates": sorted(WORKFLOW_TEMPLATES.keys())}
 
+    def _workflow_template_for(self, workflow_id: str) -> tuple[str, dict[str, Any]] | None:
+        template_id = workflow_id if workflow_id in WORKFLOW_TEMPLATES else PACK_WORKFLOW_TEMPLATE_ALIASES.get(workflow_id)
+        if not template_id:
+            return None
+        template = json.loads(json.dumps(WORKFLOW_TEMPLATES[template_id]))
+        template["id"] = workflow_id
+        return template_id, template
+
     def _load_workflow_spec_file(self, path: Path) -> dict[str, Any]:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
@@ -1302,8 +1471,8 @@ krail --local graph check
                 if not isinstance(run, str) or not run.strip():
                     errors.append(f"command step {step_id} requires run")
             if kind == "agent":
-                runner = str(step.get("runner") or spec.get("runner") or "codex_cli")
-                if runner not in LOCAL_RUNNERS:
+                runner = str(step.get("runner") or spec.get("runner") or "auto")
+                if runner != "auto" and runner not in LOCAL_RUNNERS:
                     errors.append(f"agent step {step_id} has unknown runner: {runner}")
                 role = step.get("role")
                 if role is not None and not isinstance(role, str):
@@ -1384,6 +1553,14 @@ krail --local graph check
         if system not in {"cron", "launchd"}:
             raise ValueError("system must be cron or launchd")
         shown = self.workflow_show(workflow_id)
+        if not shown.get("materialized", True):
+            return {
+                "status": "not_materialized",
+                "workflow": workflow_id,
+                "message": "Workflow is available from the active pack or built-in templates but has not been written as a local spec.",
+                "next_action": shown.get("next_action") or f"krail --local workflow init {workflow_id}",
+                "template": shown.get("template"),
+            }
         validation = shown.get("validation") or {}
         if not validation.get("ok"):
             return {"status": "invalid", "workflow": workflow_id, "validation": validation}
@@ -1473,6 +1650,7 @@ krail --local graph check
         pack_workflows = [item for item in raw_pack_workflows if isinstance(item, str)]
         ignored_pack_items = [item for item in raw_pack_workflows if not isinstance(item, str)]
         spec_workflows = []
+        materialized_ids: set[str] = set()
         for path in sorted(self.workflow_specs_dir.glob("*.yaml")) + sorted(self.workflow_specs_dir.glob("*.yml")):
             try:
                 data = self._load_workflow_spec_file(path)
@@ -1480,6 +1658,7 @@ krail --local graph check
             except Exception as exc:
                 spec_workflows.append({"id": path.stem, "path": str(path.relative_to(self.project_path)), "valid": False, "error": str(exc)})
                 continue
+            materialized_ids.add(str(data.get("id") or path.stem))
             spec_workflows.append(
                 {
                     "id": data.get("id") or path.stem,
@@ -1491,7 +1670,19 @@ krail --local graph check
                     "warnings": validation["warnings"],
                 }
             )
-        result: dict[str, Any] = {"workflows": pack_workflows, "specs": spec_workflows, "pack": active.get("id")}
+        available: list[dict[str, Any]] = []
+        for workflow_id in pack_workflows:
+            template = self._workflow_template_for(workflow_id)
+            entry = {"id": workflow_id, "source": "pack", "materialized": workflow_id in materialized_ids}
+            if template:
+                entry["template"] = template[0]
+                entry["status"] = "materialized" if entry["materialized"] else "template_available"
+                entry["next_action"] = None if entry["materialized"] else f"krail --local workflow init {workflow_id}"
+            else:
+                entry["status"] = "materialized" if entry["materialized"] else "pack_stub"
+                entry["next_action"] = None if entry["materialized"] else f"krail --local workflow init {workflow_id}"
+            available.append(entry)
+        result: dict[str, Any] = {"workflows": pack_workflows, "available": available, "specs": spec_workflows, "pack": active.get("id")}
         if ignored_pack_items:
             result["warnings"] = ["active pack has non-string workflow entries; move workflow settings out of the workflows list"]
         return result
@@ -1507,6 +1698,8 @@ krail --local graph check
                 raise ValueError(f"Unknown workflow template: {template}")
             spec = json.loads(json.dumps(WORKFLOW_TEMPLATES[template]))
             spec["id"] = workflow_id
+        elif inferred := self._workflow_template_for(workflow_id):
+            template, spec = inferred
         else:
             spec = {
                 "id": workflow_id,
@@ -1522,7 +1715,7 @@ krail --local graph check
                         "id": "work",
                         "kind": "agent",
                         "role": "platform",
-                        "runner": "codex_cli",
+                        "runner": "auto",
                         "prompt": f"Run the {workflow_id} workflow. Update repo-backed outputs and record gaps.",
                     },
                     {
@@ -1547,9 +1740,37 @@ krail --local graph check
         raise FileNotFoundError(f"Workflow spec not found: {workflow_id}")
 
     def workflow_show(self, workflow_id: str, *, validate: bool = True) -> dict[str, Any]:
-        path = self._workflow_spec_path(workflow_id)
-        spec = self._load_workflow_spec_file(path)
-        result = {"path": str(path.relative_to(self.project_path)), "workflow": spec}
+        try:
+            path = self._workflow_spec_path(workflow_id)
+        except FileNotFoundError:
+            template = self._workflow_template_for(workflow_id)
+            active = self.active_pack().get("active") or {}
+            pack_workflows = {item for item in (active.get("workflows") or []) if isinstance(item, str)}
+            if template:
+                template_id, spec = template
+                result = {
+                    "status": "template",
+                    "materialized": False,
+                    "path": None,
+                    "workflow": spec,
+                    "template": template_id,
+                    "next_action": f"krail --local workflow init {workflow_id}",
+                }
+            elif workflow_id in pack_workflows:
+                spec = {"id": workflow_id, "steps": []}
+                result = {
+                    "status": "pack_stub",
+                    "materialized": False,
+                    "path": None,
+                    "workflow": spec,
+                    "next_action": f"krail --local workflow init {workflow_id}",
+                    "message": "This pack advertises the workflow, but no local spec or built-in template exists yet.",
+                }
+            else:
+                raise
+        else:
+            spec = self._load_workflow_spec_file(path)
+            result = {"status": "materialized", "materialized": True, "path": str(path.relative_to(self.project_path)), "workflow": spec}
         if validate:
             result["validation"] = self._validate_workflow_spec(spec, path=result["path"])
         return result
@@ -1570,6 +1791,14 @@ krail --local graph check
 
     def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id)
+        if not shown.get("materialized", True):
+            return {
+                "status": "not_materialized",
+                "workflow": workflow_id,
+                "message": "Run `krail --local workflow init` first so the workflow spec is repo-backed and reviewable.",
+                "next_action": shown.get("next_action") or f"krail --local workflow init {workflow_id}",
+                "template": shown.get("template"),
+            }
         spec = shown["workflow"]
         validation = shown.get("validation") or self._validate_workflow_spec(spec, path=shown["path"])
         if not validation["ok"]:
@@ -1623,7 +1852,8 @@ krail --local graph check
                         break
                 elif kind == "agent":
                     prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
-                    runner = str(step.get("runner") or spec.get("runner") or "codex_cli")
+                    runner = str(step.get("runner") or spec.get("runner") or "auto")
+                    resolved_runner = self.resolve_runner(runner)["runner"]
                     role = str(step.get("role") or "research")
                     dispatch: dict[str, Any] = {"status": "failed"}
                     created: dict[str, Any] = {"task": {"id": ""}}
@@ -1631,14 +1861,14 @@ krail --local graph check
                         created = self.create_task(
                             f"{spec.get('id') or workflow_id}: {step_id}",
                             description=prompt,
-                            runner=runner,
+                            runner=resolved_runner,
                             workflow=str(spec.get("id") or workflow_id),
                             role=role,
                         )
-                        dispatch = self.dispatch_task(created["task"]["id"], runner=runner, dry_run=False)
+                        dispatch = self.dispatch_task(created["task"]["id"], runner=resolved_runner, dry_run=False)
                         if dispatch.get("status") == "done":
                             break
-                    step_result.update({"status": dispatch.get("status"), "task_id": created["task"]["id"], "runner": runner, "role": role, "dispatch": dispatch})
+                    step_result.update({"status": dispatch.get("status"), "task_id": created["task"]["id"], "runner": resolved_runner, "requested_runner": runner, "role": role, "dispatch": dispatch})
                     results.append(step_result)
                     if dispatch.get("status") not in {"done", "dispatched"} and on_failure == "stop":
                         break
@@ -1666,7 +1896,7 @@ krail --local graph check
         (run_dir / "result.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return payload
 
-    def workflow_run(self, workflow_id: str, *, runner: str = "codex_cli", dry_run: bool = False) -> dict[str, Any]:
+    def workflow_run(self, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict[str, Any]:
         try:
             self._workflow_spec_path(workflow_id)
         except FileNotFoundError:
