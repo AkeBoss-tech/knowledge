@@ -48,20 +48,48 @@ class Project:
             return self._backend.knowledge.search(q)["hits"]
         return self._backend.search_entities(q)
 
-    def think(self, q: str, *, limit: int = 5) -> dict:
+    def think(
+        self,
+        q: str,
+        *,
+        limit: int = 5,
+        mode: str = "deterministic",
+        runner: str = "auto",
+        dry_run: bool = False,
+    ) -> dict:
         if hasattr(self._backend, "knowledge"):
-            return self._backend.knowledge.think(q, limit=limit)
+            return self._backend.knowledge.think(q, limit=limit, mode=mode, runner=runner, dry_run=dry_run)
         if hasattr(self._backend, "think"):
             return self._backend.think(self.slug, q, limit=limit)
         return {
             "query": q,
+            "mode": mode,
+            "requested_runner": runner,
+            "runner": None,
+            "runner_resolution": None,
             "answer": "API-backed think is not wired yet.",
             "evidence": self.search(q)[:limit],
             "confidence": "low",
             "gaps": ["Use local mode for phase-1 deterministic think."],
             "conflicts": [],
             "suggested_next_actions": [],
+            "verification": {"ok": False, "checks": []},
         }
+
+    def register_think_result(self, result: dict, *, artifact_path: str, title: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("think-result registration requires local mode")
+        return self._backend.knowledge.register_think_result(result, artifact_path=artifact_path, title=title)
+
+    def think_sessions(self, *, limit: int = 20) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("think-session inspection requires local mode")
+        return self._backend.knowledge.list_think_sessions(limit=limit)
+
+    def think_session(self, session_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("think-session inspection requires local mode")
+        return self._backend.knowledge.get_think_session(session_id)
 
     def capture(
         self,
@@ -383,11 +411,20 @@ class Project:
         """Fetch recorded empirical claims."""
         return self._backend.get_integrity_claims(self.slug)
 
+    def integrity_claim_candidates(self) -> list[dict]:
+        return self._backend.get_integrity_claim_candidates(self.slug)
+
+    def integrity_artifact_lineage(self) -> list[dict]:
+        return self._backend.get_integrity_artifact_lineage(self.slug)
+
     def integrity_source_detail(self, source_key: str) -> dict:
         return self._backend.get_integrity_source_detail(self.slug, source_key)
 
     def integrity_claim_detail(self, claim_key: str) -> dict:
         return self._backend.get_integrity_claim_detail(self.slug, claim_key)
+
+    def integrity_artifact_detail(self, artifact_path: str) -> dict:
+        return self._backend.get_integrity_artifact_detail(self.slug, artifact_path)
 
     def integrity_dependency_graph(self) -> dict:
         return self._backend.get_integrity_dependency_graph(self.slug)
@@ -398,6 +435,9 @@ class Project:
     def integrity_verification_runs(self) -> dict:
         return self._backend.get_integrity_verification_runs(self.slug)
 
+    def integrity_benchmark(self, *, retrieval_limit: int = 10) -> dict:
+        return self._backend.get_integrity_benchmark(self.slug, retrieval_limit=retrieval_limit)
+
     def integrity_rerun_plan(self, assumption_key: str) -> dict:
         """Preview the rerun plan for a given assumption change."""
         return self._backend.get_integrity_rerun_plan(self.slug, assumption_key)
@@ -406,8 +446,14 @@ class Project:
         """Create rerun tasks based on the current rerun plan for an assumption change."""
         return self._backend.apply_integrity_rerun_plan(self.slug, assumption_key)
 
-    def apply_integrity_reproducibility_rerun(self, artifact_path: str) -> dict:
-        return self._backend.apply_integrity_reproducibility_rerun(self.slug, artifact_path)
+    def apply_integrity_reproducibility_rerun(
+        self,
+        outputs: dict[str, str],
+        *,
+        run_id: str = "rerun-verification",
+        scope: str = "health",
+    ) -> dict:
+        return self._backend.apply_integrity_reproducibility_rerun(self.slug, outputs, run_id=run_id, scope=scope)
 
     def apply_integrity_freshness_evaluation(self, *, as_of: str | None = None) -> dict:
         return self._backend.apply_integrity_freshness_evaluation(self.slug, as_of=as_of)

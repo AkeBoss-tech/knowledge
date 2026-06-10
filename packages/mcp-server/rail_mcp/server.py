@@ -110,15 +110,43 @@ def search(query: str, limit: int = 10, explain: bool = False) -> str:
 
 
 @mcp.tool()
-def think(query: str, limit: int = 5) -> str:
+def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str = "auto", dry_run: bool = False) -> str:
     """
     Synthesize from retrieved project evidence with explicit gaps and conflicts.
 
     Args:
         query: Question to answer from the project knowledge base.
         limit: Maximum evidence records to include.
+        mode: deterministic, runner, or hybrid.
+        runner: Preferred local runner when using runner-backed synthesis.
+        dry_run: If True, materialize the synthesis session without launching a runner.
     """
-    return _json(_get_project().think(query, limit=limit))
+    return _json(_get_project().think(query, limit=limit, mode=mode, runner=runner, dry_run=dry_run))
+
+
+@mcp.tool()
+def register_think_result(result_json: str, artifact_path: str, title: str = "") -> str:
+    """
+    Register a persisted think result as an integrity-tracked artifact and claim-candidate source.
+
+    Args:
+        result_json: JSON-encoded think result envelope.
+        artifact_path: Repo-relative or absolute path to the persisted think result artifact.
+        title: Optional artifact title override.
+    """
+    return _json(_get_project().register_think_result(json.loads(result_json), artifact_path=artifact_path, title=title or None))
+
+
+@mcp.tool()
+def think_sessions(limit: int = 20) -> str:
+    """List recorded runner-backed think sessions."""
+    return _json(_get_project().think_sessions(limit=limit))
+
+
+@mcp.tool()
+def think_session_status(session_id: str) -> str:
+    """Inspect a specific runner-backed think session."""
+    return _json(_get_project().think_session(session_id))
 
 
 @mcp.tool()
@@ -563,6 +591,132 @@ def integrity_sources() -> str:
 def integrity_claims() -> str:
     """List all empirical claims and their supporting evidence."""
     return _json(_get_project().integrity_claims())
+
+
+@mcp.tool()
+def integrity_claim_candidates() -> str:
+    """List registered claim candidates awaiting review or promotion."""
+    return _json(_get_project().integrity_claim_candidates())
+
+
+@mcp.tool()
+def integrity_artifacts() -> str:
+    """List integrity-tracked artifact lineage records."""
+    return _json(_get_project().integrity_artifact_lineage())
+
+
+@mcp.tool()
+def integrity_promote_claim_candidate(candidate_key: str, status: str = "needs_evidence") -> str:
+    """
+    Promote a claim candidate into the canonical claim ledger.
+
+    Args:
+        candidate_key: Claim candidate key from integrity_claim_candidates.
+        status: Target canonical claim status, e.g. needs_evidence or supported.
+    """
+    return _json(_get_project().apply_integrity_claim_candidate_promotion(candidate_key, status=status))
+
+
+@mcp.tool()
+def integrity_reproducibility_rerun(outputs_json: str, run_id: str = "rerun-verification", scope: str = "health") -> str:
+    """
+    Re-run reproducibility checks for an artifact payload.
+
+    Args:
+        outputs_json: JSON map of artifact paths to contents.
+        run_id: Verification run identifier.
+        scope: Verification scope label.
+    """
+    return _json(_get_project().apply_integrity_reproducibility_rerun(json.loads(outputs_json), run_id=run_id, scope=scope))
+
+
+@mcp.tool()
+def integrity_freshness_evaluate(as_of: str = "") -> str:
+    """Evaluate source freshness as of an optional timestamp."""
+    return _json(_get_project().apply_integrity_freshness_evaluation(as_of=as_of or None))
+
+
+@mcp.tool()
+def integrity_source_detail(source_key: str) -> str:
+    """Inspect a specific integrity source."""
+    return _json(_get_project().integrity_source_detail(source_key))
+
+
+@mcp.tool()
+def integrity_claim_detail(claim_key: str) -> str:
+    """Inspect a specific integrity claim."""
+    return _json(_get_project().integrity_claim_detail(claim_key))
+
+
+@mcp.tool()
+def integrity_verification_runs() -> str:
+    """List integrity verification runs."""
+    return _json(_get_project().integrity_verification_runs())
+
+
+@mcp.tool()
+def integrity_benchmark(retrieval_limit: int = 10) -> str:
+    """Run the default integrity benchmark corpus."""
+    return _json(_get_project().integrity_benchmark(retrieval_limit=retrieval_limit))
+
+
+@mcp.tool()
+def integrity_stale_graph() -> str:
+    """Inspect stale source/claim/artifact relationships."""
+    return _json(_get_project().integrity_stale_graph())
+
+
+@mcp.tool()
+def integrity_promote_artifact(artifact_path: str, target_state: str = "verified") -> str:
+    """Promote an artifact to a target trust state."""
+    return _json(_get_project().apply_integrity_artifact_promotion(artifact_path, target_state=target_state))
+
+
+@mcp.tool()
+def integrity_artifact_detail(artifact_path: str) -> str:
+    """Inspect a specific integrity-tracked artifact."""
+    return _json(_get_project().integrity_artifact_detail(artifact_path))
+
+
+@mcp.tool()
+def integrity_graph() -> str:
+    """Return the integrity dependency graph."""
+    return _json(_get_project().integrity_dependency_graph())
+
+
+@mcp.tool()
+def integrity_retrieve(
+    query: str,
+    limit: int = 10,
+    artifact_types_json: str = "",
+    claim_statuses_json: str = "",
+    source_freshness_json: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    include_stale: bool = False,
+    include_blocked: bool = False,
+) -> str:
+    """
+    Retrieve integrity records with optional filters.
+
+    JSON-encoded list arguments are used to stay compatible with MCP scalar tool inputs.
+    """
+    artifact_types = json.loads(artifact_types_json) if artifact_types_json else None
+    claim_statuses = json.loads(claim_statuses_json) if claim_statuses_json else None
+    source_freshness = json.loads(source_freshness_json) if source_freshness_json else None
+    return _json(
+        _get_project().integrity_retrieve(
+            query,
+            limit=limit,
+            artifact_types=artifact_types,
+            claim_statuses=claim_statuses,
+            source_freshness=source_freshness,
+            date_from=date_from or None,
+            date_to=date_to or None,
+            include_stale=include_stale,
+            include_blocked=include_blocked,
+        )
+    )
 
 
 @mcp.tool()

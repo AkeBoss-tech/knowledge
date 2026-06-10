@@ -143,8 +143,34 @@ def test_manifest_defaults_new_contract_sections():
     assert manifest.auditors.enabled is True
     assert manifest.verification.deterministic_command == "scripts/run-verification.sh"
     assert manifest.secrets.project_scope is True
+    assert manifest.agents.runner_policy.think_preferred == []
     assert "hydrated" in manifest.lifecycle.phases
     assert "ontology_healthy" in manifest.lifecycle.phases
+
+
+def test_manifest_parses_explicit_think_runner_preferences():
+    content = MINIMAL_RAIL_YAML + textwrap.dedent(
+        """\
+
+        agents:
+          roles_dir: "agents"
+          default_runner: "codex_cli"
+          runner_policy:
+            preferred:
+              - "codex_cli"
+            think_preferred:
+              - "claude_code"
+              - "codex_cli"
+          sequential_execution: true
+          planner_thread_mode: "project"
+          default_planner_role: "planner"
+        """
+    )
+
+    manifest = parse_manifest_content(content)
+
+    assert manifest.agents.runner_policy.preferred == ["codex_cli"]
+    assert manifest.agents.runner_policy.think_preferred == ["claude_code", "codex_cli"]
 
 
 def test_manifest_rejects_ontology_first_without_required_phases():

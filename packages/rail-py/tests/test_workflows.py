@@ -128,6 +128,44 @@ def test_workflow_execute_continue_failure_policy(tmp_path: Path):
     assert (root / "artifacts" / "continued.txt").read_text(encoding="utf-8") == "ok"
 
 
+def test_workflow_execute_think_step(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "think.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "think_flow",
+                "steps": [
+                    {
+                        "id": "synthesize",
+                        "kind": "think",
+                        "mode": "deterministic",
+                        "query": "project objective",
+                        "limit": 2,
+                        "output_path": "artifacts/think-result.json",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    validation = runtime.workflow_validate("think")
+    result = runtime.workflow_execute("think")
+
+    assert validation["ok"] is True
+    assert result["status"] == "done"
+    assert result["steps"][0]["kind"] == "think"
+    assert result["steps"][0]["think"]["mode"] == "deterministic"
+    assert result["steps"][0]["think"]["citations"]
+    assert result["steps"][0]["output_path"] == "artifacts/think-result.json"
+    assert json.loads((root / "artifacts" / "think-result.json").read_text(encoding="utf-8"))["mode"] == "deterministic"
+    assert result["steps"][0]["integrity"]["status"] == "registered"
+
+
 def test_dispatch_creates_session_result_template(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)

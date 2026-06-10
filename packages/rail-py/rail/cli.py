@@ -57,7 +57,26 @@ def cmd_search(project: rail.Project, args: argparse.Namespace):
         _print_json(project.search(args.query))
 
 def cmd_think(project: rail.Project, args: argparse.Namespace):
-    _print_json(project.think(args.query, limit=args.limit))
+    result = project.think(args.query, limit=args.limit, mode=args.mode, runner=args.runner, dry_run=args.dry_run)
+    if args.output and not args.dry_run:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+        result["output_path"] = str(output)
+        if args.register_integrity:
+            result["integrity"] = project.register_think_result(
+                result,
+                artifact_path=str(output.resolve()),
+                title=args.title or args.query,
+            )
+    _print_json(result)
+
+
+def cmd_think_session(project: rail.Project, args: argparse.Namespace):
+    if args.think_session_command == "list":
+        _print_json(project.think_sessions(limit=args.limit))
+    elif args.think_session_command == "status":
+        _print_json(project.think_session(args.session_id))
 
 def cmd_capture(project: rail.Project, args: argparse.Namespace):
     text = args.text or ""
@@ -260,6 +279,17 @@ def cmd_integrity(project: rail.Project, args: argparse.Namespace):
         _print_json(project.integrity_sources())
     elif command == "claims":
         _print_json(project.integrity_claims())
+    elif command == "claim-candidates":
+        _print_json(project.integrity_claim_candidates())
+    elif command == "artifacts":
+        _print_json(project.integrity_artifact_lineage())
+    elif command == "promote-claim-candidate":
+        _print_json(
+            project.apply_integrity_claim_candidate_promotion(
+                args.candidate_key,
+                status=args.status,
+            )
+        )
     elif command == "source":
         _print_json(project.integrity_source_detail(args.source_key))
     elif command == "claim":
@@ -348,6 +378,19 @@ def main():
     t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
     t_parser.add_argument("query", help="Question to answer")
     t_parser.add_argument("--limit", type=int, default=5)
+    t_parser.add_argument("--mode", choices=["deterministic", "runner", "hybrid"], default="deterministic")
+    t_parser.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    t_parser.add_argument("--dry-run", action="store_true", help="Prepare runner-backed think session files without launching a local runner")
+    t_parser.add_argument("--output", help="Write the think result envelope to a JSON file")
+    t_parser.add_argument("--register-integrity", action="store_true", help="Register the written think output as an integrity artifact with claim candidates")
+    t_parser.add_argument("--title", help="Optional artifact title when registering a think result")
+
+    ts_parser = subparsers.add_parser("think-session", help="Inspect runner-backed think sessions")
+    ts_subs = ts_parser.add_subparsers(dest="think_session_command")
+    tsl = ts_subs.add_parser("list", help="List think sessions")
+    tsl.add_argument("--limit", type=int, default=20)
+    tss = ts_subs.add_parser("status", help="Show a think session")
+    tss.add_argument("session_id", help="Think session id")
 
     # Capture
     c_parser = subparsers.add_parser("capture", help="Capture a note, file, URL, or stdin into topics/inbox")
@@ -539,11 +582,16 @@ def main():
 
     # Integrity
     i_parser = subparsers.add_parser("integrity", help="Research integrity tools")
-    i_subs = i_parser.add_subparsers(dest="command")
+    i_subs = i_parser.add_subparsers(dest="integrity_command")
     i_subs.add_parser("status", help="Show integrity status")
     i_subs.add_parser("assumptions", help="List assumptions")
     i_subs.add_parser("sources", help="List sources")
     i_subs.add_parser("claims", help="List claims")
+    i_subs.add_parser("claim-candidates", help="List claim candidates")
+    i_subs.add_parser("artifacts", help="List artifact lineage records")
+    ipc = i_subs.add_parser("promote-claim-candidate", help="Promote a claim candidate into a canonical claim")
+    ipc.add_argument("candidate_key", help="Claim candidate key")
+    ipc.add_argument("--status", default="needs_evidence", help="Target canonical claim status")
     ir = i_subs.add_parser("rerun", help="Preview or apply rerun plan for an assumption")
     ir.add_argument("assumption_key", help="The assumption that changed")
     ir.add_argument("--apply", action="store_true", help="Actually create the rerun tasks")
@@ -595,6 +643,8 @@ def main():
         cmd_search(project, args)
     elif args.command == "think":
         cmd_think(project, args)
+    elif args.command == "think-session":
+        cmd_think_session(project, args)
     elif args.command == "capture":
         cmd_capture(project, args)
     elif args.command == "doctor":

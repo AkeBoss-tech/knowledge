@@ -87,6 +87,49 @@ def test_mcp_vector_search_calls_project(monkeypatch):
     assert payload["limit"] == 3
 
 
+def test_mcp_think_sessions_calls_project(monkeypatch):
+    class _Project:
+        def think_sessions(self, *, limit=20):
+            return {"sessions": [{"session_id": "think_123", "status": "prepared"}], "limit": limit}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.think_sessions(5)
+
+    payload = json.loads(result)
+    assert payload["sessions"][0]["session_id"] == "think_123"
+    assert payload["limit"] == 5
+
+
+def test_mcp_think_session_status_calls_project(monkeypatch):
+    class _Project:
+        def think_session(self, session_id):
+            return {"session_id": session_id, "status": "done"}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.think_session_status("think_123")
+
+    payload = json.loads(result)
+    assert payload["session_id"] == "think_123"
+    assert payload["status"] == "done"
+
+
+def test_mcp_register_think_result_calls_project(monkeypatch):
+    class _Project:
+        def register_think_result(self, result, *, artifact_path, title=None):
+            return {"status": "registered", "artifact_path": artifact_path, "title": title, "query": result["query"]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.register_think_result(json.dumps({"query": "What changed?"}), "artifacts/think.json", "Weekly synthesis")
+
+    payload = json.loads(result)
+    assert payload["status"] == "registered"
+    assert payload["artifact_path"] == "artifacts/think.json"
+    assert payload["title"] == "Weekly synthesis"
+
+
 def test_mcp_agent_prompt_calls_project(monkeypatch):
     class _Project:
         def agent_prompt(self, role, *, task=""):
@@ -205,6 +248,47 @@ def test_mcp_integrity_claims_calls_project(monkeypatch):
     payload = json.loads(result)
     assert payload[0]["claim_key"] == "claim-001"
     assert payload[0]["claimState"]["evidenceComplete"] is True
+
+
+def test_mcp_integrity_claim_candidates_calls_project(monkeypatch):
+    class _Project:
+        def integrity_claim_candidates(self):
+            return [{"candidate_key": "claim:candidate-001", "status": "candidate"}]
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.integrity_claim_candidates()
+
+    payload = json.loads(result)
+    assert payload[0]["candidate_key"] == "claim:candidate-001"
+
+
+def test_mcp_integrity_artifacts_calls_project(monkeypatch):
+    class _Project:
+        def integrity_artifact_lineage(self):
+            return [{"artifact_path": "artifacts/think.json", "promotion_state": "draft"}]
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.integrity_artifacts()
+
+    payload = json.loads(result)
+    assert payload[0]["artifact_path"] == "artifacts/think.json"
+
+
+def test_mcp_integrity_promote_claim_candidate_calls_project(monkeypatch):
+    class _Project:
+        def apply_integrity_claim_candidate_promotion(self, candidate_key, *, status):
+            return {"status": "promoted", "candidate_key": candidate_key, "claim_status": status}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.integrity_promote_claim_candidate("claim:candidate-001", status="needs_evidence")
+
+    payload = json.loads(result)
+    assert payload["status"] == "promoted"
+    assert payload["candidate_key"] == "claim:candidate-001"
+    assert payload["claim_status"] == "needs_evidence"
 
 
 def test_mcp_integrity_reproducibility_rerun_calls_project(monkeypatch):

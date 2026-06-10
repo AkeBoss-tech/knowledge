@@ -111,6 +111,7 @@ class RunnerPolicySection(BaseModel):
 
     allowed: list[RunnerName] = Field(default_factory=list)
     preferred: list[RunnerName] = Field(default_factory=list)
+    think_preferred: list[RunnerName] = Field(default_factory=list)
 
 
 class AgentsSection(BaseModel):

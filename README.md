@@ -162,7 +162,13 @@ Ask for the current deterministic answer envelope:
 krail --local think "What changed in task and motion planning?"
 ```
 
-`think` is still deterministic, but it now returns an operational envelope:
+`think` supports three modes:
+
+- `deterministic`: local evidence packaging only
+- `runner`: dispatch a local CLI runner to synthesize over the evidence package
+- `hybrid`: deterministic retrieval package plus runner-backed synthesis
+
+All modes return an operational envelope with:
 
 - citations into local files
 - graph context
@@ -173,7 +179,16 @@ krail --local think "What changed in task and motion planning?"
 
 ```bash
 krail --local think "what do we know about GCS feasibility?"
+krail --local think "what changed in onboarding this week?" --mode hybrid --runner auto --dry-run
+krail --local think "summarize reviewed evidence" --mode deterministic --output artifacts/weekly-think.json --register-integrity
 ```
+
+Runner-backed `think` does not require a direct model API key inside KRAIL. It
+uses installed local runners such as `codex`, `claude`, `gemini`, `agent`, or
+`gh copilot` and writes auditable session files under `research_plan/sessions/`.
+If `--output` and `--register-integrity` are used, KRAIL also records the
+result as an integrity artifact, creates a verification run, and registers
+claim candidates for later promotion review.
 
 List workflows declared by the active pack:
 
@@ -570,10 +585,32 @@ steps:
     role: research
     runner: codex_cli
     prompt: "Review new captures, search for missing evidence, and update topics."
+  - id: synthesis
+    kind: think
+    mode: hybrid
+    runner: auto
+    query: "What changed this week and which notes need promotion or refresh?"
+    limit: 5
+    output_path: artifacts/weekly-synthesis.json
   - id: verify
     kind: command
     run: krail --local graph check && krail --local vector build
 ```
+
+`kind: think` steps run KRAIL's evidence-first synthesis path directly. They can
+use manifest runner preferences:
+
+```yaml
+agents:
+  default_runner: codex_cli
+  runner_policy:
+    preferred: [codex_cli]
+    think_preferred: [claude_code, codex_cli]
+```
+
+When a `think` step writes `output_path`, KRAIL registers that artifact in the
+integrity ledger by default so it can move through candidate review and claim
+promotion explicitly instead of becoming invisible generated state.
 
 Workflow runs are recorded under `research_plan/sessions/` and can be queried:
 
