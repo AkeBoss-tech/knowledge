@@ -70,3 +70,48 @@ def test_topic_upsert_creates_mode_shaped_topic(tmp_path: Path):
     assert "Routes public API traffic" in text
     assert "entity_type: Service" in text
 
+
+def test_wiki_plan_and_build_generate_source_linked_pages(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Company Brain", slug="company-brain", knowledge_mode="company")
+    runtime = KnowledgeRuntime(root)
+    topic = runtime.topic_upsert(
+        "revops-stack",
+        title="RevOps Stack",
+        kind="system",
+        content="Salesforce is the CRM source of truth.",
+        entities=["Salesforce"],
+        entity_type="System",
+    )
+
+    plan = runtime.wiki_plan(source_paths=[topic["path"]])
+    built = runtime.wiki_build(source_paths=[topic["path"]])
+    listed = runtime.wiki_list()
+    page_path = root / built["written"][0]["target_path"]
+    text = page_path.read_text(encoding="utf-8")
+
+    assert plan["count"] == 1
+    assert plan["pages"][0]["source_path"] == "topics/revops-stack.md"
+    assert built["written"][0]["target_path"] == "docs/wiki/revops-stack.md"
+    assert "source_path: topics/revops-stack.md" in text
+    assert "knowledge_mode: company" in text
+    assert "Generated from `topics/revops-stack.md`" in text
+    assert "Salesforce is the CRM source of truth." in text
+    assert listed["pages"][0]["path"] == "docs/wiki/revops-stack.md"
+
+
+def test_wiki_build_skips_existing_pages_unless_forced(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    topic = runtime.topic_upsert("platform-notes", title="Platform Notes", content="Initial note.")
+
+    first = runtime.wiki_build(source_paths=[topic["path"]])
+    page_path = root / first["written"][0]["target_path"]
+    page_path.write_text("manual edit\n", encoding="utf-8")
+
+    skipped = runtime.wiki_build(source_paths=[topic["path"]])
+    forced = runtime.wiki_build(source_paths=[topic["path"]], force=True)
+
+    assert skipped["written"] == []
+    assert skipped["skipped"][0]["reason"] == "exists"
+    assert forced["written"][0]["target_path"] == "docs/wiki/platform-notes.md"
+    assert "manual edit" not in page_path.read_text(encoding="utf-8")

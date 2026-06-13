@@ -189,6 +189,27 @@ class Project:
             entity_type=entity_type,
         )
 
+    def wiki_plan(self, *, source_paths: list[str] | None = None, include_inbox: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("wiki commands require local mode")
+        return self._backend.knowledge.wiki_plan(source_paths=source_paths, include_inbox=include_inbox)
+
+    def wiki_build(
+        self,
+        *,
+        source_paths: list[str] | None = None,
+        include_inbox: bool = False,
+        force: bool = False,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("wiki commands require local mode")
+        return self._backend.knowledge.wiki_build(source_paths=source_paths, include_inbox=include_inbox, force=force)
+
+    def wiki_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("wiki commands require local mode")
+        return self._backend.knowledge.wiki_list()
+
     def doctor(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("doctor requires local mode")

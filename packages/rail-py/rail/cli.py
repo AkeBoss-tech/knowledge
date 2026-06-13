@@ -142,6 +142,15 @@ def cmd_inbox(project: rail.Project, args: argparse.Namespace):
             )
         )
 
+def cmd_wiki(project: rail.Project, args: argparse.Namespace):
+    source_paths = getattr(args, "source", None)
+    if args.wiki_command == "plan":
+        _print_json(project.wiki_plan(source_paths=source_paths, include_inbox=args.include_inbox))
+    elif args.wiki_command == "build":
+        _print_json(project.wiki_build(source_paths=source_paths, include_inbox=args.include_inbox, force=args.force))
+    elif args.wiki_command == "list":
+        _print_json(project.wiki_list())
+
 def cmd_doctor(project: rail.Project, args: argparse.Namespace):
     _print_json(project.doctor())
 
@@ -520,6 +529,18 @@ def main():
     inbox_promote.add_argument("--entity", action="append", help="Entity to attach; can be repeated")
     inbox_promote.add_argument("--entity-type", help="Entity type for attached entities")
 
+    # Wiki
+    wiki_parser = subparsers.add_parser("wiki", help="Generate and inspect reader wiki pages")
+    wiki_subs = wiki_parser.add_subparsers(dest="wiki_command")
+    wiki_plan = wiki_subs.add_parser("plan", help="Preview wiki pages that would be generated")
+    wiki_plan.add_argument("--source", action="append", help="Repo-relative markdown source path; can be repeated")
+    wiki_plan.add_argument("--include-inbox", action="store_true", help="Include topics/inbox captures")
+    wiki_build = wiki_subs.add_parser("build", help="Generate wiki pages under docs/wiki")
+    wiki_build.add_argument("--source", action="append", help="Repo-relative markdown source path; can be repeated")
+    wiki_build.add_argument("--include-inbox", action="store_true", help="Include topics/inbox captures")
+    wiki_build.add_argument("--force", action="store_true", help="Overwrite existing generated wiki pages")
+    wiki_subs.add_parser("list", help="List generated wiki pages")
+
     # Doctor
     subparsers.add_parser("doctor", help="Check local project health")
 
@@ -812,6 +833,8 @@ def main():
         cmd_topic(project, args)
     elif args.command == "inbox":
         cmd_inbox(project, args)
+    elif args.command == "wiki":
+        cmd_wiki(project, args)
     elif args.command == "doctor":
         cmd_doctor(project, args)
     elif args.command == "pack":

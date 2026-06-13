@@ -92,3 +92,30 @@ krail --local graph build
 `research_plan/` is for operations: plans, tasks, work orders, sessions, and
 workflow state. Durable domain knowledge should live under `topics/`.
 
+## Wiki Pages
+
+Topic pages are the editable knowledge source. Wiki pages are generated reader
+views under `docs/wiki/`.
+
+```bash
+krail --local wiki plan
+krail --local wiki build
+krail --local wiki list
+```
+
+Use `--source topics/example.md` to generate one page, `--include-inbox` to
+include raw captures, and `--force` to overwrite an existing generated page.
+
+The first wiki builder is deterministic: it preserves source notes, records
+`source_path`, stamps the active `knowledge_mode`, and keeps generated pages
+separate from the canonical topic files. A UI should read `topics/` for editable
+source material and `docs/wiki/` for polished browsing.
+
+This is the KRAIL analogue of a textbook wiki pipeline:
+
+1. source material lives in repo-backed files
+2. a planner identifies pages to generate
+3. a builder creates source-linked wiki pages
+4. graph/vector refresh makes the pages searchable
+5. later artifact generators can add diagrams, demos, quizzes, or other rich
+   blocks without replacing the source-of-truth topic page

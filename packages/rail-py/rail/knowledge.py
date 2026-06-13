@@ -1547,6 +1547,190 @@ class KnowledgeRuntime:
         source.write_text(self._dump_markdown_frontmatter(metadata, body), encoding="utf-8")
         return {"status": "promoted", "capture": rel_source, "topic": promoted}
 
+    @property
+    def wiki_root(self) -> Path:
+        return self.project_path / "docs" / "wiki"
+
+    def _wiki_source_docs(
+        self,
+        *,
+        source_paths: list[str] | None = None,
+        include_inbox: bool = False,
+    ) -> list[Path]:
+        if source_paths:
+            paths: list[Path] = []
+            for raw in source_paths:
+                path = (self.project_path / raw).resolve()
+                try:
+                    path.relative_to(self.project_path)
+                except ValueError as exc:
+                    raise ValueError("wiki source paths must stay inside the project") from exc
+                if not path.exists():
+                    raise FileNotFoundError(f"wiki source not found: {raw}")
+                if path.suffix.lower() != ".md":
+                    raise ValueError(f"wiki source must be markdown: {raw}")
+                paths.append(path)
+            return sorted(paths)
+
+        topics_root = self.project_path / "topics"
+        if not topics_root.exists():
+            return []
+        paths = []
+        for path in topics_root.rglob("*.md"):
+            rel = path.relative_to(self.project_path).as_posix()
+            if rel.startswith("topics/inbox/") and not include_inbox:
+                continue
+            paths.append(path)
+        return sorted(paths)
+
+    def _wiki_target_for_source(self, source: Path) -> Path:
+        rel = source.relative_to(self.project_path).as_posix()
+        if rel.startswith("topics/"):
+            rel = rel.removeprefix("topics/")
+        else:
+            rel = self._slug(rel.removesuffix(".md"), fallback=source.stem) + ".md"
+        return self.wiki_root / rel
+
+    @staticmethod
+    def _markdown_headings(body: str) -> list[dict[str, Any]]:
+        headings: list[dict[str, Any]] = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("#"):
+                continue
+            marker, _, title = stripped.partition(" ")
+            if 1 <= len(marker) <= 6 and set(marker) == {"#"} and title.strip():
+                headings.append({"level": len(marker), "title": title.strip()})
+        return headings
+
+    @staticmethod
+    def _shift_markdown_headings(body: str, *, min_level: int = 2) -> str:
+        shifted: list[str] = []
+        for line in body.splitlines():
+            stripped = line.lstrip()
+            prefix_len = len(line) - len(stripped)
+            if stripped.startswith("#"):
+                marker, sep, title = stripped.partition(" ")
+                if sep and set(marker) == {"#"}:
+                    level = max(len(marker), min_level) + 1
+                    shifted.append(" " * prefix_len + "#" * min(level, 6) + " " + title)
+                    continue
+            shifted.append(line)
+        return "\n".join(shifted).strip()
+
+    def wiki_plan(
+        self,
+        *,
+        source_paths: list[str] | None = None,
+        include_inbox: bool = False,
+    ) -> dict[str, Any]:
+        pages: list[dict[str, Any]] = []
+        for source in self._wiki_source_docs(source_paths=source_paths, include_inbox=include_inbox):
+            metadata, body = self._split_markdown_frontmatter(source.read_text(encoding="utf-8"))
+            target = self._wiki_target_for_source(source)
+            rel_source = source.relative_to(self.project_path).as_posix()
+            rel_target = target.relative_to(self.project_path).as_posix()
+            pages.append(
+                {
+                    "source_path": rel_source,
+                    "target_path": rel_target,
+                    "title": metadata.get("title") or self._title_for(source, body),
+                    "kind": metadata.get("kind") or metadata.get("type") or "topic",
+                    "topics": self._ensure_list_of_strings(metadata.get("topics")),
+                    "entities": self._ensure_list_of_strings(metadata.get("entities")),
+                    "headings": self._markdown_headings(body),
+                    "will_overwrite": target.exists(),
+                }
+            )
+        return {"status": "planned", "root": "docs/wiki", "pages": pages, "count": len(pages)}
+
+    def _render_wiki_page(
+        self,
+        *,
+        source: Path,
+        metadata: dict[str, Any],
+        body: str,
+    ) -> tuple[dict[str, Any], str]:
+        mode = self.active_mode()["mode"]
+        rel_source = source.relative_to(self.project_path).as_posix()
+        title = metadata.get("title") or self._title_for(source, body)
+        now = _dt.datetime.now(_dt.UTC).isoformat()
+        topics = self._ensure_list_of_strings(metadata.get("topics"))
+        entities = self._ensure_list_of_strings(metadata.get("entities"))
+        page_metadata = {
+            "title": title,
+            "kind": "wiki_page",
+            "source_path": rel_source,
+            "source_kind": metadata.get("kind") or metadata.get("type") or "topic",
+            "knowledge_mode": mode["id"],
+            "generated_at": now,
+            "topics": topics,
+            "entities": entities,
+        }
+        sections = [
+            f"# {title}",
+            "",
+            f"Generated from `{rel_source}`.",
+            "",
+            "## Source Notes",
+            "",
+            self._shift_markdown_headings(body, min_level=2) or "_No source body found._",
+        ]
+        related: list[str] = []
+        if topics:
+            related.append("Topics: " + ", ".join(f"`{topic}`" for topic in topics))
+        if entities:
+            related.append("Entities: " + ", ".join(f"`{entity}`" for entity in entities))
+        source_refs = self._ensure_list_of_strings(metadata.get("sources"))
+        if metadata.get("url"):
+            source_refs.append(str(metadata["url"]))
+        if source_refs:
+            related.append("Sources: " + ", ".join(source_refs))
+        if related:
+            sections.extend(["", "## Related", "", *[f"- {item}" for item in related]])
+        sections.extend(["", "## Source", "", f"- `{rel_source}`"])
+        return page_metadata, "\n".join(sections).strip()
+
+    def wiki_build(
+        self,
+        *,
+        source_paths: list[str] | None = None,
+        include_inbox: bool = False,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        written: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        for source in self._wiki_source_docs(source_paths=source_paths, include_inbox=include_inbox):
+            target = self._wiki_target_for_source(source)
+            rel_source = source.relative_to(self.project_path).as_posix()
+            rel_target = target.relative_to(self.project_path).as_posix()
+            if target.exists() and not force:
+                skipped.append({"source_path": rel_source, "target_path": rel_target, "reason": "exists"})
+                continue
+            metadata, body = self._split_markdown_frontmatter(source.read_text(encoding="utf-8"))
+            page_metadata, page_body = self._render_wiki_page(source=source, metadata=metadata, body=body)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(self._dump_markdown_frontmatter(page_metadata, page_body), encoding="utf-8")
+            written.append({"source_path": rel_source, "target_path": rel_target, "title": page_metadata["title"]})
+        return {"status": "built", "root": "docs/wiki", "written": written, "skipped": skipped}
+
+    def wiki_list(self) -> dict[str, Any]:
+        pages: list[dict[str, Any]] = []
+        if not self.wiki_root.exists():
+            return {"root": "docs/wiki", "pages": pages}
+        for path in sorted(self.wiki_root.rglob("*.md")):
+            metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+            pages.append(
+                {
+                    "path": path.relative_to(self.project_path).as_posix(),
+                    "title": metadata.get("title") or self._title_for(path, body),
+                    "source_path": metadata.get("source_path"),
+                    "knowledge_mode": metadata.get("knowledge_mode"),
+                    "generated_at": metadata.get("generated_at"),
+                }
+            )
+        return {"root": "docs/wiki", "pages": pages}
+
     def list_packs(self) -> dict[str, Any]:
         return {"packs": list(DEFAULT_PACKS.values())}
 
