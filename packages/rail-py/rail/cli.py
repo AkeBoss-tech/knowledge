@@ -7,7 +7,7 @@ from typing import Any
 
 import rail
 from rail.bootstrap import bootstrap_future_project
-from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
+from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
 from rail.modes import DEFAULT_MODES, get_mode
 
 RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
@@ -150,6 +150,11 @@ def cmd_wiki(project: rail.Project, args: argparse.Namespace):
         _print_json(project.wiki_build(source_paths=source_paths, include_inbox=args.include_inbox, force=args.force))
     elif args.wiki_command == "list":
         _print_json(project.wiki_list())
+    elif args.wiki_command == "check":
+        result = project.wiki_check()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
 
 def cmd_doctor(project: rail.Project, args: argparse.Namespace):
     _print_json(project.doctor())
@@ -540,6 +545,7 @@ def main():
     wiki_build.add_argument("--include-inbox", action="store_true", help="Include topics/inbox captures")
     wiki_build.add_argument("--force", action="store_true", help="Overwrite existing generated wiki pages")
     wiki_subs.add_parser("list", help="List generated wiki pages")
+    wiki_subs.add_parser("check", help="Validate generated wiki pages")
 
     # Doctor
     subparsers.add_parser("doctor", help="Check local project health")
@@ -601,7 +607,7 @@ def main():
     wf_subs.add_parser("templates", help="List built-in workflow templates")
     wi = wf_subs.add_parser("init", help="Create a local workflow spec under research_plan/workflows")
     wi.add_argument("workflow_id")
-    wi.add_argument("--template", choices=["project_doctor", "weekly_research_review", "rag_refresh", "paper_ingest", "release_readiness", "source_refresh"])
+    wi.add_argument("--template", choices=sorted(WORKFLOW_TEMPLATES))
     wi.add_argument("--force", action="store_true")
     ws = wf_subs.add_parser("show", help="Show a local workflow spec")
     ws.add_argument("workflow_id")

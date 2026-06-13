@@ -161,6 +161,10 @@ KRAIL_AGENT_ROLES: dict[str, dict[str, str]] = {
         "label": "KRAIL Platform Manager",
         "purpose": "Create and evolve KRAIL workflows, agent roles, prompts, skills, and project operating conventions.",
     },
+    "wiki": {
+        "label": "KRAIL Wiki Writer",
+        "purpose": "Turn source-backed topics into concise encyclopedia-style wiki pages with useful rich artifacts.",
+    },
 }
 
 KRAIL_AGENT_PROMPTS: dict[str, str] = {
@@ -208,6 +212,32 @@ that let other agents work safely in the knowledge base.
 - Do not broaden runner permissions silently.
 - Keep workflow specs readable enough for a human to audit before cron dispatch.
 """,
+    "wiki": """# KRAIL Wiki Writer Prompt
+
+You are the KRAIL wiki writer for this local knowledge project.
+
+Your job is to transform source-backed topic notes into polished reader pages
+under `docs/wiki/`. The style should feel closer to a concise Wikipedia article
+than a work log: neutral, structured, skimmable, and useful.
+
+## Responsibilities
+
+1. Start with `krail --local mode active`, `krail --local wiki plan`, and relevant source files under `topics/`.
+2. Use `krail --local wiki build --force` for the deterministic source-linked baseline when useful.
+3. Rewrite generated pages in `docs/wiki/` into clear encyclopedia-style pages while preserving frontmatter, especially `source_path`.
+4. Add rich elements only when they improve understanding: tables, callouts, Mermaid diagrams, self-contained HTML demos, lightweight simulations, timelines, or visual summaries.
+5. Put reusable rich assets under `docs/wiki/assets/<page-slug>/` or `artifacts/wiki/<page-slug>/` and link to them from the page.
+6. Keep claims grounded in the source topic, source URLs, or integrity records. Mark gaps instead of inventing.
+7. Run `krail --local wiki check`, `krail --local graph build`, and `krail --local vector build` before finishing.
+
+## Rules
+
+- Do not replace canonical topic files with generated prose; topics are the source of truth.
+- Preserve source links and cite repo-relative paths for non-obvious claims.
+- Prefer succinct explanation over exhaustive dumping.
+- Interactive HTML must be self-contained and safe for local viewing: no network scripts, no external trackers, no hidden data exfiltration.
+- If the source material is too thin, create a short page with explicit gaps rather than padding.
+""",
 }
 
 KRAIL_AGENT_CHECKLISTS: dict[str, str] = {
@@ -228,6 +258,16 @@ KRAIL_AGENT_CHECKLISTS: dict[str, str] = {
 - preserve local-first behavior
 - document cron entry points and expected logs
 - avoid unbounded autonomous loops
+""",
+    "wiki": """# KRAIL Wiki Writer Checklist
+
+- run `krail --local wiki plan`
+- build or refresh deterministic baseline pages
+- preserve `source_path` and source-backed claims
+- add diagrams, demos, or images only where they clarify the topic
+- run `krail --local wiki check`
+- refresh graph/vector artifacts
+- record gaps instead of inventing missing facts
 """,
 }
 
@@ -295,6 +335,25 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
                 "runner": "auto",
                 "prompt": "Review unhandled captures from topics/inbox. Promote useful notes into stable topic pages with `krail --local inbox promote` or `krail --local topic upsert`. Leave weak or duplicate material marked as gaps in research_plan/current_plan.md rather than creating loose files.",
             },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "rich_wiki_generation": {
+        "id": "rich_wiki_generation",
+        "description": "Use a coding agent to turn source-backed topics into polished wiki pages with rich artifacts where useful.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {"id": "plan", "kind": "command", "run": "krail --local wiki plan"},
+            {"id": "baseline", "kind": "command", "run": "krail --local wiki build"},
+            {
+                "id": "write_wiki",
+                "kind": "agent",
+                "role": "wiki",
+                "runner": "auto",
+                "prompt": "Generate or refine docs/wiki pages from the current wiki plan. Make pages concise, source-backed, and encyclopedia-like. Add self-contained HTML demos, Mermaid diagrams, tables, or image/asset references only where they materially improve understanding. Preserve source_path frontmatter and do not invent unsupported claims.",
+            },
+            {"id": "check", "kind": "command", "run": "krail --local wiki check"},
             {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
         ],
     },
@@ -1731,6 +1790,29 @@ class KnowledgeRuntime:
             )
         return {"root": "docs/wiki", "pages": pages}
 
+    def wiki_check(self) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        pages = self.wiki_list()["pages"]
+        token_re = re.compile(r"\[(AI_[A-Z_]+|WEB_IMAGE_COLLAGE|TEXTBOOK_PAGE:[^\]]+)\]")
+        for page in pages:
+            rel = str(page["path"])
+            path = self.project_path / rel
+            metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+            source_path = metadata.get("source_path")
+            if not source_path:
+                errors.append(f"{rel}: missing source_path frontmatter")
+            elif not (self.project_path / str(source_path)).exists():
+                errors.append(f"{rel}: source_path does not exist: {source_path}")
+            if not body.strip():
+                errors.append(f"{rel}: empty wiki body")
+            if len(body.strip()) < 120:
+                warnings.append(f"{rel}: body is very short")
+            leftover_tokens = sorted(set(token_re.findall(body)))
+            if leftover_tokens:
+                errors.append(f"{rel}: unresolved artifact tokens: {', '.join(leftover_tokens)}")
+        return {"ok": not errors, "root": "docs/wiki", "pages": len(pages), "errors": errors, "warnings": warnings}
+
     def list_packs(self) -> dict[str, Any]:
         return {"packs": list(DEFAULT_PACKS.values())}
 
@@ -2108,8 +2190,8 @@ jobs:
                 "purpose": meta["purpose"],
                 "runner": {"default": "codex_cli", "approval_required": role == "platform", "max_retries": 1},
                 "permissions": {
-                    "read": ["rail.yaml", ".krail/pack.yaml", "research_plan", "topics", "agents", "skills", "specs"],
-                    "write": ["research_plan", "agents", "skills", "specs"],
+                    "read": ["rail.yaml", ".krail/pack.yaml", "research_plan", "topics", "docs", "artifacts", "agents", "skills", "specs"],
+                    "write": ["research_plan", "docs/wiki", "artifacts/wiki", "agents", "skills", "specs"],
                     "deny": [".git", ".krail/vector.sqlite"],
                 },
                 "prompts": {
@@ -2261,7 +2343,7 @@ krail --local graph check
             "runner_resolution": resolved,
             "role": role,
             "workflow": task.get("workflow"),
-            "allowed_paths": ["topics", "research_plan", "artifacts", "agents", "skills", "specs"],
+            "allowed_paths": ["topics", "docs", "research_plan", "artifacts", "agents", "skills", "specs"],
             "outputs_required": ["summary", "changed_files", "blockers_or_gaps"],
             "trust": "candidate_until_reviewed",
             "role_prompt": role_prompt,

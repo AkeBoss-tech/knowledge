@@ -101,15 +101,36 @@ views under `docs/wiki/`.
 krail --local wiki plan
 krail --local wiki build
 krail --local wiki list
+krail --local wiki check
 ```
 
 Use `--source topics/example.md` to generate one page, `--include-inbox` to
 include raw captures, and `--force` to overwrite an existing generated page.
 
-The first wiki builder is deterministic: it preserves source notes, records
+The baseline wiki builder is deterministic: it preserves source notes, records
 `source_path`, stamps the active `knowledge_mode`, and keeps generated pages
 separate from the canonical topic files. A UI should read `topics/` for editable
 source material and `docs/wiki/` for polished browsing.
+
+For polished pages, use the agent-backed workflow:
+
+```bash
+krail --local workflow init rich_wiki_generation
+krail --local workflow execute rich_wiki_generation --dry-run
+krail --local workflow execute rich_wiki_generation
+```
+
+That workflow plans wiki pages, builds the deterministic baseline, dispatches a
+`wiki` coding-agent role, then runs `krail --local wiki check` plus graph/vector
+refresh. The wiki agent is allowed to write `docs/wiki/` and `artifacts/wiki/`
+and is instructed to create concise encyclopedia-style pages with rich elements
+only where they help: tables, Mermaid diagrams, self-contained HTML demos,
+timelines, visual summaries, or local image/asset references.
+
+Generated pages must keep `source_path` frontmatter and should treat unsupported
+material as gaps, not facts. `wiki check` rejects pages with missing source
+links, empty bodies, missing source files, or unresolved artifact tokens such as
+`[AI_DEMO]`.
 
 This is the KRAIL analogue of a textbook wiki pipeline:
 

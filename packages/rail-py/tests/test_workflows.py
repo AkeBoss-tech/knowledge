@@ -264,3 +264,23 @@ def test_mode_workflows_are_discoverable_and_materializable(tmp_path: Path):
     assert initialized["status"] == "written"
     assert initialized["template"] == "triage_inbox"
     assert shown["workflow"]["steps"][1]["run"] == "krail --local inbox list"
+
+
+def test_rich_wiki_generation_workflow_uses_wiki_agent(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Research Wiki", slug="research-wiki", knowledge_mode="research")
+    runtime = KnowledgeRuntime(root)
+
+    listed = runtime.workflow_list()
+    initialized = runtime.workflow_init("rich_wiki_generation")
+    shown = runtime.workflow_show("rich_wiki_generation")
+    dry_run = runtime.workflow_execute("rich_wiki_generation", dry_run=True)
+
+    available = {item["id"]: item for item in listed["available"]}
+    agent_step = next(step for step in initialized["workflow"]["steps"] if step["kind"] == "agent")
+
+    assert "rich_wiki_generation" in listed["mode_workflows"]
+    assert available["rich_wiki_generation"]["template"] == "rich_wiki_generation"
+    assert initialized["template"] == "rich_wiki_generation"
+    assert agent_step["role"] == "wiki"
+    assert shown["validation"]["ok"] is True
+    assert any(step["step"].get("run") == "krail --local wiki check" for step in dry_run["steps"] if step["kind"] == "command")

@@ -86,6 +86,7 @@ def test_wiki_plan_and_build_generate_source_linked_pages(tmp_path: Path):
     plan = runtime.wiki_plan(source_paths=[topic["path"]])
     built = runtime.wiki_build(source_paths=[topic["path"]])
     listed = runtime.wiki_list()
+    checked = runtime.wiki_check()
     page_path = root / built["written"][0]["target_path"]
     text = page_path.read_text(encoding="utf-8")
 
@@ -97,6 +98,7 @@ def test_wiki_plan_and_build_generate_source_linked_pages(tmp_path: Path):
     assert "Generated from `topics/revops-stack.md`" in text
     assert "Salesforce is the CRM source of truth." in text
     assert listed["pages"][0]["path"] == "docs/wiki/revops-stack.md"
+    assert checked["ok"] is True
 
 
 def test_wiki_build_skips_existing_pages_unless_forced(tmp_path: Path):
@@ -115,3 +117,17 @@ def test_wiki_build_skips_existing_pages_unless_forced(tmp_path: Path):
     assert skipped["skipped"][0]["reason"] == "exists"
     assert forced["written"][0]["target_path"] == "docs/wiki/platform-notes.md"
     assert "manual edit" not in page_path.read_text(encoding="utf-8")
+
+
+def test_wiki_check_rejects_unresolved_artifact_tokens(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    topic = runtime.topic_upsert("demo-topic", title="Demo Topic", content="A short source note for a visual concept.")
+    built = runtime.wiki_build(source_paths=[topic["path"]])
+    page_path = root / built["written"][0]["target_path"]
+    page_path.write_text(page_path.read_text(encoding="utf-8") + "\n[AI_DEMO]\n", encoding="utf-8")
+
+    checked = runtime.wiki_check()
+
+    assert checked["ok"] is False
+    assert "unresolved artifact tokens" in checked["errors"][0]

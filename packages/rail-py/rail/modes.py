@@ -16,7 +16,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "question": ["current_answer", "evidence", "gaps", "next_actions"],
             "topic": ["summary", "key_facts", "evidence", "open_questions", "notes"],
         },
-        "workflows": ["triage_inbox", "add_new_paper", "weekly_literature_refresh", "source_refresh"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "add_new_paper", "weekly_literature_refresh", "source_refresh"],
         "integrity": {
             "require_sources_for_claims": True,
             "stale_sources_block_promotion": True,
@@ -39,7 +39,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "policy": ["summary", "applies_to", "owner", "evidence", "stale_warnings"],
             "topic": ["summary", "key_facts", "owners", "evidence", "open_questions", "notes"],
         },
-        "workflows": ["triage_inbox", "initial_company_map", "company_profile_refresh", "source_review", "weekly_exec_brief"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "initial_company_map", "company_profile_refresh", "source_review", "weekly_exec_brief"],
         "integrity": {
             "require_sources_for_claims": True,
             "stale_sources_block_promotion": True,
@@ -62,7 +62,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "resource": ["summary", "why_it_matters", "links", "notes"],
             "topic": ["summary", "key_points", "links", "open_loops", "notes"],
         },
-        "workflows": ["triage_inbox", "weekly_review", "rag_refresh"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "weekly_review", "rag_refresh"],
         "integrity": {
             "require_sources_for_claims": False,
             "stale_sources_block_promotion": False,
@@ -85,7 +85,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "decision": ["context", "decision", "consequences", "evidence", "follow_up"],
             "topic": ["summary", "key_facts", "dependencies", "decisions", "notes"],
         },
-        "workflows": ["triage_inbox", "map_codebase", "capture_architecture_decision", "dependency_review"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "map_codebase", "capture_architecture_decision", "dependency_review"],
         "integrity": {
             "require_sources_for_claims": True,
             "stale_sources_block_promotion": True,
@@ -108,7 +108,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "artifact": ["summary", "inputs", "status", "verification", "open_questions"],
             "topic": ["summary", "key_facts", "evidence", "open_questions", "notes"],
         },
-        "workflows": ["triage_inbox", "project_doctor", "rag_refresh", "release_readiness"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "project_doctor", "rag_refresh", "release_readiness"],
         "integrity": {
             "require_sources_for_claims": True,
             "stale_sources_block_promotion": True,
@@ -128,4 +128,3 @@ def get_mode(mode_id: str | None) -> dict[str, Any]:
     if selected not in DEFAULT_MODES:
         raise ValueError(f"Unknown knowledge mode: {selected}")
     return deepcopy(DEFAULT_MODES[selected])
-
