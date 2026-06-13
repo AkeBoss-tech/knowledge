@@ -14,8 +14,49 @@ Expected project files:
 
 - `krail.yaml` or `rail.yaml`
 - `.ontology/`
-- `state/`
+- `topics/`
+- `sources/`
+- `research_plan/`
+- `research_plan/state/`
 - `artifacts/`
+
+## Knowledge Modes
+
+Start by inspecting the active operating mode:
+
+```bash
+krail --local mode active
+krail --local pack active
+krail --local doctor
+```
+
+Built-in modes include:
+
+- `research`: papers, methods, datasets, experiments, claims, evidence, and open questions
+- `company`: teams, systems, policies, workflows, owners, metrics, decisions, and stale docs
+- `personal`: projects, areas, resources, ideas, documents, and random notes
+- `software`: services, modules, APIs, dependencies, decisions, incidents, and risks
+- `project`: milestones, decisions, artifacts, risks, blockers, and closeout
+
+Use `research_plan/` for operations such as tasks, sessions, decisions, and
+workflow state. Durable domain knowledge belongs under `topics/`.
+
+## Inbox And Topics
+
+Raw captures are not the final knowledge shape. Put raw notes in the inbox, then
+promote useful material into stable topic pages.
+
+```bash
+krail --local capture "raw note" --topic robotics --entity PDDLStream --entity-type Package
+krail --local inbox list
+krail --local inbox promote topics/inbox/<capture>.md --topic task-and-motion-planning --type method
+krail --local topic upsert task-and-motion-planning --content "Reviewed update with evidence."
+krail --local graph build
+```
+
+Prefer `inbox promote` and `topic upsert` over manually creating dated files or
+new folders. If material is weak, duplicate, or unsupported, record the gap
+instead of promoting it as trusted knowledge.
 
 ## Optional API
 
@@ -53,6 +94,9 @@ Useful tool families:
 - `search`: retrieve evidence
 - `think`: synthesize evidence with gaps/conflicts
 - `capture`: add local notes or source pointers to `topics/inbox`
+- `mode_active`, `mode_list`: inspect the knowledge operating mode
+- `inbox_list`, `inbox_promote`: triage raw captures into stable topics
+- `topic_list`, `topic_upsert`: inspect or update durable topic pages
 - `doctor`: inspect local project health
 - `pack_active`: inspect active knowledge pack
 - `list_agents`: inspect local CLI runners
