@@ -127,10 +127,27 @@ and is instructed to create concise encyclopedia-style pages with rich elements
 only where they help: tables, Mermaid diagrams, self-contained HTML demos,
 timelines, visual summaries, or local image/asset references.
 
+`krail --local wiki plan` also returns a `rich_artifacts` catalog so coding
+agents can see what they are allowed to add:
+
+- `interactive_html`: self-contained local HTML demos, simulations, timelines,
+  calculators, sortable views, or concept explorers.
+- `svg`: inline or linked SVG explainers for concept maps, flows, architecture,
+  taxonomies, and visual summaries.
+- `mermaid`: editable text diagrams.
+- `image_asset`: local screenshots, generated images, annotated figures, or
+  exported diagrams under `docs/wiki/assets/<page-slug>/`.
+- `web_image_reference`: Google Images or web image references for real-world
+  examples. Prefer official or permissively licensed sources and include source
+  URL, credit, and license/status when known.
+- `table`, `callout`, and `study_block`: concise supporting structures for
+  comparisons, caveats, definitions, quick checks, or study prompts.
+
 Generated pages must keep `source_path` frontmatter and should treat unsupported
 material as gaps, not facts. `wiki check` rejects pages with missing source
 links, empty bodies, missing source files, or unresolved artifact tokens such as
-`[AI_DEMO]`.
+`[AI_DEMO]`. It also checks that local Markdown image links point to files that
+exist inside the project.
 
 This is the KRAIL analogue of a textbook wiki pipeline:
 

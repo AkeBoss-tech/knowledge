@@ -92,6 +92,7 @@ def test_wiki_plan_and_build_generate_source_linked_pages(tmp_path: Path):
 
     assert plan["count"] == 1
     assert plan["pages"][0]["source_path"] == "topics/revops-stack.md"
+    assert {item["id"] for item in plan["rich_artifacts"]} >= {"interactive_html", "svg", "web_image_reference"}
     assert built["written"][0]["target_path"] == "docs/wiki/revops-stack.md"
     assert "source_path: topics/revops-stack.md" in text
     assert "knowledge_mode: company" in text
@@ -131,3 +132,17 @@ def test_wiki_check_rejects_unresolved_artifact_tokens(tmp_path: Path):
 
     assert checked["ok"] is False
     assert "unresolved artifact tokens" in checked["errors"][0]
+
+
+def test_wiki_check_rejects_missing_local_image_assets(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    topic = runtime.topic_upsert("visual-topic", title="Visual Topic", content="A source note that needs a visual.")
+    built = runtime.wiki_build(source_paths=[topic["path"]])
+    page_path = root / built["written"][0]["target_path"]
+    page_path.write_text(page_path.read_text(encoding="utf-8") + "\n![Process](assets/visual-topic/missing.svg)\n", encoding="utf-8")
+
+    checked = runtime.wiki_check()
+
+    assert checked["ok"] is False
+    assert any("image target does not exist" in error for error in checked["errors"])

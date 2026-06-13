@@ -225,10 +225,21 @@ than a work log: neutral, structured, skimmable, and useful.
 1. Start with `krail --local mode active`, `krail --local wiki plan`, and relevant source files under `topics/`.
 2. Use `krail --local wiki build --force` for the deterministic source-linked baseline when useful.
 3. Rewrite generated pages in `docs/wiki/` into clear encyclopedia-style pages while preserving frontmatter, especially `source_path`.
-4. Add rich elements only when they improve understanding: tables, callouts, Mermaid diagrams, self-contained HTML demos, lightweight simulations, timelines, or visual summaries.
+4. Add rich elements only when they improve understanding: tables, callouts, Mermaid diagrams, SVG explainers, self-contained HTML demos, lightweight simulations, timelines, local images, generated images, or web/Google Images references.
 5. Put reusable rich assets under `docs/wiki/assets/<page-slug>/` or `artifacts/wiki/<page-slug>/` and link to them from the page.
 6. Keep claims grounded in the source topic, source URLs, or integrity records. Mark gaps instead of inventing.
 7. Run `krail --local wiki check`, `krail --local graph build`, and `krail --local vector build` before finishing.
+
+## Rich Artifact Menu
+
+- `interactive_html`: self-contained HTML files for simulations, timelines, calculators, sortable views, or concept explorers. Use inline CSS/JS only; no network scripts or trackers.
+- `svg`: inline or linked SVG diagrams for taxonomies, process maps, architecture sketches, and visual summaries. Include captions or nearby alt text.
+- `mermaid`: editable text diagrams for flows, sequences, state machines, and simple graphs.
+- `image_asset`: local screenshots, generated images, annotated figures, or exported diagrams under `docs/wiki/assets/<page-slug>/`.
+- `web_image_reference`: Google Images or web image references for real-world examples. Prefer official or permissively licensed sources, include source URL/credit/license status when known, and avoid unattributed hotlinks.
+- `table`: comparison tables, timelines, glossaries, and matrices.
+- `callout`: definitions, caveats, stale warnings, or key takeaways.
+- `study_block`: short FAQs, quick checks, flashcard-like prompts, quizzes, or practice questions when useful.
 
 ## Rules
 
@@ -236,6 +247,7 @@ than a work log: neutral, structured, skimmable, and useful.
 - Preserve source links and cite repo-relative paths for non-obvious claims.
 - Prefer succinct explanation over exhaustive dumping.
 - Interactive HTML must be self-contained and safe for local viewing: no network scripts, no external trackers, no hidden data exfiltration.
+- Web images must have a nearby source URL and attribution/licensing note when known.
 - If the source material is too thin, create a short page with explicit gaps rather than padding.
 """,
 }
@@ -264,7 +276,8 @@ KRAIL_AGENT_CHECKLISTS: dict[str, str] = {
 - run `krail --local wiki plan`
 - build or refresh deterministic baseline pages
 - preserve `source_path` and source-backed claims
-- add diagrams, demos, or images only where they clarify the topic
+- add diagrams, demos, SVGs, tables, images, or web image references only where they clarify the topic
+- keep interactive HTML self-contained and record image source/credit details
 - run `krail --local wiki check`
 - refresh graph/vector artifacts
 - record gaps instead of inventing missing facts
@@ -351,7 +364,7 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
                 "kind": "agent",
                 "role": "wiki",
                 "runner": "auto",
-                "prompt": "Generate or refine docs/wiki pages from the current wiki plan. Make pages concise, source-backed, and encyclopedia-like. Add self-contained HTML demos, Mermaid diagrams, tables, or image/asset references only where they materially improve understanding. Preserve source_path frontmatter and do not invent unsupported claims.",
+                "prompt": "Generate or refine docs/wiki pages from the current wiki plan. Make pages concise, source-backed, and encyclopedia-like. Use the rich_artifacts catalog from `krail --local wiki plan`: self-contained interactive HTML demos, SVG explainers, Mermaid diagrams, tables, callouts, study blocks, local image assets, generated images, and web/Google Images references are allowed when they materially improve understanding. Store reusable assets under docs/wiki/assets/<page-slug>/ or artifacts/wiki/<page-slug>/. Preserve source_path frontmatter, include image source URL/credit/license status when known, and do not invent unsupported claims.",
             },
             {"id": "check", "kind": "command", "run": "krail --local wiki check"},
             {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
@@ -547,6 +560,65 @@ _STOPWORDS = {
     "who",
     "why",
 }
+
+WIKI_RICH_ARTIFACTS: list[dict[str, Any]] = [
+    {
+        "id": "interactive_html",
+        "label": "Self-contained interactive HTML demo",
+        "where": "Use for simulations, sortable/comparable views, timelines, calculators, concept explorers, and small local demos.",
+        "storage": "docs/wiki/assets/<page-slug>/<artifact-slug>.html or artifacts/wiki/<page-slug>/<artifact-slug>.html",
+        "rules": ["inline CSS/JS only", "no external scripts", "no trackers", "link from the wiki page with a clear caption"],
+    },
+    {
+        "id": "svg",
+        "label": "Inline or linked SVG explainer",
+        "where": "Use for concept maps, process flows, architecture diagrams, taxonomies, and visual summaries.",
+        "storage": "inline fenced/svg block or docs/wiki/assets/<page-slug>/<artifact-slug>.svg",
+        "rules": ["keep text readable", "include alt/caption text", "avoid decorative-only SVGs"],
+    },
+    {
+        "id": "mermaid",
+        "label": "Mermaid diagram",
+        "where": "Use for flowcharts, sequence diagrams, state machines, timelines, and simple graphs.",
+        "storage": "fenced ```mermaid block in the wiki page",
+        "rules": ["prefer Mermaid for diagrams that should remain editable as text"],
+    },
+    {
+        "id": "image_asset",
+        "label": "Local image asset",
+        "where": "Use for screenshots, generated images, annotated figures, or diagrams exported as images.",
+        "storage": "docs/wiki/assets/<page-slug>/<image-name>.<png|jpg|webp>",
+        "rules": ["include alt text", "include source/credit when not generated locally", "do not use dark/cropped images when inspection matters"],
+    },
+    {
+        "id": "web_image_reference",
+        "label": "Web or Google Images reference",
+        "where": "Use for real-world entities, places, products, organisms, historical artifacts, interface screenshots, or examples where external images clarify the topic.",
+        "storage": "markdown image/link plus nearby source URL, credit, and license/status when known",
+        "rules": ["prefer official or permissively licensed sources", "do not hotlink copyrighted images without attribution", "record retrieval/source URL"],
+    },
+    {
+        "id": "table",
+        "label": "Comparison or summary table",
+        "where": "Use for concise facts, tradeoffs, timelines, glossaries, and matrices.",
+        "storage": "markdown table in the wiki page",
+        "rules": ["keep columns scannable", "cite non-obvious facts"],
+    },
+    {
+        "id": "callout",
+        "label": "Short callout block",
+        "where": "Use for definitions, caveats, stale warnings, or key takeaways.",
+        "storage": "blockquote or short section in the wiki page",
+        "rules": ["do not hide unsupported claims in callouts"],
+    },
+    {
+        "id": "study_block",
+        "label": "Study aid block",
+        "where": "Use for FAQs, flashcard-like prompts, quick checks, quizzes, or practice questions when the mode is learning/research oriented.",
+        "storage": "markdown section or JSON/HTML asset under artifacts/wiki/<page-slug>/",
+        "rules": ["keep answers source-backed", "mark speculative prompts clearly"],
+    },
+]
 
 
 def _yaml_scalar(value: str) -> str:
@@ -1701,7 +1773,13 @@ class KnowledgeRuntime:
                     "will_overwrite": target.exists(),
                 }
             )
-        return {"status": "planned", "root": "docs/wiki", "pages": pages, "count": len(pages)}
+        return {
+            "status": "planned",
+            "root": "docs/wiki",
+            "pages": pages,
+            "count": len(pages),
+            "rich_artifacts": WIKI_RICH_ARTIFACTS,
+        }
 
     def _render_wiki_page(
         self,
@@ -1795,6 +1873,7 @@ class KnowledgeRuntime:
         warnings: list[str] = []
         pages = self.wiki_list()["pages"]
         token_re = re.compile(r"\[(AI_[A-Z_]+|WEB_IMAGE_COLLAGE|TEXTBOOK_PAGE:[^\]]+)\]")
+        image_re = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
         for page in pages:
             rel = str(page["path"])
             path = self.project_path / rel
@@ -1811,6 +1890,18 @@ class KnowledgeRuntime:
             leftover_tokens = sorted(set(token_re.findall(body)))
             if leftover_tokens:
                 errors.append(f"{rel}: unresolved artifact tokens: {', '.join(leftover_tokens)}")
+            for image_target in image_re.findall(body):
+                target = image_target.strip().split()[0].strip("<>")
+                if target.startswith(("http://", "https://", "#", "data:")):
+                    continue
+                candidate = (path.parent / target).resolve()
+                try:
+                    candidate.relative_to(self.project_path)
+                except ValueError:
+                    errors.append(f"{rel}: image target escapes project: {target}")
+                    continue
+                if not candidate.exists():
+                    errors.append(f"{rel}: image target does not exist: {target}")
         return {"ok": not errors, "root": "docs/wiki", "pages": len(pages), "errors": errors, "warnings": warnings}
 
     def list_packs(self) -> dict[str, Any]:
