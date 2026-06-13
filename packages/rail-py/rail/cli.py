@@ -8,6 +8,7 @@ from typing import Any
 import rail
 from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import DEFAULT_PACKS, KnowledgeRuntime
+from rail.modes import DEFAULT_MODES, get_mode
 
 RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
 
@@ -32,11 +33,13 @@ def _get_project(args: argparse.Namespace) -> rail.Project:
 def cmd_init(args: argparse.Namespace):
     target = Path(args.directory).resolve()
     name = args.name or target.name
-    root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode, pack=args.pack)
+    selected_mode = get_mode(args.knowledge_mode)
+    selected_pack = args.pack or selected_mode.get("default_pack")
+    root = bootstrap_future_project(target, name=name, slug=args.slug, mode=args.mode, knowledge_mode=args.knowledge_mode, pack=selected_pack)
     project = rail.local(str(root))
     materialized_workflows: list[str] = []
-    if args.pack:
-        project.pack("use", args.pack)
+    if selected_pack:
+        project.pack("use", selected_pack)
         if not args.no_init_pack_workflows and hasattr(project._backend, "knowledge"):
             active = project._backend.knowledge.active_pack().get("active") or {}
             for workflow_id in active.get("workflows") or []:
@@ -45,7 +48,7 @@ def cmd_init(args: argparse.Namespace):
                 result = project.init_workflow(workflow_id)
                 if result.get("status") in {"written", "exists"}:
                     materialized_workflows.append(workflow_id)
-    payload = {"status": "initialized", "path": str(root), "pack": args.pack, "mode": args.mode}
+    payload = {"status": "initialized", "path": str(root), "pack": selected_pack, "mode": args.mode, "knowledge_mode": selected_mode["id"]}
     if materialized_workflows:
         payload["materialized_workflows"] = materialized_workflows
     _print_json(payload)
@@ -95,6 +98,49 @@ def cmd_capture(project: rail.Project, args: argparse.Namespace):
             entity_type=args.entity_type,
         )
     )
+
+def cmd_mode(project: rail.Project, args: argparse.Namespace):
+    if args.mode_command == "list":
+        _print_json(project.modes())
+    elif args.mode_command == "active":
+        _print_json(project.active_mode())
+    elif args.mode_command == "show":
+        _print_json(project.mode(args.mode_id))
+
+def cmd_topic(project: rail.Project, args: argparse.Namespace):
+    if args.topic_command == "list":
+        _print_json(project.topic_list(include_inbox=args.include_inbox))
+    elif args.topic_command == "upsert":
+        content = args.content or ""
+        if args.stdin:
+            content = sys.stdin.read()
+        _print_json(
+            project.topic_upsert(
+                args.topic,
+                title=args.title,
+                kind=args.type,
+                content=content,
+                source_path=args.source_path,
+                sources=args.source,
+                entities=args.entity,
+                entity_type=args.entity_type,
+            )
+        )
+
+def cmd_inbox(project: rail.Project, args: argparse.Namespace):
+    if args.inbox_command == "list":
+        _print_json(project.inbox_list(include_handled=args.include_handled))
+    elif args.inbox_command == "promote":
+        _print_json(
+            project.inbox_promote(
+                args.capture_path,
+                topic=args.topic,
+                title=args.title,
+                kind=args.type,
+                entities=args.entity,
+                entity_type=args.entity_type,
+            )
+        )
 
 def cmd_doctor(project: rail.Project, args: argparse.Namespace):
     _print_json(project.doctor())
@@ -246,11 +292,12 @@ def cmd_ci(project: rail.Project, args: argparse.Namespace):
         _print_json(project.ci_init(path=args.ci_path))
 
 def cmd_query(project: rail.Project, args: argparse.Namespace):
-    if args.command == "sql":
+    query_command = getattr(args, "query_command", None)
+    if query_command == "sql":
         _print_json(project.query(args.sql).to_dict(orient="records"))
-    elif args.command == "classes":
+    elif query_command == "classes":
         _print_json(project.classes())
-    elif args.command == "entities":
+    elif query_command == "entities":
         _print_json(project.entities(args.class_name, limit=args.limit).to_dict(orient="records"))
 
 def cmd_hydrate(project: rail.Project, args: argparse.Namespace):
@@ -361,6 +408,7 @@ def main():
     init_parser.add_argument("--slug", help="Project slug")
     init_parser.add_argument("--pack", choices=["research-intelligence", "company-brain", "software-architecture", "policy-compiler"], help="Activate a knowledge pack")
     init_parser.add_argument("--mode", choices=["ontology_first", "markdown_graph"], default="ontology_first", help="Project scaffold mode")
+    init_parser.add_argument("--knowledge-mode", choices=sorted(DEFAULT_MODES), default="research", help="Knowledge operating mode")
     init_parser.add_argument(
         "--no-init-pack-workflows",
         action="store_true",
@@ -404,6 +452,43 @@ def main():
     c_parser.add_argument("--topic", action="append", help="Frontmatter topic; can be repeated")
     c_parser.add_argument("--entity", action="append", help="Frontmatter entity; can be repeated")
     c_parser.add_argument("--entity-type", help="Entity type for captured entities")
+
+    # Knowledge modes
+    mode_parser = subparsers.add_parser("mode", help="Inspect KRAIL knowledge modes")
+    mode_subs = mode_parser.add_subparsers(dest="mode_command")
+    mode_subs.add_parser("list", help="List built-in knowledge modes")
+    mode_subs.add_parser("active", help="Show the active knowledge mode")
+    mode_show = mode_subs.add_parser("show", help="Show a built-in knowledge mode")
+    mode_show.add_argument("mode_id", help="Mode id, e.g. research, company, personal, software, project")
+
+    # Topics
+    topic_parser = subparsers.add_parser("topic", help="Manage durable topic pages")
+    topic_subs = topic_parser.add_subparsers(dest="topic_command")
+    topic_list = topic_subs.add_parser("list", help="List topic pages")
+    topic_list.add_argument("--include-inbox", action="store_true", help="Include topics/inbox captures")
+    topic_upsert = topic_subs.add_parser("upsert", help="Create or update a durable topic page")
+    topic_upsert.add_argument("topic", help="Topic slug or title")
+    topic_upsert.add_argument("--title", help="Topic page title")
+    topic_upsert.add_argument("--type", default="topic", help="Topic type, e.g. paper, system, project")
+    topic_upsert.add_argument("--content", help="Content to append to the topic")
+    topic_upsert.add_argument("--stdin", action="store_true", help="Read content to append from stdin")
+    topic_upsert.add_argument("--source-path", help="Repo-relative source capture path")
+    topic_upsert.add_argument("--source", action="append", help="Source URL or path; can be repeated")
+    topic_upsert.add_argument("--entity", action="append", help="Entity to attach; can be repeated")
+    topic_upsert.add_argument("--entity-type", help="Entity type for attached entities")
+
+    # Inbox
+    inbox_parser = subparsers.add_parser("inbox", help="Triage captured notes from topics/inbox")
+    inbox_subs = inbox_parser.add_subparsers(dest="inbox_command")
+    inbox_list = inbox_subs.add_parser("list", help="List unhandled inbox captures")
+    inbox_list.add_argument("--include-handled", action="store_true", help="Include promoted or archived captures")
+    inbox_promote = inbox_subs.add_parser("promote", help="Promote an inbox capture into a stable topic page")
+    inbox_promote.add_argument("capture_path", help="Repo-relative capture path")
+    inbox_promote.add_argument("--topic", required=True, help="Target topic slug or title")
+    inbox_promote.add_argument("--title", help="Target topic title")
+    inbox_promote.add_argument("--type", default="topic", help="Target topic type")
+    inbox_promote.add_argument("--entity", action="append", help="Entity to attach; can be repeated")
+    inbox_promote.add_argument("--entity-type", help="Entity type for attached entities")
 
     # Doctor
     subparsers.add_parser("doctor", help="Check local project health")
@@ -647,6 +732,12 @@ def main():
         cmd_think_session(project, args)
     elif args.command == "capture":
         cmd_capture(project, args)
+    elif args.command == "mode":
+        cmd_mode(project, args)
+    elif args.command == "topic":
+        cmd_topic(project, args)
+    elif args.command == "inbox":
+        cmd_inbox(project, args)
     elif args.command == "doctor":
         cmd_doctor(project, args)
     elif args.command == "pack":

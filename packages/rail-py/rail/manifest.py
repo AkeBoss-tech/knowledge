@@ -16,6 +16,7 @@ WorkspaceMode = Literal["isolated"]
 CheckpointMode = Literal["git-ref", "none"]
 AutonomyMode = Literal["assisted", "supervised_autopilot", "autopilot"]
 ProjectMode = Literal["ontology_first", "research_first"]
+KnowledgeMode = Literal["research", "company", "personal", "software", "project"]
 SourceOfTruth = Literal["git"]
 QuestionClassification = Literal[
     "answerable_now",
@@ -45,6 +46,7 @@ class ProjectSection(BaseModel):
     git_repo_url: str | None = None
     agent_model: str | None = None
     mode: ProjectMode = "ontology_first"
+    knowledge_mode: KnowledgeMode = "research"
 
 
 class RepoContractSection(BaseModel):

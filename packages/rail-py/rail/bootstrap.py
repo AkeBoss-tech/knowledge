@@ -4,6 +4,8 @@ from pathlib import Path
 import textwrap
 import yaml
 
+from rail.modes import get_mode
+
 
 def _slugify(value: str) -> str:
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value)
@@ -24,13 +26,15 @@ def bootstrap_future_project(
     slug: str | None = None,
     default_branch: str = "main",
     mode: str = "ontology_first",
+    knowledge_mode: str | None = None,
     pack: str | None = None,
 ) -> Path:
     project_root = Path(target_dir).resolve()
     project_slug = slug or _slugify(name)
     if mode not in {"ontology_first", "markdown_graph"}:
         raise ValueError("mode must be ontology_first or markdown_graph")
-    active_pack = pack or "research-intelligence"
+    active_mode = get_mode(knowledge_mode or "research")
+    active_pack = pack or active_mode.get("default_pack") or "research-intelligence"
     require_longitudinal_panel = active_pack == "research-intelligence" and mode == "ontology_first"
 
     dirs = [
@@ -63,6 +67,7 @@ def bootstrap_future_project(
           default_branch: "{default_branch}"
           description: "RAIL future project"
           mode: "{'research_first' if mode == 'markdown_graph' else 'ontology_first'}"
+          knowledge_mode: "{active_mode['id']}"
 
         repo_contract:
           required_paths:

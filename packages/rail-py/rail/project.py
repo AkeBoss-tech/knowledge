@@ -118,6 +118,77 @@ class Project:
             entity_type=entity_type,
         )
 
+    def modes(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("mode commands require local mode")
+        return self._backend.knowledge.list_modes()
+
+    def mode(self, mode_id: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("mode commands require local mode")
+        return self._backend.knowledge.show_mode(mode_id)
+
+    def active_mode(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("mode commands require local mode")
+        return self._backend.knowledge.active_mode()
+
+    def topic_list(self, *, include_inbox: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("topic commands require local mode")
+        return self._backend.knowledge.topic_list(include_inbox=include_inbox)
+
+    def topic_upsert(
+        self,
+        topic: str,
+        *,
+        title: str | None = None,
+        kind: str = "topic",
+        content: str = "",
+        source_path: str | None = None,
+        sources: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("topic commands require local mode")
+        return self._backend.knowledge.topic_upsert(
+            topic,
+            title=title,
+            kind=kind,
+            content=content,
+            source_path=source_path,
+            sources=sources,
+            entities=entities,
+            entity_type=entity_type,
+        )
+
+    def inbox_list(self, *, include_handled: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("inbox commands require local mode")
+        return self._backend.knowledge.inbox_list(include_handled=include_handled)
+
+    def inbox_promote(
+        self,
+        capture_path: str,
+        *,
+        topic: str,
+        title: str | None = None,
+        kind: str = "topic",
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("inbox commands require local mode")
+        return self._backend.knowledge.inbox_promote(
+            capture_path,
+            topic=topic,
+            title=title,
+            kind=kind,
+            entities=entities,
+            entity_type=entity_type,
+        )
+
     def doctor(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("doctor requires local mode")

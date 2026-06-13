@@ -196,6 +196,19 @@ def test_cmd_ci_init_prints_written_path(capsys):
     assert payload["path"] == ".github/workflows/krail.yml"
 
 
+def test_cmd_query_classes_uses_query_subcommand(capsys):
+    class _Project:
+        def classes(self):
+            return [{"name": "topic", "instance_count": 2}]
+
+    args = argparse.Namespace(query_command="classes")
+
+    rail_cli.cmd_query(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [{"name": "topic", "instance_count": 2}]
+
+
 def test_local_engine_reconcile_calls_reconciliation_service(tmp_path: Path, monkeypatch):
     (tmp_path / "rail.yaml").write_text(MINIMAL_RAIL_YAML, encoding="utf-8")
     (tmp_path / ".ontology").mkdir()

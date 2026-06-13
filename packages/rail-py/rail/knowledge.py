@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from rail.modes import DEFAULT_MODES, get_mode
 from rail.markdown_graph import (
     build_markdown_graph,
     check_markdown_graph,
@@ -110,6 +111,12 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
         ],
         "workflows": ["compile_policy", "review_exceptions", "evidence_gap_scan"],
     },
+}
+
+MODE_PACK_ALIASES: dict[str, str] = {
+    "research": "research-intelligence",
+    "company": "company-brain",
+    "software": "software-architecture",
 }
 
 LOCAL_RUNNERS: dict[str, dict[str, str]] = {
@@ -617,6 +624,26 @@ class KnowledgeRuntime:
             if isinstance(value, str) and value.strip():
                 result.append(value.strip())
         return result
+
+    @staticmethod
+    def _split_markdown_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+        if text.startswith("---\n"):
+            end = text.find("\n---", 4)
+            if end != -1:
+                raw = text[4:end]
+                body = text[end + 4 :].lstrip("\n")
+                try:
+                    metadata = yaml.safe_load(raw) or {}
+                    if isinstance(metadata, dict):
+                        return metadata, body
+                except Exception:
+                    pass
+        return {}, text
+
+    @staticmethod
+    def _dump_markdown_frontmatter(metadata: dict[str, Any], body: str) -> str:
+        cleaned = {key: value for key, value in metadata.items() if value not in (None, "", [], {})}
+        return "---\n" + yaml.safe_dump(cleaned, sort_keys=False).strip() + "\n---\n\n" + body.strip() + "\n"
 
     @staticmethod
     def _think_promotion_state(result: dict[str, Any]) -> str:
@@ -1319,6 +1346,190 @@ class KnowledgeRuntime:
         path.write_text("\n".join(header) + body.strip() + "\n", encoding="utf-8")
         return {"status": "captured", "path": str(path.relative_to(self.project_path)), "type": kind}
 
+    def list_modes(self) -> dict[str, Any]:
+        return {"modes": list(DEFAULT_MODES.values())}
+
+    def show_mode(self, mode_id: str | None = None) -> dict[str, Any]:
+        return get_mode(mode_id or self.active_mode()["mode"]["id"])
+
+    def active_mode(self) -> dict[str, Any]:
+        manifest = self._manifest_data()
+        project = manifest.get("project") if isinstance(manifest.get("project"), dict) else {}
+        configured = project.get("knowledge_mode") or project.get("brain_mode")
+        if isinstance(configured, str) and configured in DEFAULT_MODES:
+            return {"mode": get_mode(configured), "source": "rail.yaml"}
+        active_pack = self.active_pack().get("active") or {}
+        pack_id = active_pack.get("id")
+        for mode_id, alias_pack in MODE_PACK_ALIASES.items():
+            if pack_id == alias_pack:
+                return {"mode": get_mode(mode_id), "source": ".krail/pack.yaml"}
+        return {"mode": get_mode("research"), "source": "default"}
+
+    def topic_list(self, *, include_inbox: bool = False) -> dict[str, Any]:
+        topics_root = self.project_path / "topics"
+        topics: list[dict[str, Any]] = []
+        if not topics_root.exists():
+            return {"topics": topics}
+        for path in sorted(topics_root.rglob("*.md")):
+            rel = path.relative_to(self.project_path).as_posix()
+            if not include_inbox and rel.startswith("topics/inbox/"):
+                continue
+            try:
+                metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+            except Exception:
+                metadata, body = {}, ""
+            topics.append(
+                {
+                    "path": rel,
+                    "title": metadata.get("title") or self._title_for(path, body),
+                    "kind": metadata.get("kind") or metadata.get("type") or "document",
+                    "topics": self._ensure_list_of_strings(metadata.get("topics")),
+                    "entities": self._ensure_list_of_strings(metadata.get("entities")),
+                    "triage_status": metadata.get("triage_status"),
+                }
+            )
+        return {"topics": topics}
+
+    def inbox_list(self, *, include_handled: bool = False) -> dict[str, Any]:
+        inbox = self.project_path / "topics" / "inbox"
+        captures: list[dict[str, Any]] = []
+        if not inbox.exists():
+            return {"captures": captures, "unhandled": 0, "handled": 0}
+        handled_count = 0
+        for path in sorted(inbox.glob("*.md")):
+            try:
+                metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+            except Exception:
+                metadata, body = {}, ""
+            status = str(metadata.get("triage_status") or "new")
+            handled = status in {"handled", "promoted", "archived"}
+            if handled:
+                handled_count += 1
+            if handled and not include_handled:
+                continue
+            captures.append(
+                {
+                    "path": path.relative_to(self.project_path).as_posix(),
+                    "title": metadata.get("title") or path.stem,
+                    "kind": metadata.get("kind") or metadata.get("type") or "note",
+                    "captured_at": metadata.get("captured_at"),
+                    "topics": self._ensure_list_of_strings(metadata.get("topics")),
+                    "entities": self._ensure_list_of_strings(metadata.get("entities")),
+                    "triage_status": status,
+                    "promoted_to": metadata.get("promoted_to"),
+                    "snippet": self._snippet(body, []),
+                }
+            )
+        return {"captures": captures, "unhandled": len(captures), "handled": handled_count}
+
+    def topic_upsert(
+        self,
+        topic: str,
+        *,
+        title: str | None = None,
+        kind: str = "topic",
+        content: str = "",
+        source_path: str | None = None,
+        sources: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
+        topic_slug = self._slug(topic, fallback="topic")
+        target = self.project_path / "topics" / f"{topic_slug}.md"
+        now = _dt.datetime.now(_dt.UTC).isoformat()
+        existing_metadata: dict[str, Any] = {}
+        existing_body = ""
+        created = not target.exists()
+        if target.exists():
+            existing_metadata, existing_body = self._split_markdown_frontmatter(target.read_text(encoding="utf-8"))
+
+        metadata = {
+            **existing_metadata,
+            "title": title or existing_metadata.get("title") or topic.replace("-", " ").replace("_", " ").title(),
+            "kind": existing_metadata.get("kind") or kind,
+            "topics": sorted(set([*self._ensure_list_of_strings(existing_metadata.get("topics")), topic_slug])),
+            "updated_at": now,
+        }
+        if created:
+            metadata["created_at"] = now
+        merged_entities = sorted(set([*self._ensure_list_of_strings(existing_metadata.get("entities")), *(entities or [])]))
+        if merged_entities:
+            metadata["entities"] = merged_entities
+        if entity_type and entities:
+            existing_entity_meta = existing_metadata.get("entity_metadata") if isinstance(existing_metadata.get("entity_metadata"), list) else []
+            seen = {str(item.get("name")) for item in existing_entity_meta if isinstance(item, dict)}
+            metadata["entity_metadata"] = [
+                *existing_entity_meta,
+                *[
+                    {"name": entity, "entity_type": entity_type}
+                    for entity in entities
+                    if entity not in seen
+                ],
+            ]
+
+        body = existing_body.strip()
+        if not body:
+            mode = self.active_mode()["mode"]
+            sections = mode.get("topic_types", {}).get(kind) or mode.get("topic_types", {}).get("topic") or ["summary", "key_facts", "evidence", "open_questions", "notes"]
+            lines = [f"# {metadata['title']}", ""]
+            for section in sections:
+                heading = str(section).replace("_", " ").title()
+                lines.extend([f"## {heading}", "", ""])
+            body = "\n".join(lines).strip()
+
+        entry_parts: list[str] = []
+        if content.strip():
+            entry_parts.append(content.strip())
+        if source_path:
+            entry_parts.append(f"Source capture: `{source_path}`")
+        for source in sources or []:
+            entry_parts.append(f"Source: {source}")
+        if entry_parts:
+            body = body.rstrip() + f"\n\n## Update {now[:10]}\n\n" + "\n\n".join(entry_parts).strip()
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self._dump_markdown_frontmatter(metadata, body), encoding="utf-8")
+        return {
+            "status": "created" if created else "updated",
+            "path": target.relative_to(self.project_path).as_posix(),
+            "topic": topic_slug,
+        }
+
+    def inbox_promote(
+        self,
+        capture_path: str,
+        *,
+        topic: str,
+        title: str | None = None,
+        kind: str = "topic",
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
+        source = (self.project_path / capture_path).resolve()
+        try:
+            source.relative_to(self.project_path.resolve())
+        except ValueError as exc:
+            raise ValueError("capture_path must stay inside the project") from exc
+        if not source.exists():
+            raise FileNotFoundError(f"capture not found: {capture_path}")
+        metadata, body = self._split_markdown_frontmatter(source.read_text(encoding="utf-8"))
+        rel_source = source.relative_to(self.project_path).as_posix()
+        promoted = self.topic_upsert(
+            topic,
+            title=title,
+            kind=kind,
+            content=body,
+            source_path=rel_source,
+            sources=[metadata.get("url")] if metadata.get("url") else None,
+            entities=entities or self._ensure_list_of_strings(metadata.get("entities")),
+            entity_type=entity_type,
+        )
+        metadata["triage_status"] = "promoted"
+        metadata["promoted_to"] = promoted["path"]
+        metadata["triaged_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+        source.write_text(self._dump_markdown_frontmatter(metadata, body), encoding="utf-8")
+        return {"status": "promoted", "capture": rel_source, "topic": promoted}
+
     def list_packs(self) -> dict[str, Any]:
         return {"packs": list(DEFAULT_PACKS.values())}
 
@@ -1382,6 +1593,8 @@ class KnowledgeRuntime:
             check(f"path:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing")
         pack_state = self.active_pack().get("active")
         check("pack", bool(pack_state), f"active pack: {pack_state.get('id')}" if pack_state else "no active .krail/pack.yaml")
+        active_mode = self.active_mode()
+        check("knowledge_mode", bool(active_mode.get("mode")), f"active mode: {active_mode['mode']['id']} ({active_mode['source']})")
         dependency_validation = self.sources_validate()
         check(
             "source_dependencies",
@@ -1405,6 +1618,21 @@ class KnowledgeRuntime:
         warn("workflow_locks", not stale_locks, "workflow lock files exist; remove stale locks only after confirming no workflow is running: " + ", ".join(stale_locks))
         inbox = self.project_path / "topics" / "inbox"
         check("capture_inbox", inbox.exists(), "topics/inbox exists" if inbox.exists() else "topics/inbox will be created on first capture")
+        inbox_state = self.inbox_list()
+        warn(
+            "untriaged_inbox",
+            inbox_state["unhandled"] == 0,
+            f"{inbox_state['unhandled']} unhandled capture(s) in topics/inbox; run `krail --local inbox list` and promote useful notes with `krail --local inbox promote`.",
+        )
+        try:
+            graph_check = self.graph_check()
+            warn(
+                "markdown_graph_freshness",
+                bool(graph_check.get("ok")),
+                graph_check.get("message") or "markdown graph artifact is stale; run `krail --local graph build`.",
+            )
+        except Exception as exc:
+            warn("markdown_graph_freshness", False, f"could not check markdown graph freshness: {exc}")
         warn(
             "brief",
             (self.project_path / "topics" / "brief.md").exists(),
@@ -1875,8 +2103,11 @@ krail --local graph check
             f"Role guidance:\n{work_order.get('role_prompt') or 'Use the project role prompt and checklist if available.'}\n\n"
             "Rules:\n"
             "- Work only inside this project repository.\n"
+            "- Start by running or mentally following `krail --local doctor`, `krail --local mode active`, and relevant `krail --local search` commands.\n"
+            "- Use `krail --local capture` for raw notes, `krail --local inbox promote` for triage, and `krail --local topic upsert` for durable knowledge updates.\n"
             "- Prefer evidence files, captures, and integrity records over unsupported claims.\n"
-            "- Write useful outputs under topics/, research_plan/, or artifacts/.\n"
+            "- Prefer updating existing topic pages under topics/ over creating loose daily files.\n"
+            "- Keep research_plan/ for tasks, workflow state, decisions, and session summaries rather than durable domain knowledge.\n"
             "- End with a concise summary, changed files, gaps, and suggested next actions.\n"
             f"- Before exiting, write a JSON result to `{work_order.get('session_result_path', 'session_result.json')}` with keys: summary, changed_files, evidence, blockers_or_gaps, suggested_next_actions.\n"
             "- Do not promote generated claims as verified without evidence.\n"

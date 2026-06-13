@@ -428,6 +428,38 @@ workflow: add_new_paper
 
 Workflows can triage the inbox later.
 
+## Knowledge Modes And Topics
+
+KRAIL projects can declare a knowledge operating mode. The mode controls default
+topic templates, workflows, integrity posture, agent guidance, and the default
+pack when one fits.
+
+```bash
+krail init robotics-kb --knowledge-mode research
+krail init acme-brain --knowledge-mode company
+krail init life-admin --knowledge-mode personal
+krail init architecture-map --knowledge-mode software
+```
+
+Inspect the active mode:
+
+```bash
+krail --local mode active
+krail --local mode list
+```
+
+Use captures as raw inbox records, then promote useful material into stable
+topic pages:
+
+```bash
+krail --local inbox list
+krail --local inbox promote topics/inbox/2026-06-13-abc123.md --topic task-and-motion-planning --type method
+krail --local topic upsert task-and-motion-planning --content "Reviewed update with evidence."
+```
+
+Durable domain knowledge should live under `topics/`. Operational state such as
+tasks, work orders, sessions, and workflow runs belongs under `research_plan/`.
+
 ## Knowledge Packs
 
 Knowledge packs describe a project's domain shape.
@@ -1071,7 +1103,7 @@ Project setup:
 
 ```bash
 krail --version
-krail init <directory> --pack research-intelligence --mode markdown_graph
+krail init <directory> --knowledge-mode research --pack research-intelligence --mode markdown_graph
 krail --local doctor
 krail --local ci init
 ```
@@ -1083,6 +1115,9 @@ krail --local capture "note"
 krail --local capture "PDDLStream baseline note" --topic robotics --entity PDDLStream --entity-type Package
 krail --local capture --file ./notes.md
 krail --local capture --url https://example.com --workflow add_new_paper
+krail --local inbox list
+krail --local inbox promote topics/inbox/<capture>.md --topic robotics --type topic
+krail --local topic upsert robotics --content "Reviewed topic update"
 ```
 
 Search and think:

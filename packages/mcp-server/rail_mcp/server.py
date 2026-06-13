@@ -169,6 +169,83 @@ def capture(text: str = "", file_path: str = "", url: str = "", type: str = "not
 
 
 @mcp.tool()
+def mode_active() -> str:
+    """Return the active KRAIL knowledge mode for this project."""
+    return _json(_get_project().active_mode())
+
+
+@mcp.tool()
+def mode_list() -> str:
+    """List built-in KRAIL knowledge modes."""
+    return _json(_get_project().modes())
+
+
+@mcp.tool()
+def topic_list(include_inbox: bool = False) -> str:
+    """List durable topic pages, optionally including inbox captures."""
+    return _json(_get_project().topic_list(include_inbox=include_inbox))
+
+
+@mcp.tool()
+def topic_upsert(
+    topic: str,
+    title: str = "",
+    type: str = "topic",
+    content: str = "",
+    source_path: str = "",
+    sources_json: str = "",
+    entities_json: str = "",
+    entity_type: str = "",
+) -> str:
+    """
+    Create or update a durable topic page under topics/.
+
+    JSON-encoded list arguments are used for sources and entities to stay
+    compatible with MCP scalar tool inputs.
+    """
+    return _json(
+        _get_project().topic_upsert(
+            topic,
+            title=title or None,
+            kind=type,
+            content=content,
+            source_path=source_path or None,
+            sources=json.loads(sources_json) if sources_json else None,
+            entities=json.loads(entities_json) if entities_json else None,
+            entity_type=entity_type or None,
+        )
+    )
+
+
+@mcp.tool()
+def inbox_list(include_handled: bool = False) -> str:
+    """List unhandled captures from topics/inbox."""
+    return _json(_get_project().inbox_list(include_handled=include_handled))
+
+
+@mcp.tool()
+def inbox_promote(
+    capture_path: str,
+    topic: str,
+    title: str = "",
+    type: str = "topic",
+    entities_json: str = "",
+    entity_type: str = "",
+) -> str:
+    """Promote an inbox capture into a stable topic page and mark the capture handled."""
+    return _json(
+        _get_project().inbox_promote(
+            capture_path,
+            topic=topic,
+            title=title or None,
+            kind=type,
+            entities=json.loads(entities_json) if entities_json else None,
+            entity_type=entity_type or None,
+        )
+    )
+
+
+@mcp.tool()
 def doctor() -> str:
     """Check local project health: manifest, core paths, active pack, and capture inbox."""
     return _json(_get_project().doctor())
