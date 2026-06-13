@@ -1139,7 +1139,7 @@ class KnowledgeRuntime:
         dry_run: bool = False,
     ) -> dict[str, Any]:
         deterministic = self._deterministic_think_result(request)
-        resolved = self.resolve_runner(runner, purpose="think")
+        resolved = self._resolve_think_runner_for_session(runner, dry_run=dry_run)
         session_id = f"think_{self._slug(request.query, fallback='think')}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
         session_dir = self.sessions_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -1269,6 +1269,24 @@ class KnowledgeRuntime:
         payload = result.to_dict()
         payload["status"] = "done" if completed.returncode == 0 else "failed"
         return payload
+
+    def _resolve_think_runner_for_session(self, runner: str, *, dry_run: bool) -> dict[str, Any]:
+        if dry_run and runner not in {"", "auto"} and runner in LOCAL_RUNNERS:
+            meta = LOCAL_RUNNERS[runner]
+            command = os.environ.get(meta["command_env"], meta["default_command"])
+            executable = shlex.split(command)[0] if command else ""
+            available = bool(executable and shutil_which(executable))
+            resolved: dict[str, Any] = {
+                "runner": runner,
+                "command": command,
+                "available": available,
+                "checked": [{"runner": runner, "command": command, "available": available}],
+                "explicit_dry_run": True,
+            }
+            if not available:
+                resolved["warning"] = "explicit runner executable was not found; dry-run session files were still materialized"
+            return resolved
+        return self.resolve_runner(runner, purpose="think")
 
     def think(
         self,
