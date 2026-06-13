@@ -281,6 +281,23 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
             {"id": "vector_build", "kind": "command", "run": "krail --local vector build"},
         ],
     },
+    "triage_inbox": {
+        "id": "triage_inbox",
+        "description": "Review captured inbox notes and promote durable knowledge into stable topic pages.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {"id": "list_inbox", "kind": "command", "run": "krail --local inbox list"},
+            {
+                "id": "triage",
+                "kind": "agent",
+                "role": "research",
+                "runner": "auto",
+                "prompt": "Review unhandled captures from topics/inbox. Promote useful notes into stable topic pages with `krail --local inbox promote` or `krail --local topic upsert`. Leave weak or duplicate material marked as gaps in research_plan/current_plan.md rather than creating loose files.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
     "paper_ingest": {
         "id": "paper_ingest",
         "description": "Capture and triage a new research paper or source pointer.",
@@ -2448,6 +2465,9 @@ krail --local graph check
         active = self.active_pack().get("active") or {}
         raw_pack_workflows = active.get("workflows") or []
         pack_workflows = [item for item in raw_pack_workflows if isinstance(item, str)]
+        mode_state = self.active_mode()
+        mode_id = mode_state["mode"]["id"]
+        mode_workflows = [item for item in mode_state["mode"].get("workflows", []) if isinstance(item, str)]
         ignored_pack_items = [item for item in raw_pack_workflows if not isinstance(item, str)]
         spec_workflows = []
         materialized_ids: set[str] = set()
@@ -2471,9 +2491,15 @@ krail --local graph check
                 }
             )
         available: list[dict[str, Any]] = []
-        for workflow_id in pack_workflows:
+        available_ids = list(dict.fromkeys([*pack_workflows, *mode_workflows]))
+        for workflow_id in available_ids:
             template = self._workflow_template_for(workflow_id)
-            entry = {"id": workflow_id, "source": "pack", "materialized": workflow_id in materialized_ids}
+            sources = []
+            if workflow_id in pack_workflows:
+                sources.append("pack")
+            if workflow_id in mode_workflows:
+                sources.append("mode")
+            entry = {"id": workflow_id, "source": "+".join(sources) or "local", "materialized": workflow_id in materialized_ids}
             if template:
                 entry["template"] = template[0]
                 entry["status"] = "materialized" if entry["materialized"] else "template_available"
@@ -2482,7 +2508,14 @@ krail --local graph check
                 entry["status"] = "materialized" if entry["materialized"] else "pack_stub"
                 entry["next_action"] = None if entry["materialized"] else f"krail --local workflow init {workflow_id}"
             available.append(entry)
-        result: dict[str, Any] = {"workflows": pack_workflows, "available": available, "specs": spec_workflows, "pack": active.get("id")}
+        result: dict[str, Any] = {
+            "workflows": pack_workflows,
+            "mode_workflows": mode_workflows,
+            "available": available,
+            "specs": spec_workflows,
+            "pack": active.get("id"),
+            "mode": mode_id,
+        }
         if ignored_pack_items:
             result["warnings"] = ["active pack has non-string workflow entries; move workflow settings out of the workflows list"]
         return result
@@ -2717,7 +2750,11 @@ krail --local graph check
         else:
             return self.workflow_execute(workflow_id, dry_run=dry_run)
         active = self.active_pack().get("active") or {}
-        known = {item for item in (active.get("workflows") or []) if isinstance(item, str)}
+        mode_workflows = self.active_mode()["mode"].get("workflows", [])
+        known = {
+            *{item for item in (active.get("workflows") or []) if isinstance(item, str)},
+            *{item for item in mode_workflows if isinstance(item, str)},
+        }
         if known and workflow_id not in known:
             raise ValueError(f"Workflow {workflow_id!r} is not declared by active pack {active.get('id')!r}")
         title = workflow_id.replace("_", " ").replace("-", " ").title()

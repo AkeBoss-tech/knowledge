@@ -247,3 +247,20 @@ def test_workflow_list_filters_malformed_pack_entries(tmp_path: Path):
 
     assert result["workflows"] == ["daily_refresh"]
     assert result["warnings"]
+
+
+def test_mode_workflows_are_discoverable_and_materializable(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Personal Brain", slug="personal-brain", knowledge_mode="personal")
+    runtime = KnowledgeRuntime(root)
+
+    listed = runtime.workflow_list()
+    initialized = runtime.workflow_init("triage_inbox")
+    shown = runtime.workflow_show("triage_inbox")
+
+    available = {item["id"]: item for item in listed["available"]}
+    assert "triage_inbox" in listed["mode_workflows"]
+    assert available["triage_inbox"]["source"] == "mode"
+    assert available["triage_inbox"]["template"] == "triage_inbox"
+    assert initialized["status"] == "written"
+    assert initialized["template"] == "triage_inbox"
+    assert shown["workflow"]["steps"][1]["run"] == "krail --local inbox list"
