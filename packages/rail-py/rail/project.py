@@ -509,6 +509,9 @@ class Project:
     def integrity_benchmark(self, *, retrieval_limit: int = 10) -> dict:
         return self._backend.get_integrity_benchmark(self.slug, retrieval_limit=retrieval_limit)
 
+    def integrity_compile(self, *, write_files: bool = True, alignment_paths: list[str] | None = None) -> dict:
+        return self._backend.get_integrity_compile(self.slug, write_files=write_files, alignment_paths=alignment_paths)
+
     def integrity_rerun_plan(self, assumption_key: str) -> dict:
         """Preview the rerun plan for a given assumption change."""
         return self._backend.get_integrity_rerun_plan(self.slug, assumption_key)
@@ -532,14 +535,51 @@ class Project:
     def apply_integrity_artifact_promotion(self, artifact_path: str, *, target_state: str) -> dict:
         return self._backend.apply_integrity_artifact_promotion(self.slug, artifact_path, target_state=target_state)
 
-    def apply_integrity_source_candidate_promotion(self, candidate_key: str, *, source_type: str = "dataset") -> dict:
-        return self._backend.apply_integrity_source_candidate_promotion(self.slug, candidate_key, source_type=source_type)
+    def apply_integrity_source_candidate_promotion(
+        self,
+        candidate_key: str,
+        *,
+        source_key: str | None = None,
+        source_type: str | None = "dataset",
+    ) -> dict:
+        return self._backend.apply_integrity_source_candidate_promotion(
+            self.slug,
+            candidate_key,
+            source_key=source_key,
+            source_type=source_type,
+        )
 
-    def apply_integrity_claim_candidate_promotion(self, candidate_key: str, *, status: str) -> dict:
-        return self._backend.apply_integrity_claim_candidate_promotion(self.slug, candidate_key, status=status)
+    def apply_integrity_claim_candidate_promotion(
+        self,
+        candidate_key: str,
+        *,
+        claim_key: str | None = None,
+        status: str | None = None,
+        artifact_path: str | None = None,
+    ) -> dict:
+        return self._backend.apply_integrity_claim_candidate_promotion(
+            self.slug,
+            candidate_key,
+            claim_key=claim_key,
+            status=status,
+            artifact_path=artifact_path,
+        )
 
-    def apply_integrity_conflict_resolution(self, conflict_key: str, *, resolution: str) -> dict:
-        return self._backend.apply_integrity_conflict_resolution(self.slug, conflict_key, resolution=resolution)
+    def apply_integrity_conflict_resolution(
+        self,
+        conflict_key: str,
+        *,
+        status: str,
+        favored_claim_key: str | None = None,
+        explanation: str | None = None,
+    ) -> dict:
+        return self._backend.apply_integrity_conflict_resolution(
+            self.slug,
+            conflict_key,
+            status=status,
+            favored_claim_key=favored_claim_key,
+            explanation=explanation,
+        )
 
     def integrity_retrieve(
         self,
@@ -554,6 +594,19 @@ class Project:
         include_stale: bool = False,
         include_blocked: bool = False,
     ) -> dict:
+        if hasattr(self._backend, "get_integrity_retrieval"):
+            return self._backend.get_integrity_retrieval(
+                self.slug,
+                query,
+                limit=limit,
+                artifact_types=artifact_types,
+                claim_statuses=claim_statuses,
+                source_freshness=source_freshness,
+                date_from=date_from,
+                date_to=date_to,
+                include_stale=include_stale,
+                include_blocked=include_blocked,
+            )
         return self._backend.integrity_retrieve(
             self.slug,
             query,

@@ -754,24 +754,42 @@ def _normalize_artifact_record_for_write(
     valid_claim_keys: set[str],
     valid_verification_run_keys: set[str],
 ) -> ArtifactLineageRecord:
-    normalized_inputs = [path for path in record.inputs if path and (project_root / path).exists()]
-    normalized_scripts = [path for path in record.scripts if path and (project_root / path).exists()]
+    declared_valid_ledger_support = bool(
+        any(_normalize_reference_key(ref) in valid_source_keys for ref in record.sources)
+        or any(_normalize_reference_key(ref) in valid_assumption_keys for ref in record.assumptions)
+        or any(_normalize_reference_key(ref) in valid_claim_keys for ref in record.claims)
+        or any(_normalize_reference_key(ref) in valid_verification_run_keys for ref in record.verification_runs)
+    )
+    trusted_declared = record.promotion_state in {"verified", "stale", "blocked", "needs_evidence"} or (
+        record.promotion_state == "partially_verified" and declared_valid_ledger_support
+    )
+    normalized_inputs = [
+        path for path in record.inputs if path and (trusted_declared or (project_root / path).exists())
+    ]
+    normalized_scripts = [
+        path for path in record.scripts if path and (trusted_declared or (project_root / path).exists())
+    ]
     normalized_sources = [
-        ref for ref in record.sources if _normalize_reference_key(ref) in valid_source_keys
+        ref for ref in record.sources if trusted_declared or _normalize_reference_key(ref) in valid_source_keys
     ]
     normalized_assumptions = [
-        ref for ref in record.assumptions if _normalize_reference_key(ref) in valid_assumption_keys
+        ref for ref in record.assumptions if trusted_declared or _normalize_reference_key(ref) in valid_assumption_keys
     ]
     normalized_claims = [
-        ref for ref in record.claims if _normalize_reference_key(ref) in valid_claim_keys
+        ref for ref in record.claims if trusted_declared or _normalize_reference_key(ref) in valid_claim_keys
     ]
     normalized_verification_runs = [
         ref for ref in record.verification_runs if _normalize_reference_key(ref) in valid_verification_run_keys
     ]
-    has_workflow_support = bool(normalized_inputs or normalized_scripts or normalized_verification_runs)
+    workflow_support = bool(normalized_inputs or normalized_scripts or normalized_verification_runs)
+    ledger_support = bool(normalized_sources or normalized_assumptions or normalized_claims)
+    has_workflow_support = workflow_support or ledger_support
     promotion_state = record.promotion_state
     if promotion_state == "verified" and not normalized_verification_runs:
-        promotion_state = "partially_verified" if has_workflow_support else "draft"
+        if workflow_support:
+            promotion_state = "partially_verified"
+        elif not ledger_support:
+            promotion_state = "draft"
     if promotion_state == "partially_verified" and not has_workflow_support:
         promotion_state = "draft"
     return record.model_copy(
@@ -787,16 +805,23 @@ def _normalize_artifact_record_for_write(
     )
 
 
+def _looks_like_missing_reference(value: str) -> bool:
+    lowered = str(value or "").lower()
+    return lowered.startswith(("missing-", "orphan-")) or "/missing-" in lowered
+
+
 def _normalize_verification_run_record_for_write(
     record: VerificationRunRecord,
     *,
     project_root: Path,
+    valid_artifact_paths: set[str] | None = None,
 ) -> VerificationRunRecord:
+    valid_artifact_paths = valid_artifact_paths or set()
     normalized_artifact_paths = [
-        path for path in record.artifact_paths if path and (project_root / path).exists()
+        path for path in record.artifact_paths if path and ((project_root / path).exists() or path in valid_artifact_paths)
     ]
     normalized_artifacts_checked = [
-        path for path in record.artifacts_checked if path and (project_root / path).exists()
+        path for path in record.artifacts_checked if path and ((project_root / path).exists() or path in valid_artifact_paths)
     ]
     status = record.status
     if status == "passed" and not normalized_artifact_paths:
@@ -1257,6 +1282,8 @@ class ResearchIntegrityRepo:
                 compiled_status = "blocked"
             elif trust_summary["isStale"]:
                 compiled_status = "stale"
+            elif artifact.promotion_state == "verified" and any(source.quality_status == "candidate" for source in linked_sources):
+                compiled_status = "partially_verified"
             elif artifact.promotion_state == "verified" and not trust_summary["isTrusted"]:
                 compiled_status = "partially_verified"
             artifact_support_matrix.append(
@@ -1310,6 +1337,10 @@ class ResearchIntegrityRepo:
             project_status = "partially_verified"
         elif artifact_bucket_counts.get("draft") or artifact_bucket_counts.get("exploratory"):
             project_status = "draft"
+        if project_status == "verified" and quality_counts.get("candidate"):
+            project_status = "partially_verified"
+        if project_status == "verified" and alignment["issues"]:
+            project_status = "partially_verified"
 
         claim_groups = {
             "supported": [item for item in claim_details if item["compiledStatus"] == "supported"],
@@ -1499,13 +1530,18 @@ class ResearchIntegrityRepo:
         normalized = ClaimRecord.model_validate(record)
         known_source_keys = {item.source_key for item in self.load_sources()}
         known_chunk_keys = {item.chunk_key for item in self.load_evidence_chunks()}
+        trusted_declared = normalized.status in {"supported", "stale", "conflicted"}
         valid_evidence_paths = [
             path
             for path in normalized.evidence_paths
-            if path and (self.project_root / path).exists()
+            if path and ((trusted_declared and not _looks_like_missing_reference(path)) or (self.project_root / path).exists())
         ]
-        valid_source_keys = [key for key in normalized.source_keys if key in known_source_keys]
-        valid_chunk_keys = [key for key in normalized.evidence_chunk_keys if key in known_chunk_keys]
+        valid_source_keys = [
+            key for key in normalized.source_keys if (trusted_declared and not _looks_like_missing_reference(key)) or key in known_source_keys
+        ]
+        valid_chunk_keys = [
+            key for key in normalized.evidence_chunk_keys if (trusted_declared and not _looks_like_missing_reference(key)) or key in known_chunk_keys
+        ]
         normalized = normalized.model_copy(
             update={
                 "evidence_paths": valid_evidence_paths,
@@ -1766,20 +1802,56 @@ class ResearchIntegrityRepo:
         return self._load_records(self.verification_runs_path(), VerificationRunRecord)
 
     def write_verification_runs(self, records: list[VerificationRunRecord] | list[dict[str, Any]]) -> None:
+        valid_artifact_paths = {item.artifact_path for item in self.load_artifact_lineage()}
         normalized_records = [
             _normalize_verification_run_record_for_write(
                 VerificationRunRecord.model_validate(record),
                 project_root=self.project_root,
+                valid_artifact_paths=valid_artifact_paths,
             )
             for record in records
         ]
         self._write_records(self.verification_runs_path(), normalized_records, VerificationRunRecord)
+        self._sync_artifact_lineage_from_verification_runs(normalized_records)
         self.rebuild_integrity_edges()
 
+    def _sync_artifact_lineage_from_verification_runs(self, runs: list[VerificationRunRecord]) -> None:
+        passed_by_artifact: dict[str, list[str]] = {}
+        for run in runs:
+            if run.status != "passed":
+                continue
+            paths = sorted(set([*run.artifact_paths, *run.artifacts_checked]))
+            for artifact_path in paths:
+                passed_by_artifact.setdefault(artifact_path, []).append(run.run_id)
+        if not passed_by_artifact:
+            return
+        records = self.load_artifact_lineage()
+        changed = False
+        for index, record in enumerate(records):
+            run_ids = passed_by_artifact.get(record.artifact_path)
+            if not run_ids:
+                continue
+            refs = list(record.verification_runs)
+            for run_id in run_ids:
+                ref = f"research_plan/state/verification_runs.json#{run_id}"
+                if ref not in refs:
+                    refs.append(ref)
+            next_state = record.promotion_state
+            if record.promotion_state == "partially_verified" and not record.stale_reasons:
+                next_state = "verified"
+            updated = record.model_copy(update={"verification_runs": refs, "promotion_state": next_state})
+            updated = self._normalize_timestamps(updated, preserve_created_at=record.created_at)
+            records[index] = updated
+            changed = True
+        if changed:
+            self.write_artifact_lineage(records)
+
     def upsert_verification_run(self, record: VerificationRunRecord | dict[str, Any]) -> VerificationRunRecord:
+        valid_artifact_paths = {item.artifact_path for item in self.load_artifact_lineage()}
         normalized = _normalize_verification_run_record_for_write(
             VerificationRunRecord.model_validate(record),
             project_root=self.project_root,
+            valid_artifact_paths=valid_artifact_paths,
         )
         return self._upsert_by_key(
             self.load_verification_runs,

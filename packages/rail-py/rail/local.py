@@ -59,7 +59,7 @@ class LocalEngine:
     @property
     def manifest(self) -> RailManifest:
         if self._manifest is None:
-            self._manifest = self.read_rail_yaml()
+            self._manifest = load_manifest(self.project_path)
         return self._manifest
 
     # ── .ontology path alignment ──────────────────────────────────────────────

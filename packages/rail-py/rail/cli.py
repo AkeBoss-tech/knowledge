@@ -330,19 +330,49 @@ def cmd_integrity(project: rail.Project, args: argparse.Namespace):
         _print_json(project.integrity_claim_candidates())
     elif command == "artifacts":
         _print_json(project.integrity_artifact_lineage())
+    elif command == "promote-source-candidate":
+        _print_json(
+            project.apply_integrity_source_candidate_promotion(
+                args.candidate_key,
+                source_key=getattr(args, "source_key", None),
+                source_type=getattr(args, "source_type", None),
+            )
+        )
     elif command == "promote-claim-candidate":
         _print_json(
             project.apply_integrity_claim_candidate_promotion(
                 args.candidate_key,
+                claim_key=getattr(args, "claim_key", None),
+                status=getattr(args, "status", None),
+                artifact_path=getattr(args, "artifact_path", None),
+            )
+        )
+    elif command == "resolve-conflict":
+        _print_json(
+            project.apply_integrity_conflict_resolution(
+                args.conflict_key,
                 status=args.status,
+                favored_claim_key=getattr(args, "favored_claim_key", None),
+                explanation=getattr(args, "explanation", None),
             )
         )
     elif command == "source":
         _print_json(project.integrity_source_detail(args.source_key))
     elif command == "claim":
         _print_json(project.integrity_claim_detail(args.claim_key))
+    elif command == "artifact":
+        _print_json(project.integrity_artifact_detail(args.artifact_path))
     elif command == "verification-runs":
         _print_json(project.integrity_verification_runs())
+    elif command == "benchmark":
+        _print_json(project.integrity_benchmark(retrieval_limit=args.limit))
+    elif command == "compile":
+        _print_json(project.integrity_compile(write_files=not args.no_write, alignment_paths=args.alignment_path))
+    elif command == "reproduce":
+        outputs = json.loads(Path(args.outputs_json).read_text(encoding="utf-8"))
+        _print_json(project.apply_integrity_reproducibility_rerun(outputs, run_id=args.run_id, scope=args.scope))
+    elif command == "freshness-evaluate":
+        _print_json(project.apply_integrity_freshness_evaluation(as_of=args.as_of))
     elif command == "stale-graph":
         _print_json(project.integrity_stale_graph())
     elif command == "graph":
@@ -674,9 +704,53 @@ def main():
     i_subs.add_parser("claims", help="List claims")
     i_subs.add_parser("claim-candidates", help="List claim candidates")
     i_subs.add_parser("artifacts", help="List artifact lineage records")
+    ips = i_subs.add_parser("promote-source-candidate", help="Promote a source candidate into a canonical source")
+    ips.add_argument("candidate_key", help="Source candidate key")
+    ips.add_argument("--source-key", help="Canonical source key override")
+    ips.add_argument("--source-type", default="dataset", help="Canonical source type")
     ipc = i_subs.add_parser("promote-claim-candidate", help="Promote a claim candidate into a canonical claim")
     ipc.add_argument("candidate_key", help="Claim candidate key")
+    ipc.add_argument("--claim-key", help="Canonical claim key override")
     ipc.add_argument("--status", default="needs_evidence", help="Target canonical claim status")
+    ipc.add_argument("--artifact-path", help="Artifact path to associate with the claim")
+    irc = i_subs.add_parser("resolve-conflict", help="Resolve a recorded claim conflict")
+    irc.add_argument("conflict_key", help="Conflict key")
+    irc.add_argument("--status", default="resolved", help="Resolution status")
+    irc.add_argument("--favored-claim-key", help="Favored claim key")
+    irc.add_argument("--explanation", help="Resolution explanation")
+    isrc = i_subs.add_parser("source", help="Show source integrity detail")
+    isrc.add_argument("source_key", help="Source key")
+    iclaim = i_subs.add_parser("claim", help="Show claim integrity detail")
+    iclaim.add_argument("claim_key", help="Claim key")
+    iartifact = i_subs.add_parser("artifact", help="Show artifact integrity detail")
+    iartifact.add_argument("artifact_path", help="Artifact path")
+    i_subs.add_parser("verification-runs", help="List verification runs")
+    i_subs.add_parser("stale-graph", help="Show stale dependency graph")
+    i_subs.add_parser("graph", help="Show integrity dependency graph")
+    iret = i_subs.add_parser("retrieve", help="Retrieve integrity records")
+    iret.add_argument("query_text", help="Retrieval query")
+    iret.add_argument("--limit", type=int, default=10)
+    iret.add_argument("--artifact-types", action="append")
+    iret.add_argument("--claim-statuses", action="append")
+    iret.add_argument("--source-freshness", action="append")
+    iret.add_argument("--date-from")
+    iret.add_argument("--date-to")
+    iret.add_argument("--include-stale", action="store_true")
+    iret.add_argument("--include-blocked", action="store_true")
+    ipromote = i_subs.add_parser("promote", help="Promote an artifact to a target trust state")
+    ipromote.add_argument("artifact_path", help="Artifact path")
+    ipromote.add_argument("--target-state", default="verified", help="Target promotion state")
+    ibench = i_subs.add_parser("benchmark", help="Run integrity retrieval benchmark")
+    ibench.add_argument("--limit", type=int, default=10)
+    icompile = i_subs.add_parser("compile", help="Compile integrity truth report")
+    icompile.add_argument("--no-write", action="store_true")
+    icompile.add_argument("--alignment-path", action="append")
+    irepro = i_subs.add_parser("reproduce", help="Apply reproducibility rerun results")
+    irepro.add_argument("--outputs-json", required=True)
+    irepro.add_argument("--run-id", default="rerun-verification")
+    irepro.add_argument("--scope", default="health")
+    ifresh = i_subs.add_parser("freshness-evaluate", help="Evaluate source freshness")
+    ifresh.add_argument("--as-of")
     ir = i_subs.add_parser("rerun", help="Preview or apply rerun plan for an assumption")
     ir.add_argument("assumption_key", help="The assumption that changed")
     ir.add_argument("--apply", action="store_true", help="Actually create the rerun tasks")

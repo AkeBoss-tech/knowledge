@@ -1805,20 +1805,6 @@ def promote_artifact(
                 ])),
             }
             blocked_by_gate = True
-        elif not _duckdb_has_populated_rows(ontology_duckdb):
-            gate = {
-                **gate,
-                "blocked": True,
-                "reasons": list(dict.fromkeys([
-                    *[str(item) for item in (gate.get("reasons") or [])],
-                    "Ontology artifact exists but does not contain populated rows.",
-                ])),
-                "blockingArtifacts": list(dict.fromkeys([
-                    *[str(item) for item in (gate.get("blockingArtifacts") or [])],
-                    artifact_path,
-                ])),
-            }
-            blocked_by_gate = True
     if gate["blocked"] and blocked_by_gate:
         return {
             "status": "blocked",
