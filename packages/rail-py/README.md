@@ -1,6 +1,14 @@
-# rail-py
+# krail
 
 KRAIL client supporting local project mode and the local FastAPI runtime.
+
+Install from PyPI:
+
+```bash
+pip install krail
+```
+
+The distribution is named `krail`; the Python import namespace remains `rail`.
 
 ## Usage Examples
 
