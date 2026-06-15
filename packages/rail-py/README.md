@@ -285,6 +285,79 @@ krail --local workflow run weekly_literature_refresh --dry-run
 Prefer dry runs when dispatching agents or workflows. Dry runs write the work
 order and session command files without launching a second agent process.
 
+## Agent And Runner Integration
+
+KRAIL can connect local knowledge projects to agent CLIs and MCP-compatible
+agent clients. The goal is not to hide the agent behind an opaque service; the
+goal is to give agents a durable, auditable workspace with evidence, tasks,
+workflow state, and project-specific instructions.
+
+There are two integration paths:
+
+- CLI runner dispatch for local tools such as Codex CLI, Claude Code, Gemini CLI,
+  Cursor CLI, and GitHub Copilot CLI
+- MCP server tools for clients that can call KRAIL capabilities directly
+
+### Local CLI runners
+
+KRAIL can discover configured local runners:
+
+```bash
+krail --local agent list
+```
+
+It can then create dry-run or executable work orders for a selected runner:
+
+```bash
+krail --local agent run "summarize new captures" \
+  --runner codex_cli \
+  --dry-run
+```
+
+The same runner model works through tasks and workflows:
+
+```bash
+krail --local task create "Audit stale sources" \
+  --description "Check source freshness and list affected topic pages." \
+  --runner claude_code
+
+krail --local task dispatch <task_id> --dry-run
+
+krail --local workflow run weekly_literature_refresh \
+  --runner codex_cli \
+  --dry-run
+```
+
+Dry runs are the recommended first step. They materialize the prompt, work order,
+session command, and project context without launching another process. Full
+dispatch can then run the selected local CLI once the work order looks right.
+
+This makes KRAIL useful as a coordination layer for agents:
+
+- the repository remains the source of truth
+- task instructions are captured as files
+- agent outputs can be reviewed before promotion
+- workflow runs can be repeated or audited
+- project-specific packs and modes shape the work
+- `doctor`, `sources`, `graph`, `vector`, and `integrity` checks can gate progress
+
+### MCP-compatible clients
+
+For tools that support the Model Context Protocol, run the KRAIL MCP server
+against a local project:
+
+```bash
+RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
+```
+
+MCP clients can then call KRAIL tools for search, think, capture, inbox triage,
+topic updates, task creation, workflow dispatch, mode inspection, pack
+inspection, project health checks, graph queries, and integrity status.
+
+In practice, this means an agent can ask KRAIL for evidence before answering,
+capture useful notes into the project inbox, create a repo-backed task, or run a
+workflow without inventing its own memory system.
+
 ## Python API
 
 KRAIL can be used directly from Python.
