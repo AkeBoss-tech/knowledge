@@ -20,6 +20,41 @@ project = rail.local("./my-knowledge-project")
 print(project.doctor())
 ```
 
+## Documentation And DeepWiki
+
+For a browsable, code-indexed guide to the full repository, use the generated
+DeepWiki:
+
+https://deepwiki.com/AkeBoss-tech/knowledge
+
+DeepWiki is useful when you want to understand how the pieces of KRAIL fit
+together beyond the package-level quick start. It indexes the repository and
+organizes the codebase into guided sections such as:
+
+- Overview and local-first philosophy
+- Getting Started
+- Repository layout and package structure
+- Core concepts and data model
+- The `rail.yaml` project manifest
+- Project lifecycle phases
+- Research integrity and provenance
+- Knowledge packs and project templates
+- `rail-py` SDK and CLI
+- `KnowledgeRuntime` and the `krail` CLI
+- Markdown graph engine
+- Vector store and hybrid search
+- Hydration engine and pipeline runner
+- Autonomous agent system
+- Planner runtime and brief ingestion
+- Runner infrastructure and session lifecycle
+- API layer and endpoint groups
+- MCP server, tool reference, and deployment
+- CI/CD workflows, testing strategy, and local development
+
+Use this README when you need the package install path and day-one workflows.
+Use DeepWiki when you want to navigate the implementation, trace a feature to
+the source files, or understand the broader monorepo architecture.
+
 ## Why KRAIL?
 
 Most retrieval tools stop at "here are the matching documents." KRAIL is built
@@ -420,6 +455,7 @@ python -m twine check packages/rail-py/dist/*
 ## Links
 
 - Repository: https://github.com/AkeBoss-tech/knowledge
+- DeepWiki: https://deepwiki.com/AkeBoss-tech/knowledge
 - Issues: https://github.com/AkeBoss-tech/knowledge/issues
 - PyPI: https://pypi.org/project/krail/
 
