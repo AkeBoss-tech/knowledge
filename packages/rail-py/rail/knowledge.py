@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import ast
 import hashlib
 import json
 import os
@@ -2501,7 +2502,7 @@ krail --local graph check
             "- Prefer updating existing topic pages under topics/ over creating loose daily files.\n"
             "- Keep research_plan/ for tasks, workflow state, decisions, and session summaries rather than durable domain knowledge.\n"
             "- End with a concise summary, changed files, gaps, and suggested next actions.\n"
-            f"- Before exiting, write a JSON result to `{work_order.get('session_result_path', 'session_result.json')}` with keys: summary, changed_files, evidence, blockers_or_gaps, suggested_next_actions.\n"
+            f"- Before exiting, write a JSON result to `{work_order.get('session_result_path', 'session_result.json')}` with keys: summary, changed_files, evidence, blockers_or_gaps, suggested_next_actions, outcome, verification_requested.\n"
             "- Do not promote generated claims as verified without evidence.\n"
         )
 
@@ -2529,6 +2530,8 @@ krail --local graph check
                     "evidence": [],
                     "blockers_or_gaps": [],
                     "suggested_next_actions": [],
+                    "outcome": "unchanged",
+                    "verification_requested": False,
                 },
                 indent=2,
             )
@@ -2627,61 +2630,120 @@ krail --local graph check
         if not isinstance(steps, list) or not steps:
             errors.append("steps must be a non-empty list")
             steps = []
-        seen: set[str] = set()
-        for index, step in enumerate(steps, start=1):
-            if not isinstance(step, dict):
-                errors.append(f"step {index} must be a mapping")
-                continue
-            step_id = step.get("id")
-            if not isinstance(step_id, str) or not step_id.strip():
-                errors.append(f"step {index} id must be a non-empty string")
-                step_id = f"step_{index}"
-            if step_id in seen:
-                errors.append(f"duplicate step id: {step_id}")
-            seen.add(str(step_id))
-            kind = step.get("kind", "command")
-            if kind not in {"command", "agent", "think"}:
-                errors.append(f"step {step_id} kind must be command, agent, or think")
-            if kind == "command":
-                run = step.get("run")
-                if not isinstance(run, str) or not run.strip():
-                    errors.append(f"command step {step_id} requires run")
-            if kind == "agent":
-                runner = str(step.get("runner") or spec.get("runner") or "auto")
-                if runner != "auto" and runner not in LOCAL_RUNNERS:
-                    errors.append(f"agent step {step_id} has unknown runner: {runner}")
-                role = step.get("role")
-                if role is not None and not isinstance(role, str):
-                    errors.append(f"agent step {step_id} role must be a string")
-                prompt = step.get("prompt") or step.get("description")
-                if not isinstance(prompt, str) or not prompt.strip():
-                    warnings.append(f"agent step {step_id} has no prompt; generic prompt will be used")
-            if kind == "think":
-                mode = str(step.get("mode") or "hybrid")
-                if mode not in {"deterministic", "runner", "hybrid"}:
-                    errors.append(f"think step {step_id} has unknown mode: {mode}")
-                runner = str(step.get("runner") or spec.get("runner") or "auto")
-                if runner != "auto" and runner not in LOCAL_RUNNERS:
-                    errors.append(f"think step {step_id} has unknown runner: {runner}")
-                query = step.get("query") or step.get("prompt") or step.get("description")
-                if not isinstance(query, str) or not query.strip():
-                    errors.append(f"think step {step_id} requires query, prompt, or description")
-                limit = step.get("limit")
-                if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                    errors.append(f"think step {step_id} limit must be a positive integer")
-                output_path = step.get("output_path")
-                if output_path is not None and (not isinstance(output_path, str) or not output_path.strip()):
-                    errors.append(f"think step {step_id} output_path must be a non-empty string when present")
-            on_failure = step.get("on_failure", "stop")
-            if on_failure not in {"stop", "continue"}:
-                errors.append(f"step {step_id} on_failure must be stop or continue")
-            retry = step.get("retry", 0)
-            if not isinstance(retry, int) or retry < 0:
-                errors.append(f"step {step_id} retry must be a non-negative integer")
-            timeout_minutes = step.get("timeout_minutes")
-            if timeout_minutes is not None and (not isinstance(timeout_minutes, int) or timeout_minutes <= 0):
-                errors.append(f"step {step_id} timeout_minutes must be a positive integer")
-        return {"ok": not errors, "id": workflow_id, "path": path, "errors": errors, "warnings": warnings, "steps": len(steps)}
+
+        def validate_step_list(step_list: Any, location: str, depth: int = 0) -> int:
+            if not isinstance(step_list, list) or not step_list:
+                errors.append(f"{location} must be a non-empty step list")
+                return 0
+            if depth > 8:
+                errors.append(f"{location} exceeds maximum nesting depth of 8")
+                return 0
+            seen: set[str] = set()
+            count = 0
+            for index, step in enumerate(step_list, start=1):
+                count += 1
+                item_location = f"{location}[{index}]"
+                if not isinstance(step, dict):
+                    errors.append(f"{item_location} must be a mapping")
+                    continue
+                step_id = step.get("id")
+                if not isinstance(step_id, str) or not step_id.strip():
+                    errors.append(f"{item_location} id must be a non-empty string")
+                    step_id = f"step_{index}"
+                step_id = str(step_id)
+                if step_id in seen:
+                    errors.append(f"duplicate step id in {location}: {step_id}")
+                seen.add(step_id)
+                kind = step.get("kind", "command")
+                if kind not in {"command", "agent", "think", "if", "repeat", "foreach"}:
+                    errors.append(f"step {step_id} kind must be command, agent, think, if, repeat, or foreach")
+                when = step.get("when")
+                if when is not None and (not isinstance(when, str) or not when.strip()):
+                    errors.append(f"step {step_id} when must be a non-empty string when present")
+                if kind == "command":
+                    run = step.get("run")
+                    args = step.get("args")
+                    if (not isinstance(run, str) or not run.strip()) and not isinstance(args, list):
+                        errors.append(f"command step {step_id} requires run or args")
+                    capture = step.get("capture")
+                    if capture is not None:
+                        if not isinstance(capture, dict):
+                            errors.append(f"command step {step_id} capture must be a mapping")
+                        else:
+                            if capture.get("from", "stdout") not in {"stdout", "stderr"}:
+                                errors.append(f"command step {step_id} capture.from must be stdout or stderr")
+                            if capture.get("format", "text") not in {"json", "text"}:
+                                errors.append(f"command step {step_id} capture.format must be json or text")
+                if kind == "agent":
+                    runner = str(step.get("runner") or spec.get("runner") or "auto")
+                    if runner != "auto" and runner not in LOCAL_RUNNERS:
+                        errors.append(f"agent step {step_id} has unknown runner: {runner}")
+                    role = step.get("role")
+                    if role is not None and not isinstance(role, str):
+                        errors.append(f"agent step {step_id} role must be a string")
+                    prompt = step.get("prompt") or step.get("description")
+                    if not isinstance(prompt, str) or not prompt.strip():
+                        warnings.append(f"agent step {step_id} has no prompt; generic prompt will be used")
+                if kind == "think":
+                    mode = str(step.get("mode") or "hybrid")
+                    if mode not in {"deterministic", "runner", "hybrid"}:
+                        errors.append(f"think step {step_id} has unknown mode: {mode}")
+                    runner = str(step.get("runner") or spec.get("runner") or "auto")
+                    if runner != "auto" and runner not in LOCAL_RUNNERS:
+                        errors.append(f"think step {step_id} has unknown runner: {runner}")
+                    query = step.get("query") or step.get("prompt") or step.get("description")
+                    if not isinstance(query, str) or not query.strip():
+                        errors.append(f"think step {step_id} requires query, prompt, or description")
+                    limit = step.get("limit")
+                    if limit is not None and (not isinstance(limit, int) or limit <= 0):
+                        errors.append(f"think step {step_id} limit must be a positive integer")
+                    output_path = step.get("output_path")
+                    if output_path is not None and (not isinstance(output_path, str) or not output_path.strip()):
+                        errors.append(f"think step {step_id} output_path must be a non-empty string when present")
+                if kind == "if":
+                    condition = step.get("condition")
+                    if not isinstance(condition, str) or not condition.strip():
+                        errors.append(f"if step {step_id} requires condition")
+                    count += validate_step_list(step.get("then"), f"{item_location}.then", depth + 1)
+                    if "else" in step:
+                        count += validate_step_list(step.get("else"), f"{item_location}.else", depth + 1)
+                if kind == "repeat":
+                    max_iterations = step.get("max_iterations")
+                    if not isinstance(max_iterations, int) or max_iterations <= 0:
+                        errors.append(f"repeat step {step_id} max_iterations must be a positive integer")
+                    until = step.get("until")
+                    if not isinstance(until, str) or not until.strip():
+                        errors.append(f"repeat step {step_id} requires until")
+                    count += validate_step_list(step.get("steps"), f"{item_location}.steps", depth + 1)
+                if kind == "foreach":
+                    has_items = "items" in step
+                    has_items_from = "items_from" in step
+                    if has_items == has_items_from:
+                        errors.append(f"foreach step {step_id} requires exactly one of items or items_from")
+                    if has_items and not isinstance(step.get("items"), list):
+                        errors.append(f"foreach step {step_id} items must be a list")
+                    if has_items_from and (not isinstance(step.get("items_from"), str) or not str(step.get("items_from")).strip()):
+                        errors.append(f"foreach step {step_id} items_from must be a non-empty string")
+                    loop_var = step.get("as", "item")
+                    if not isinstance(loop_var, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", loop_var):
+                        errors.append(f"foreach step {step_id} as must be a valid variable name")
+                    max_items = step.get("max_items")
+                    if not isinstance(max_items, int) or max_items <= 0:
+                        errors.append(f"foreach step {step_id} max_items must be a positive integer")
+                    count += validate_step_list(step.get("steps"), f"{item_location}.steps", depth + 1)
+                on_failure = step.get("on_failure", "stop")
+                if on_failure not in {"stop", "continue"}:
+                    errors.append(f"step {step_id} on_failure must be stop or continue")
+                retry = step.get("retry", 0)
+                if not isinstance(retry, int) or retry < 0:
+                    errors.append(f"step {step_id} retry must be a non-negative integer")
+                timeout_minutes = step.get("timeout_minutes")
+                if timeout_minutes is not None and (not isinstance(timeout_minutes, int) or timeout_minutes <= 0):
+                    errors.append(f"step {step_id} timeout_minutes must be a positive integer")
+            return count
+
+        step_count = validate_step_list(steps, "steps")
+        return {"ok": not errors, "id": workflow_id, "path": path, "errors": errors, "warnings": warnings, "steps": step_count}
 
     def workflow_validate(self, workflow_id: str) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id, validate=False)
@@ -2997,6 +3059,369 @@ krail --local graph check
             handle.write(json.dumps({"workflow": workflow_id, "pid": os.getpid(), "created_at": _dt.datetime.now(_dt.UTC).isoformat()}) + "\n")
         return lock
 
+    def _workflow_context_value(self, value: Any, name: str) -> Any:
+        if isinstance(value, dict):
+            return value.get(name)
+        return None
+
+    def _eval_workflow_expr(self, expression: str, context: dict[str, Any]) -> Any:
+        try:
+            tree = ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"invalid workflow expression: {expression}") from exc
+
+        def eval_node(node: ast.AST) -> Any:
+            if isinstance(node, ast.Expression):
+                return eval_node(node.body)
+            if isinstance(node, ast.Constant):
+                return node.value
+            if isinstance(node, ast.Name):
+                if node.id in context:
+                    return context[node.id]
+                if node.id == "true":
+                    return True
+                if node.id == "false":
+                    return False
+                if node.id == "null":
+                    return None
+                raise ValueError(f"unknown workflow name: {node.id}")
+            if isinstance(node, ast.Attribute):
+                return self._workflow_context_value(eval_node(node.value), node.attr)
+            if isinstance(node, ast.Subscript):
+                target = eval_node(node.value)
+                key = eval_node(node.slice)
+                if isinstance(target, dict):
+                    return target.get(key)
+                if isinstance(target, (list, tuple)) and isinstance(key, int):
+                    return target[key]
+                return None
+            if isinstance(node, ast.List):
+                return [eval_node(item) for item in node.elts]
+            if isinstance(node, ast.Tuple):
+                return tuple(eval_node(item) for item in node.elts)
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+                return not bool(eval_node(node.operand))
+            if isinstance(node, ast.BoolOp):
+                if isinstance(node.op, ast.And):
+                    return all(bool(eval_node(item)) for item in node.values)
+                if isinstance(node.op, ast.Or):
+                    return any(bool(eval_node(item)) for item in node.values)
+            if isinstance(node, ast.Compare):
+                left = eval_node(node.left)
+                for op, comparator in zip(node.ops, node.comparators):
+                    right = eval_node(comparator)
+                    if isinstance(op, ast.Eq):
+                        ok = left == right
+                    elif isinstance(op, ast.NotEq):
+                        ok = left != right
+                    elif isinstance(op, ast.In):
+                        ok = left in right if right is not None else False
+                    elif isinstance(op, ast.NotIn):
+                        ok = left not in right if right is not None else True
+                    elif isinstance(op, ast.Lt):
+                        ok = left < right
+                    elif isinstance(op, ast.LtE):
+                        ok = left <= right
+                    elif isinstance(op, ast.Gt):
+                        ok = left > right
+                    elif isinstance(op, ast.GtE):
+                        ok = left >= right
+                    else:
+                        raise ValueError("unsupported workflow comparison operator")
+                    if not ok:
+                        return False
+                    left = right
+                return True
+            raise ValueError(f"unsupported workflow expression element: {type(node).__name__}")
+
+        return eval_node(tree)
+
+    def _workflow_when_allows(self, step: dict[str, Any], context: dict[str, Any]) -> bool:
+        when = step.get("when")
+        if when is None:
+            return True
+        return bool(self._eval_workflow_expr(str(when), context))
+
+    def _record_workflow_result(self, context: dict[str, Any], result: dict[str, Any]) -> None:
+        step_id = result.get("id")
+        if isinstance(step_id, str) and step_id:
+            context.setdefault("steps", {})[step_id] = result
+
+    def _workflow_result_failed(self, result: dict[str, Any]) -> bool:
+        status = result.get("status")
+        if status is None:
+            return False
+        return status not in {"done", "dry_run", "skipped"}
+
+    def _flatten_workflow_failures(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        failures: list[dict[str, Any]] = []
+        for result in results:
+            if self._workflow_result_failed(result):
+                failures.append(result)
+            for key in ("steps", "then", "else"):
+                child = result.get(key)
+                if isinstance(child, list):
+                    failures.extend(self._flatten_workflow_failures(child))
+            iterations = result.get("iteration_results")
+            if isinstance(iterations, list):
+                for iteration in iterations:
+                    child_steps = iteration.get("steps") if isinstance(iteration, dict) else None
+                    if isinstance(child_steps, list):
+                        failures.extend(self._flatten_workflow_failures(child_steps))
+        return failures
+
+    def _interpolate_workflow_value(self, value: Any, context: dict[str, Any]) -> Any:
+        if isinstance(value, str):
+            loop = context.get("loop") if isinstance(context.get("loop"), dict) else {}
+            item = loop.get("item")
+            loop_var = loop.get("var")
+            rendered = value.replace("${{ loop.item }}", "" if item is None else str(item))
+            if isinstance(loop_var, str) and loop_var:
+                rendered = rendered.replace("${{ " + loop_var + " }}", "" if item is None else str(item))
+            return rendered
+        if isinstance(value, list):
+            return [self._interpolate_workflow_value(item, context) for item in value]
+        if isinstance(value, dict):
+            return {str(k): self._interpolate_workflow_value(v, context) for k, v in value.items()}
+        return value
+
+    def _execute_workflow_command_step(
+        self,
+        step: dict[str, Any],
+        *,
+        step_id: str,
+        run_dir: Path,
+        log_prefix: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        attempts = int(step.get("retry", 0)) + 1
+        timeout_seconds = int(step["timeout_minutes"]) * 60 if step.get("timeout_minutes") else None
+        env = os.environ.copy()
+        if isinstance(step.get("env"), dict):
+            env.update({str(k): str(v) for k, v in self._interpolate_workflow_value(step["env"], context).items()})
+        command = self._interpolate_workflow_value(str(step.get("run") or "").strip(), context)
+        args = self._interpolate_workflow_value(step.get("args"), context) if isinstance(step.get("args"), list) else None
+        last_returncode = 1
+        stdout = ""
+        stderr = ""
+        attempt = 0
+        for attempt in range(1, attempts + 1):
+            try:
+                if args is not None:
+                    completed = subprocess.run([str(item) for item in args], cwd=self.project_path, shell=False, capture_output=True, text=True, timeout=timeout_seconds, env=env)
+                else:
+                    completed = subprocess.run(command, cwd=self.project_path, shell=True, capture_output=True, text=True, timeout=timeout_seconds, env=env)
+                last_returncode = completed.returncode
+                stdout = completed.stdout or ""
+                stderr = completed.stderr or ""
+            except subprocess.TimeoutExpired as exc:
+                last_returncode = 124
+                stdout = exc.stdout or ""
+                stderr = exc.stderr or "timeout expired"
+            (run_dir / f"{log_prefix}.attempt{attempt}.stdout.log").write_text(stdout, encoding="utf-8")
+            (run_dir / f"{log_prefix}.attempt{attempt}.stderr.log").write_text(stderr, encoding="utf-8")
+            if last_returncode == 0:
+                break
+        result: dict[str, Any] = {
+            "id": step_id,
+            "kind": "command",
+            "status": "done" if last_returncode == 0 else "failed",
+            "exit_code": last_returncode,
+            "attempts": attempt,
+        }
+        if args is not None:
+            result["args"] = args
+        else:
+            result["command"] = command
+        capture = step.get("capture")
+        if isinstance(capture, dict):
+            source = stderr if capture.get("from", "stdout") == "stderr" else stdout
+            if capture.get("format", "text") == "json":
+                try:
+                    result["output"] = json.loads(source or "null")
+                except Exception as exc:
+                    result.update({"status": "failed", "capture_error": str(exc)})
+            else:
+                result["output"] = source
+        return result
+
+    def _execute_workflow_leaf_step(
+        self,
+        workflow_id: str,
+        step: dict[str, Any],
+        *,
+        spec: dict[str, Any],
+        dry_run: bool,
+        run_dir: Path,
+        log_prefix: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        step_id = str(step.get("id") or "step")
+        kind = str(step.get("kind") or "command")
+        if dry_run:
+            return {"id": step_id, "kind": kind, "status": "dry_run", "step": step}
+        if kind == "command":
+            return self._execute_workflow_command_step(step, step_id=step_id, run_dir=run_dir, log_prefix=log_prefix, context=context)
+        if kind == "agent":
+            attempts = int(step.get("retry", 0)) + 1
+            prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
+            runner = str(step.get("runner") or spec.get("runner") or "auto")
+            resolved_runner = self.resolve_runner(runner)["runner"]
+            role = str(step.get("role") or "research")
+            dispatch: dict[str, Any] = {"status": "failed"}
+            created: dict[str, Any] = {"task": {"id": ""}}
+            for _attempt in range(1, attempts + 1):
+                created = self.create_task(
+                    f"{workflow_id}: {step_id}",
+                    description=prompt,
+                    runner=resolved_runner,
+                    workflow=workflow_id,
+                    role=role,
+                )
+                dispatch = self.dispatch_task(created["task"]["id"], runner=resolved_runner, dry_run=False)
+                if dispatch.get("status") == "done":
+                    break
+            result = {"id": step_id, "kind": "agent", "status": dispatch.get("status"), "task_id": created["task"]["id"], "runner": resolved_runner, "requested_runner": runner, "role": role, "dispatch": dispatch}
+            task = dispatch.get("task") if isinstance(dispatch, dict) else None
+            if isinstance(task, dict) and isinstance(task.get("session_result"), dict):
+                result["output"] = task["session_result"]
+            return result
+        if kind == "think":
+            runner = str(step.get("runner") or spec.get("runner") or "auto")
+            result = {"id": step_id, "kind": "think"}
+            result.update(
+                self._execute_workflow_think_step(
+                    workflow_id,
+                    step_id,
+                    step,
+                    dry_run=dry_run,
+                    default_runner=runner,
+                )
+            )
+            return result
+        raise ValueError(f"Unsupported workflow step kind: {kind}")
+
+    def _execute_workflow_steps(
+        self,
+        workflow_id: str,
+        steps: list[dict[str, Any]],
+        *,
+        spec: dict[str, Any],
+        dry_run: bool,
+        run_dir: Path,
+        context: dict[str, Any],
+        path: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for index, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                raise ValueError(f"Workflow step {'.'.join(path + (str(index),))} must be a mapping")
+            step_id = str(step.get("id") or f"step_{index}")
+            kind = str(step.get("kind") or "command")
+            log_prefix = "-".join([*path, f"{index:02d}-{self._slug(step_id)}"])
+            try:
+                allowed = self._workflow_when_allows(step, context)
+            except Exception as exc:
+                result = {"id": step_id, "kind": kind, "status": "failed", "error": f"when evaluation failed: {exc}"}
+                results.append(result)
+                self._record_workflow_result(context, result)
+                break
+            if not allowed:
+                result = {"id": step_id, "kind": kind, "status": "skipped", "reason": "condition_false"}
+                results.append(result)
+                self._record_workflow_result(context, result)
+                continue
+            if kind == "if":
+                condition = str(step.get("condition") or "")
+                try:
+                    branch_name = "then" if bool(self._eval_workflow_expr(condition, context)) else "else"
+                except Exception as exc:
+                    result = {"id": step_id, "kind": "if", "status": "failed", "condition": condition, "error": f"condition evaluation failed: {exc}"}
+                    results.append(result)
+                    self._record_workflow_result(context, result)
+                    break
+                branch_steps = step.get(branch_name) or []
+                result = {"id": step_id, "kind": "if", "status": "running", "condition": condition, "branch": branch_name}
+                child_results = self._execute_workflow_steps(workflow_id, branch_steps, spec=spec, dry_run=dry_run, run_dir=run_dir, context=context, path=(*path, f"{index:02d}-{step_id}", branch_name))
+                result[branch_name] = child_results
+                failures = self._flatten_workflow_failures(child_results)
+                result["status"] = "failed" if failures else ("dry_run" if dry_run else "done")
+            elif kind == "repeat":
+                max_iterations = int(step["max_iterations"])
+                iteration_results: list[dict[str, Any]] = []
+                result = {"id": step_id, "kind": "repeat", "status": "running", "max_iterations": max_iterations, "iteration_results": iteration_results}
+                stop_reason = "max_iterations_reached"
+                for iteration in range(1, max_iterations + 1):
+                    previous_loop = context.get("loop")
+                    context["loop"] = {"iteration": iteration, "index": iteration - 1}
+                    child_results = self._execute_workflow_steps(workflow_id, step["steps"], spec=spec, dry_run=dry_run, run_dir=run_dir, context=context, path=(*path, f"{index:02d}-{step_id}", f"iter{iteration}"))
+                    if previous_loop is None:
+                        context.pop("loop", None)
+                    else:
+                        context["loop"] = previous_loop
+                    iteration_results.append({"iteration": iteration, "steps": child_results})
+                    if dry_run:
+                        stop_reason = "dry_run"
+                        break
+                    try:
+                        stop = bool(self._eval_workflow_expr(str(step["until"]), context))
+                    except Exception as exc:
+                        result["error"] = f"until evaluation failed: {exc}"
+                        stop_reason = "condition_error"
+                        break
+                    if stop:
+                        stop_reason = "condition_met"
+                        break
+                result["iterations"] = len(iteration_results)
+                result["stop_reason"] = stop_reason
+                result["status"] = "dry_run" if dry_run else ("done" if stop_reason == "condition_met" else "failed")
+            elif kind == "foreach":
+                if "items" in step:
+                    items = step["items"]
+                else:
+                    try:
+                        items = self._eval_workflow_expr(str(step["items_from"]), context)
+                    except Exception as exc:
+                        result = {"id": step_id, "kind": "foreach", "status": "failed", "error": f"items_from evaluation failed: {exc}"}
+                        results.append(result)
+                        self._record_workflow_result(context, result)
+                        break
+                if not isinstance(items, list):
+                    result = {"id": step_id, "kind": "foreach", "status": "failed", "error": f"items did not evaluate to a list"}
+                    results.append(result)
+                    self._record_workflow_result(context, result)
+                    break
+                max_items = int(step["max_items"])
+                if len(items) > max_items:
+                    result = {"id": step_id, "kind": "foreach", "status": "failed", "error": f"expanded to {len(items)} items, above max_items {max_items}"}
+                    results.append(result)
+                    self._record_workflow_result(context, result)
+                    break
+                iteration_results = []
+                result = {"id": step_id, "kind": "foreach", "status": "running", "count": len(items), "iteration_results": iteration_results}
+                loop_var = str(step.get("as") or "item")
+                for item_index, item in enumerate(items):
+                    previous_loop = context.get("loop")
+                    context["loop"] = {"index": item_index, "iteration": item_index + 1, "item": item, "var": loop_var, loop_var: item}
+                    child_results = self._execute_workflow_steps(workflow_id, step["steps"], spec=spec, dry_run=dry_run, run_dir=run_dir, context=context, path=(*path, f"{index:02d}-{step_id}", f"item{item_index}"))
+                    if previous_loop is None:
+                        context.pop("loop", None)
+                    else:
+                        context["loop"] = previous_loop
+                    iteration_results.append({"index": item_index, "item": item, "steps": child_results})
+                    if self._flatten_workflow_failures(child_results):
+                        break
+                failures = self._flatten_workflow_failures([{"iteration_results": iteration_results}])
+                result["status"] = "failed" if failures else ("dry_run" if dry_run else "done")
+            else:
+                result = self._execute_workflow_leaf_step(workflow_id, step, spec=spec, dry_run=dry_run, run_dir=run_dir, log_prefix=log_prefix, context=context)
+            results.append(result)
+            self._record_workflow_result(context, result)
+            if self._workflow_result_failed(result) and step.get("on_failure", "stop") == "stop":
+                break
+            time.sleep(0.01)
+        return results
+
     def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id)
         if not shown.get("materialized", True):
@@ -3024,83 +3449,26 @@ krail --local graph check
         if not dry_run and not force:
             lock = self._acquire_workflow_lock(str(spec.get("id") or workflow_id))
         try:
-            for index, step in enumerate(steps, start=1):
-                if not isinstance(step, dict):
-                    raise ValueError(f"Workflow step {index} must be a mapping")
-                step_id = str(step.get("id") or f"step_{index}")
-                kind = str(step.get("kind") or "command")
-                step_result: dict[str, Any] = {"id": step_id, "kind": kind, "status": "dry_run" if dry_run else "running"}
-                if dry_run:
-                    step_result["step"] = step
-                    results.append(step_result)
-                    continue
-                attempts = int(step.get("retry", 0)) + 1
-                on_failure = str(step.get("on_failure") or "stop")
-                timeout_seconds = int(step["timeout_minutes"]) * 60 if step.get("timeout_minutes") else None
-                if kind == "command":
-                    command = str(step.get("run") or "").strip()
-                    if not command:
-                        raise ValueError(f"Command step {step_id!r} is missing run")
-                    last_returncode = 1
-                    for attempt in range(1, attempts + 1):
-                        try:
-                            completed = subprocess.run(command, cwd=self.project_path, shell=True, capture_output=True, text=True, timeout=timeout_seconds)
-                            last_returncode = completed.returncode
-                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
-                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
-                        except subprocess.TimeoutExpired as exc:
-                            last_returncode = 124
-                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stdout.log").write_text(exc.stdout or "", encoding="utf-8")
-                            (run_dir / f"{index:02d}-{step_id}.attempt{attempt}.stderr.log").write_text(exc.stderr or "timeout expired", encoding="utf-8")
-                        if last_returncode == 0:
-                            break
-                    step_result.update({"status": "done" if last_returncode == 0 else "failed", "exit_code": last_returncode, "command": command, "attempts": attempt})
-                    results.append(step_result)
-                    if last_returncode != 0 and on_failure == "stop":
-                        break
-                elif kind == "agent":
-                    prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
-                    runner = str(step.get("runner") or spec.get("runner") or "auto")
-                    resolved_runner = self.resolve_runner(runner)["runner"]
-                    role = str(step.get("role") or "research")
-                    dispatch: dict[str, Any] = {"status": "failed"}
-                    created: dict[str, Any] = {"task": {"id": ""}}
-                    for attempt in range(1, attempts + 1):
-                        created = self.create_task(
-                            f"{spec.get('id') or workflow_id}: {step_id}",
-                            description=prompt,
-                            runner=resolved_runner,
-                            workflow=str(spec.get("id") or workflow_id),
-                            role=role,
-                        )
-                        dispatch = self.dispatch_task(created["task"]["id"], runner=resolved_runner, dry_run=False)
-                        if dispatch.get("status") == "done":
-                            break
-                    step_result.update({"status": dispatch.get("status"), "task_id": created["task"]["id"], "runner": resolved_runner, "requested_runner": runner, "role": role, "dispatch": dispatch})
-                    results.append(step_result)
-                    if dispatch.get("status") not in {"done", "dispatched"} and on_failure == "stop":
-                        break
-                elif kind == "think":
-                    runner = str(step.get("runner") or spec.get("runner") or "auto")
-                    think_result = self._execute_workflow_think_step(
-                        str(spec.get("id") or workflow_id),
-                        step_id,
-                        step,
-                        dry_run=dry_run,
-                        default_runner=runner,
-                    )
-                    step_result.update(think_result)
-                    results.append(step_result)
-                    if think_result.get("status") not in {"done", "dry_run"} and on_failure == "stop":
-                        break
-                else:
-                    raise ValueError(f"Unsupported workflow step kind: {kind}")
-                time.sleep(0.01)
+            workflow_name = str(spec.get("id") or workflow_id)
+            context: dict[str, Any] = {
+                "inputs": spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {},
+                "vars": spec.get("vars") if isinstance(spec.get("vars"), dict) else {},
+                "steps": {},
+                "workflow": {"run_id": run_id, "id": workflow_name, "elapsed_seconds": 0},
+            }
+            results = self._execute_workflow_steps(
+                workflow_name,
+                steps,
+                spec=spec,
+                dry_run=dry_run,
+                run_dir=run_dir,
+                context=context,
+            )
         finally:
             if lock and lock.exists():
                 lock.unlink()
         ended_at = _dt.datetime.now(_dt.UTC)
-        failed_steps = [item for item in results if item.get("status") not in {"done", "dry_run"}]
+        failed_steps = self._flatten_workflow_failures(results)
         status = "dry_run" if dry_run else ("done" if not failed_steps and len(results) == len(steps) else "failed")
         payload = {
             "status": status,

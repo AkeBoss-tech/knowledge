@@ -166,6 +166,145 @@ def test_workflow_execute_think_step(tmp_path: Path):
     assert result["steps"][0]["integrity"]["status"] == "registered"
 
 
+def test_workflow_when_if_repeat_and_foreach(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "control-flow.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "control_flow",
+                "inputs": {"risk_level": "high"},
+                "steps": [
+                    {
+                        "id": "unit_tests",
+                        "kind": "command",
+                        "run": "python3 -c 'import json; print(json.dumps({\"needs_repair\": True}))'",
+                        "capture": {"from": "stdout", "format": "json"},
+                    },
+                    {
+                        "id": "skipped_integration",
+                        "kind": "command",
+                        "when": 'steps.unit_tests.output.needs_repair == false',
+                        "run": "exit 9",
+                    },
+                    {
+                        "id": "choose_review",
+                        "kind": "if",
+                        "condition": 'inputs.risk_level in ["high", "critical"]',
+                        "then": [
+                            {
+                                "id": "deep_review",
+                                "kind": "command",
+                                "run": "python3 -c \"from pathlib import Path; Path('artifacts/deep.txt').write_text('yes')\"",
+                            }
+                        ],
+                        "else": [
+                            {
+                                "id": "standard_review",
+                                "kind": "command",
+                                "run": "exit 8",
+                            }
+                        ],
+                    },
+                    {
+                        "id": "repair_cycle",
+                        "kind": "repeat",
+                        "max_iterations": 3,
+                        "until": 'steps.verify.output.done == true',
+                        "steps": [
+                            {
+                                "id": "verify",
+                                "kind": "command",
+                                "run": "python3 -c \"import json; from pathlib import Path; p=Path('artifacts/count.txt'); n=int(p.read_text()) if p.exists() else 0; p.write_text(str(n+1)); print(json.dumps({'done': n >= 1}))\"",
+                                "capture": {"from": "stdout", "format": "json"},
+                                "on_failure": "continue",
+                            },
+                            {
+                                "id": "repair",
+                                "kind": "command",
+                                "when": 'steps.verify.output.done != true',
+                                "run": "python3 -c \"from pathlib import Path; Path('artifacts/repaired.txt').write_text('yes')\"",
+                            },
+                        ],
+                    },
+                    {
+                        "id": "versions",
+                        "kind": "foreach",
+                        "items": ["3.12", "3.13"],
+                        "as": "python_version",
+                        "max_items": 3,
+                        "steps": [
+                            {
+                                "id": "write_version",
+                                "kind": "command",
+                                "run": "python3 -c \"from pathlib import Path; Path('artifacts/versions.txt').open('a').write('${{ loop.item }}\\n')\"",
+                            }
+                        ],
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    validation = runtime.workflow_validate("control-flow")
+    result = runtime.workflow_execute("control-flow")
+
+    assert validation["ok"] is True
+    assert result["status"] == "done"
+    assert result["steps"][1]["status"] == "skipped"
+    assert result["steps"][2]["branch"] == "then"
+    assert result["steps"][3]["status"] == "done"
+    assert result["steps"][3]["iterations"] == 2
+    assert result["steps"][3]["stop_reason"] == "condition_met"
+    assert result["steps"][4]["status"] == "done"
+    assert (root / "artifacts" / "deep.txt").read_text(encoding="utf-8") == "yes"
+    assert (root / "artifacts" / "repaired.txt").read_text(encoding="utf-8") == "yes"
+    assert (root / "artifacts" / "versions.txt").read_text(encoding="utf-8").splitlines() == ["3.12", "3.13"]
+
+
+def test_workflow_repeat_fails_after_max_iterations(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "repeat-fail.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "repeat_fail",
+                "steps": [
+                    {
+                        "id": "never_done",
+                        "kind": "repeat",
+                        "max_iterations": 2,
+                        "until": 'steps.verify.output.done == true',
+                        "steps": [
+                            {
+                                "id": "verify",
+                                "kind": "command",
+                                "run": "python3 -c 'import json; print(json.dumps({\"done\": False}))'",
+                                "capture": {"from": "stdout", "format": "json"},
+                            }
+                        ],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("repeat-fail")
+
+    assert result["status"] == "failed"
+    assert result["failed_step"] == "never_done"
+    assert result["steps"][0]["iterations"] == 2
+    assert result["steps"][0]["stop_reason"] == "max_iterations_reached"
+
+
 def test_dispatch_creates_session_result_template(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)
