@@ -328,6 +328,11 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_status(run_id)
 
+    def workflow_resume(self, run_id: str, *, force: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_resume(run_id, force=force)
+
     def run_workflow(self, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
@@ -337,6 +342,21 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force)
+
+    def approval_list(self, *, status: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("approval commands require local mode")
+        return self._backend.knowledge.approval_list(status=status)
+
+    def approval_show(self, approval_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("approval commands require local mode")
+        return self._backend.knowledge.approval_show(approval_id)
+
+    def approval_decide(self, approval_id: str, *, decision: str, comment: str = "", resume: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("approval commands require local mode")
+        return self._backend.knowledge.approval_decide(approval_id, decision=decision, comment=comment, resume=resume)
 
     def schedule_install(self, workflow_id: str, *, system: str = "cron", schedule: str | None = None, dry_run: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):

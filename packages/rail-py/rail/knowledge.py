@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import ast
+import copy
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ import subprocess
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import yaml
@@ -2655,8 +2657,8 @@ krail --local graph check
                     errors.append(f"duplicate step id in {location}: {step_id}")
                 seen.add(step_id)
                 kind = step.get("kind", "command")
-                if kind not in {"command", "agent", "think", "if", "repeat", "foreach"}:
-                    errors.append(f"step {step_id} kind must be command, agent, think, if, repeat, or foreach")
+                if kind not in {"command", "agent", "think", "approval", "workflow", "if", "repeat", "foreach", "parallel"}:
+                    errors.append(f"step {step_id} kind must be command, agent, think, approval, workflow, if, repeat, foreach, or parallel")
                 when = step.get("when")
                 if when is not None and (not isinstance(when, str) or not when.strip()):
                     errors.append(f"step {step_id} when must be a non-empty string when present")
@@ -2700,6 +2702,40 @@ krail --local graph check
                     output_path = step.get("output_path")
                     if output_path is not None and (not isinstance(output_path, str) or not output_path.strip()):
                         errors.append(f"think step {step_id} output_path must be a non-empty string when present")
+                if kind == "approval":
+                    title = step.get("title")
+                    if title is not None and not isinstance(title, str):
+                        errors.append(f"approval step {step_id} title must be a string")
+                    subject = step.get("subject")
+                    if subject is not None and not isinstance(subject, dict):
+                        errors.append(f"approval step {step_id} subject must be a mapping")
+                    reviewers = step.get("reviewers")
+                    if reviewers is not None and not isinstance(reviewers, dict):
+                        errors.append(f"approval step {step_id} reviewers must be a mapping")
+                    minimum_approvals = step.get("minimum_approvals", 1)
+                    if not isinstance(minimum_approvals, int) or minimum_approvals <= 0:
+                        errors.append(f"approval step {step_id} minimum_approvals must be a positive integer")
+                    expires_in_hours = step.get("expires_in_hours")
+                    if expires_in_hours is not None and (not isinstance(expires_in_hours, int) or expires_in_hours <= 0):
+                        errors.append(f"approval step {step_id} expires_in_hours must be a positive integer")
+                    on_reject = step.get("on_reject", "fail")
+                    if on_reject not in {"fail", "continue"}:
+                        errors.append(f"approval step {step_id} on_reject must be fail or continue")
+                    allowed = step.get("allow_decisions")
+                    if allowed is not None:
+                        if not isinstance(allowed, list) or any(item not in {"approved", "rejected", "changes_requested"} for item in allowed):
+                            errors.append(f"approval step {step_id} allow_decisions must list approved, rejected, or changes_requested")
+                if kind == "workflow":
+                    child_workflow = step.get("workflow")
+                    if not isinstance(child_workflow, str) or not child_workflow.strip():
+                        errors.append(f"workflow step {step_id} requires workflow")
+                    if "with" in step and not isinstance(step.get("with"), dict):
+                        errors.append(f"workflow step {step_id} with must be a mapping")
+                    if "expose" in step and not isinstance(step.get("expose"), dict):
+                        errors.append(f"workflow step {step_id} expose must be a mapping")
+                    timeout_minutes = step.get("timeout_minutes")
+                    if timeout_minutes is not None and (not isinstance(timeout_minutes, int) or timeout_minutes <= 0):
+                        errors.append(f"workflow step {step_id} timeout_minutes must be a positive integer")
                 if kind == "if":
                     condition = step.get("condition")
                     if not isinstance(condition, str) or not condition.strip():
@@ -2731,6 +2767,42 @@ krail --local graph check
                     if not isinstance(max_items, int) or max_items <= 0:
                         errors.append(f"foreach step {step_id} max_items must be a positive integer")
                     count += validate_step_list(step.get("steps"), f"{item_location}.steps", depth + 1)
+                if kind == "parallel":
+                    branches = step.get("branches")
+                    if not isinstance(branches, list) or not branches:
+                        errors.append(f"parallel step {step_id} branches must be a non-empty list")
+                    else:
+                        branch_ids: set[str] = set()
+                        for branch_index, branch in enumerate(branches, start=1):
+                            branch_location = f"{item_location}.branches[{branch_index}]"
+                            if not isinstance(branch, dict):
+                                errors.append(f"{branch_location} must be a mapping")
+                                continue
+                            branch_id = branch.get("id")
+                            if not isinstance(branch_id, str) or not branch_id.strip():
+                                errors.append(f"{branch_location} id must be a non-empty string")
+                                branch_id = f"branch_{branch_index}"
+                            if branch_id in branch_ids:
+                                errors.append(f"duplicate parallel branch id in step {step_id}: {branch_id}")
+                            branch_ids.add(str(branch_id))
+                            if "read_only" in branch and not isinstance(branch.get("read_only"), bool):
+                                errors.append(f"parallel branch {branch_id} read_only must be boolean")
+                            workspace = branch.get("workspace")
+                            if workspace is not None and not isinstance(workspace, dict):
+                                errors.append(f"parallel branch {branch_id} workspace must be a mapping")
+                            resources = branch.get("resources")
+                            if resources is not None and not isinstance(resources, dict):
+                                errors.append(f"parallel branch {branch_id} resources must be a mapping")
+                            count += validate_step_list(branch.get("steps"), f"{branch_location}.steps", depth + 1)
+                    max_parallel = step.get("max_parallel", len(branches) if isinstance(branches, list) else 1)
+                    if not isinstance(max_parallel, int) or max_parallel <= 0 or max_parallel > 8:
+                        errors.append(f"parallel step {step_id} max_parallel must be an integer from 1 to 8")
+                    fail_fast = step.get("fail_fast", False)
+                    if not isinstance(fail_fast, bool):
+                        errors.append(f"parallel step {step_id} fail_fast must be boolean")
+                    minimum_successful = step.get("minimum_successful")
+                    if minimum_successful is not None and (not isinstance(minimum_successful, int) or minimum_successful <= 0):
+                        errors.append(f"parallel step {step_id} minimum_successful must be a positive integer")
                 on_failure = step.get("on_failure", "stop")
                 if on_failure not in {"stop", "continue"}:
                     errors.append(f"step {step_id} on_failure must be stop or continue")
@@ -2795,6 +2867,223 @@ krail --local graph check
         if len(matches) == 1:
             return json.loads(matches[0].read_text(encoding="utf-8"))
         raise FileNotFoundError(f"Workflow run not found: {run_id}")
+
+    def _workflow_run_dir(self, run_id: str) -> Path:
+        candidates = [self.sessions_dir / run_id, self.sessions_dir / self._slug(run_id)]
+        for path in candidates:
+            if (path / "result.json").exists() or (path / "state.json").exists():
+                return path
+        matches = sorted(self.sessions_dir.glob(f"{run_id}*"))
+        for path in matches:
+            if (path / "result.json").exists() or (path / "state.json").exists():
+                return path
+        raise FileNotFoundError(f"Workflow run not found: {run_id}")
+
+    def _record_saved_workflow_results(self, context: dict[str, Any], results: list[dict[str, Any]]) -> None:
+        for result in results:
+            self._record_workflow_result(context, result)
+            for key in ("steps", "then", "else"):
+                child = result.get(key)
+                if isinstance(child, list):
+                    self._record_saved_workflow_results(context, child)
+            iterations = result.get("iteration_results")
+            if isinstance(iterations, list):
+                for iteration in iterations:
+                    child_steps = iteration.get("steps") if isinstance(iteration, dict) else None
+                    if isinstance(child_steps, list):
+                        self._record_saved_workflow_results(context, child_steps)
+            branch_results = result.get("branch_results")
+            if isinstance(branch_results, list):
+                for branch in branch_results:
+                    child_steps = branch.get("steps") if isinstance(branch, dict) else None
+                    if isinstance(child_steps, list):
+                        self._record_saved_workflow_results(context, child_steps)
+
+    def _write_workflow_state(
+        self,
+        run_dir: Path,
+        *,
+        run_id: str,
+        workflow_id: str,
+        status: str,
+        results: list[dict[str, Any]],
+        next_step_index: int | None = None,
+        pending_approval_id: str | None = None,
+        workflow_digest: str | None = None,
+    ) -> dict[str, Any]:
+        state = {
+            "run_id": run_id,
+            "workflow": workflow_id,
+            "status": status,
+            "next_step_index": next_step_index,
+            "pending_approval_id": pending_approval_id,
+            "completed_steps": [str(item.get("id")) for item in results if item.get("status") in {"done", "skipped", "dry_run"}],
+            "workflow_digest": workflow_digest,
+            "updated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        }
+        (run_dir / "state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        return state
+
+    @property
+    def approval_root(self) -> Path:
+        planner = self._manifest_data().get("planner")
+        rel = "research_plan/approvals"
+        if isinstance(planner, dict) and isinstance(planner.get("approval_root"), str) and planner["approval_root"].strip():
+            rel = planner["approval_root"].strip()
+        return self.project_path / rel
+
+    def _approval_path(self, approval_id: str) -> Path:
+        return self.approval_root / f"{self._slug(approval_id, fallback='approval')}.md"
+
+    def _approval_decisions_path(self, approval_id: str) -> Path:
+        return self.approval_root / f"{self._slug(approval_id, fallback='approval')}.decisions.jsonl"
+
+    def _approval_digest(self, payload: Any) -> str:
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _git_head(self) -> str | None:
+        try:
+            completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.project_path, capture_output=True, text=True, check=True)
+            return completed.stdout.strip() or None
+        except Exception:
+            return None
+
+    def _git_diff_digest(self) -> str | None:
+        try:
+            completed = subprocess.run(["git", "diff", "--binary"], cwd=self.project_path, capture_output=True, text=True, check=True)
+            return self._approval_digest(completed.stdout or "")
+        except Exception:
+            return None
+
+    def _load_approval(self, approval_id: str) -> dict[str, Any] | None:
+        path = self._approval_path(approval_id)
+        if not path.exists():
+            return None
+        metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+        metadata["_id"] = metadata.get("approval_id") or approval_id
+        metadata["body"] = body.strip()
+        decisions_path = self._approval_decisions_path(str(metadata["_id"]))
+        decisions: list[dict[str, Any]] = []
+        if decisions_path.exists():
+            for line in decisions_path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    try:
+                        loaded = json.loads(line)
+                        if isinstance(loaded, dict):
+                            decisions.append(loaded)
+                    except Exception:
+                        pass
+        metadata["decisions"] = decisions
+        return metadata
+
+    def _write_approval(self, approval: dict[str, Any]) -> dict[str, Any]:
+        approval_id = str(approval.get("approval_id") or approval.get("_id"))
+        approval["approval_id"] = approval_id
+        self.approval_root.mkdir(parents=True, exist_ok=True)
+        body = approval.pop("body", None) or self._render_approval_body(approval)
+        decisions = approval.pop("decisions", None)
+        self._approval_path(approval_id).write_text(self._dump_markdown_frontmatter(approval, body), encoding="utf-8")
+        if decisions is not None:
+            decisions_path = self._approval_decisions_path(approval_id)
+            decisions_path.write_text("".join(json.dumps(item, sort_keys=True) + "\n" for item in decisions), encoding="utf-8")
+        approval["body"] = body
+        if decisions is not None:
+            approval["decisions"] = decisions
+        return approval
+
+    def _render_approval_body(self, approval: dict[str, Any]) -> str:
+        evidence = approval.get("evidence")
+        lines = [
+            "## Request",
+            "",
+            str(approval.get("description") or "Review and decide whether this workflow may continue."),
+            "",
+            "## Subject",
+            "",
+            f"- Workflow run: `{approval.get('workflow_run_id')}`",
+            f"- Workflow step: `{approval.get('workflow_step_id')}`",
+            f"- Subject digest: `{approval.get('subject_digest')}`",
+            "",
+            "## Evidence",
+            "",
+        ]
+        if isinstance(evidence, list) and evidence:
+            lines.extend(f"- `{item}`" for item in evidence)
+        else:
+            lines.append("- No evidence paths declared.")
+        lines.append("")
+        return "\n".join(lines)
+
+    def _approval_public(self, approval: dict[str, Any]) -> dict[str, Any]:
+        return dict(approval)
+
+    def approval_list(self, *, status: str | None = None) -> dict[str, Any]:
+        approvals: list[dict[str, Any]] = []
+        if self.approval_root.is_dir():
+            for path in sorted(self.approval_root.glob("*.md")):
+                approval = self._load_approval(path.stem)
+                if approval and (status is None or approval.get("status") == status):
+                    approvals.append(self._approval_public(approval))
+        return {"approvals": approvals, "status": status}
+
+    def approval_show(self, approval_id: str) -> dict[str, Any]:
+        approval = self._load_approval(approval_id)
+        if approval is None:
+            raise FileNotFoundError(f"Approval not found: {approval_id}")
+        return {"approval": self._approval_public(approval)}
+
+    def _approval_actor(self) -> str:
+        return os.environ.get("KRAIL_ACTOR") or os.environ.get("GITHUB_ACTOR") or os.environ.get("USER") or "local:unknown"
+
+    def approval_decide(
+        self,
+        approval_id: str,
+        *,
+        decision: str,
+        comment: str = "",
+        resume: bool = False,
+    ) -> dict[str, Any]:
+        if decision not in {"approved", "rejected", "changes_requested"}:
+            raise ValueError("decision must be approved, rejected, or changes_requested")
+        approval = self._load_approval(approval_id)
+        if approval is None:
+            raise FileNotFoundError(f"Approval not found: {approval_id}")
+        allowed = approval.get("allow_decisions")
+        if isinstance(allowed, list) and allowed and decision not in allowed:
+            raise ValueError(f"decision {decision!r} is not allowed for approval {approval_id}")
+        actor = self._approval_actor()
+        if bool(approval.get("prevent_self_approval")) and actor == approval.get("requested_by"):
+            raise PermissionError("self-approval is not allowed")
+        now = _dt.datetime.now(_dt.UTC).isoformat()
+        decision_record = {
+            "approval_id": approval_id,
+            "actor": actor,
+            "decision": decision,
+            "comment": comment,
+            "decided_at": now,
+            "subject_digest": approval.get("subject_digest"),
+            "authentication_source": "local_cli",
+        }
+        decisions = list(approval.get("decisions") or [])
+        decisions.append(decision_record)
+        if decision == "approved":
+            approvals_received = len([item for item in decisions if item.get("decision") == "approved"])
+            required = int(approval.get("minimum_approvals") or 1)
+            approval["status"] = "approved" if approvals_received >= required else "pending"
+            approval["approvals_received"] = approvals_received
+            approval["approvals_required"] = required
+        else:
+            approval["status"] = decision
+        approval["resolved_at"] = now if approval["status"] != "pending" else None
+        approval["decisions"] = decisions
+        self._write_approval(approval)
+        result = {"approval": self._approval_public(approval), "decision": decision_record}
+        if resume:
+            run_id = approval.get("workflow_run_id")
+            if isinstance(run_id, str) and run_id:
+                result["workflow"] = self.workflow_resume(run_id)
+        return result
 
     def schedule_install(
         self,
@@ -3151,7 +3440,45 @@ krail --local graph check
         status = result.get("status")
         if status is None:
             return False
-        return status not in {"done", "dry_run", "skipped"}
+        return status not in {"done", "dry_run", "skipped", "awaiting_approval"}
+
+    def _workflow_result_paused(self, result: dict[str, Any]) -> bool:
+        if result.get("status") == "awaiting_approval":
+            return True
+        for key in ("steps", "then", "else"):
+            child = result.get(key)
+            if isinstance(child, list) and any(self._workflow_result_paused(item) for item in child):
+                return True
+        iterations = result.get("iteration_results")
+        if isinstance(iterations, list):
+            for iteration in iterations:
+                child_steps = iteration.get("steps") if isinstance(iteration, dict) else None
+                if isinstance(child_steps, list) and any(self._workflow_result_paused(item) for item in child_steps):
+                    return True
+        branch_results = result.get("branch_results")
+        if isinstance(branch_results, list) and any(self._workflow_result_paused(item) for item in branch_results):
+            return True
+        return False
+
+    def _flatten_workflow_pauses(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        pauses: list[dict[str, Any]] = []
+        for result in results:
+            if result.get("status") == "awaiting_approval":
+                pauses.append(result)
+            for key in ("steps", "then", "else"):
+                child = result.get(key)
+                if isinstance(child, list):
+                    pauses.extend(self._flatten_workflow_pauses(child))
+            iterations = result.get("iteration_results")
+            if isinstance(iterations, list):
+                for iteration in iterations:
+                    child_steps = iteration.get("steps") if isinstance(iteration, dict) else None
+                    if isinstance(child_steps, list):
+                        pauses.extend(self._flatten_workflow_pauses(child_steps))
+            branch_results = result.get("branch_results")
+            if isinstance(branch_results, list):
+                pauses.extend(self._flatten_workflow_pauses(branch_results))
+        return pauses
 
     def _flatten_workflow_failures(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         failures: list[dict[str, Any]] = []
@@ -3168,7 +3495,110 @@ krail --local graph check
                     child_steps = iteration.get("steps") if isinstance(iteration, dict) else None
                     if isinstance(child_steps, list):
                         failures.extend(self._flatten_workflow_failures(child_steps))
+            branch_results = result.get("branch_results")
+            if isinstance(branch_results, list):
+                failures.extend(self._flatten_workflow_failures(branch_results))
         return failures
+
+    def _workflow_subject_digest(self, step: dict[str, Any], context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        subject = step.get("subject") if isinstance(step.get("subject"), dict) else {}
+        subject_step_id = subject.get("step") if isinstance(subject.get("step"), str) else None
+        subject_step = context.get("steps", {}).get(subject_step_id) if subject_step_id else None
+        payload = {
+            "workflow_digest": context.get("workflow", {}).get("workflow_digest"),
+            "target_base_commit": self._git_head(),
+            "diff_digest": self._git_diff_digest(),
+            "step": step,
+            "subject_step": subject_step,
+        }
+        digest = self._approval_digest(payload)
+        return digest, payload
+
+    def _approval_id_for_step(self, workflow_id: str, step_id: str, context: dict[str, Any], path: tuple[str, ...]) -> str:
+        run_id = str(context.get("workflow", {}).get("run_id") or "workflow")
+        path_slug = self._slug("-".join(path), fallback="root")
+        return self._slug(f"approval-{run_id}-{path_slug}-{step_id}", fallback="approval")
+
+    def _execute_workflow_approval_step(
+        self,
+        workflow_id: str,
+        step: dict[str, Any],
+        *,
+        step_id: str,
+        context: dict[str, Any],
+        path: tuple[str, ...],
+    ) -> dict[str, Any]:
+        approval_id = self._approval_id_for_step(workflow_id, step_id, context, path)
+        subject_digest, subject_payload = self._workflow_subject_digest(step, context)
+        approval = self._load_approval(approval_id)
+        if approval is None and self.approval_root.is_dir():
+            run_id = context.get("workflow", {}).get("run_id")
+            for candidate in sorted(self.approval_root.glob("*.md")):
+                loaded = self._load_approval(candidate.stem)
+                if (
+                    loaded
+                    and loaded.get("workflow_run_id") == run_id
+                    and loaded.get("workflow_step_id") == step_id
+                    and loaded.get("workflow_id") == workflow_id
+                ):
+                    approval = loaded
+                    approval_id = str(loaded.get("approval_id") or loaded.get("_id") or approval_id)
+                    break
+        now = _dt.datetime.now(_dt.UTC)
+        if approval is None:
+            reviewers = step.get("reviewers") if isinstance(step.get("reviewers"), dict) else {}
+            expires_in_hours = step.get("expires_in_hours")
+            approval = {
+                "approval_id": approval_id,
+                "project_id": self.project_path.name,
+                "workflow_id": workflow_id,
+                "workflow_run_id": context.get("workflow", {}).get("run_id"),
+                "workflow_step_id": step_id,
+                "execution_path": list(path),
+                "approval_type": step.get("approval_type") or "workflow_step",
+                "status": "pending",
+                "title": step.get("title") or f"Approve {step_id}",
+                "description": step.get("description") or "",
+                "requested_by": self._approval_actor(),
+                "requested_by_role": step.get("requested_by_role") or "workflow",
+                "requested_at": now.isoformat(),
+                "expires_at": (now + _dt.timedelta(hours=int(expires_in_hours))).isoformat() if isinstance(expires_in_hours, int) else None,
+                "minimum_approvals": int(step.get("minimum_approvals") or 1),
+                "approvals_received": 0,
+                "prevent_self_approval": bool(step.get("prevent_self_approval", True)),
+                "allowed_users": reviewers.get("users") if isinstance(reviewers.get("users"), list) else [],
+                "allowed_teams": reviewers.get("teams") if isinstance(reviewers.get("teams"), list) else [],
+                "allow_decisions": step.get("allow_decisions") if isinstance(step.get("allow_decisions"), list) else ["approved", "rejected", "changes_requested"],
+                "subject": step.get("subject") if isinstance(step.get("subject"), dict) else {},
+                "subject_digest": subject_digest,
+                "subject_payload": subject_payload,
+                "evidence": step.get("evidence") if isinstance(step.get("evidence"), list) else [],
+            }
+            self._write_approval(approval)
+            return {"id": step_id, "kind": "approval", "status": "awaiting_approval", "decision": "pending", "approval_id": approval_id, "subject_digest": subject_digest}
+        expires_at = approval.get("expires_at")
+        if approval.get("status") == "pending" and isinstance(expires_at, str):
+            try:
+                if _dt.datetime.fromisoformat(expires_at) <= now:
+                    approval["status"] = "expired"
+                    approval["resolved_at"] = now.isoformat()
+                    self._write_approval(approval)
+            except Exception:
+                pass
+        if approval.get("subject_digest") != subject_digest and approval.get("status") == "approved":
+            approval["status"] = "invalidated"
+            approval["invalidated_at"] = now.isoformat()
+            approval["invalidation_reason"] = "subject_changed"
+            self._write_approval(approval)
+            return {"id": step_id, "kind": "approval", "status": "awaiting_approval", "decision": "invalidated", "approval_id": approval_id, "reason": "approval_invalidated", "subject_digest": subject_digest}
+        status = str(approval.get("status") or "pending")
+        if status == "approved":
+            return {"id": step_id, "kind": "approval", "status": "done", "decision": "approved", "approval_id": approval_id, "subject_digest": subject_digest}
+        if status == "changes_requested":
+            return {"id": step_id, "kind": "approval", "status": "done", "decision": "changes_requested", "approval_id": approval_id, "subject_digest": subject_digest}
+        if status in {"rejected", "expired", "revoked", "invalidated"}:
+            return {"id": step_id, "kind": "approval", "status": "failed", "decision": status, "approval_id": approval_id, "subject_digest": subject_digest}
+        return {"id": step_id, "kind": "approval", "status": "awaiting_approval", "decision": "pending", "approval_id": approval_id, "subject_digest": subject_digest}
 
     def _interpolate_workflow_value(self, value: Any, context: dict[str, Any]) -> Any:
         if isinstance(value, str):
@@ -3178,12 +3608,266 @@ krail --local graph check
             rendered = value.replace("${{ loop.item }}", "" if item is None else str(item))
             if isinstance(loop_var, str) and loop_var:
                 rendered = rendered.replace("${{ " + loop_var + " }}", "" if item is None else str(item))
+            pattern = re.compile(r"\${{\s*([^}]+?)\s*}}")
+
+            def replace_expr(match: re.Match[str]) -> str:
+                expression = match.group(1).strip()
+                if expression in {"loop.item", loop_var}:
+                    return "" if item is None else str(item)
+                try:
+                    resolved = self._eval_workflow_expr(expression, context)
+                except Exception:
+                    return match.group(0)
+                return "" if resolved is None else str(resolved)
+
+            rendered = pattern.sub(replace_expr, rendered)
             return rendered
         if isinstance(value, list):
             return [self._interpolate_workflow_value(item, context) for item in value]
         if isinstance(value, dict):
             return {str(k): self._interpolate_workflow_value(v, context) for k, v in value.items()}
         return value
+
+    def _workflow_outputs(self, spec: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        outputs = spec.get("outputs")
+        if not isinstance(outputs, dict):
+            return {}
+        result: dict[str, Any] = {}
+        for name, descriptor in outputs.items():
+            if not isinstance(name, str) or not name:
+                continue
+            expression = None
+            if isinstance(descriptor, dict):
+                expression = descriptor.get("from")
+            elif isinstance(descriptor, str):
+                expression = descriptor
+            if not isinstance(expression, str) or not expression.strip():
+                continue
+            try:
+                result[name] = self._eval_workflow_expr(expression.strip(), context)
+            except Exception as exc:
+                result[name] = {"error": str(exc)}
+        return result
+
+    def _workflow_exposed_outputs(self, output: dict[str, Any], expose: Any) -> dict[str, Any]:
+        if not isinstance(expose, dict) or not expose:
+            return output
+        exposed: dict[str, Any] = {}
+        for parent_name, child_name in expose.items():
+            if isinstance(parent_name, str) and isinstance(child_name, str) and child_name in output:
+                exposed[parent_name] = output[child_name]
+        return exposed
+
+    def _execute_workflow_child_step(
+        self,
+        step: dict[str, Any],
+        *,
+        step_id: str,
+        dry_run: bool,
+        context: dict[str, Any],
+        path: tuple[str, ...],
+    ) -> dict[str, Any]:
+        child_workflow = str(step.get("workflow") or "").strip()
+        if not child_workflow:
+            return {"id": step_id, "kind": "workflow", "status": "failed", "error": "workflow is required"}
+        parent_workflow = str(context.get("workflow", {}).get("id") or "")
+        call_stack = [str(item) for item in (context.get("workflow", {}).get("call_stack") or [parent_workflow]) if item]
+        call_depth = int(context.get("workflow", {}).get("call_depth") or 0)
+        if child_workflow == parent_workflow or child_workflow in call_stack:
+            return {"id": step_id, "kind": "workflow", "status": "failed", "workflow": child_workflow, "error": "recursive workflow call rejected"}
+        if call_depth >= 8:
+            return {"id": step_id, "kind": "workflow", "status": "failed", "workflow": child_workflow, "error": "maximum workflow call depth exceeded"}
+        try:
+            shown = self.workflow_show(child_workflow)
+        except Exception as exc:
+            return {"id": step_id, "kind": "workflow", "status": "failed", "workflow": child_workflow, "error": str(exc)}
+        if not shown.get("materialized", True):
+            return {"id": step_id, "kind": "workflow", "status": "failed", "workflow": child_workflow, "error": "child workflow is not materialized"}
+        validation = shown.get("validation") or self._validate_workflow_spec(shown["workflow"], path=shown.get("path"))
+        if not validation.get("ok"):
+            return {"id": step_id, "kind": "workflow", "status": "failed", "workflow": child_workflow, "validation": validation}
+        child_inputs = self._interpolate_workflow_value(step.get("with") if isinstance(step.get("with"), dict) else {}, context)
+        if dry_run:
+            return {
+                "id": step_id,
+                "kind": "workflow",
+                "status": "dry_run",
+                "workflow": child_workflow,
+                "with": child_inputs,
+                "validation": validation,
+                "steps": shown["workflow"].get("steps") or [],
+            }
+        child = self._execute_workflow_spec(
+            child_workflow,
+            shown["workflow"],
+            validation_path=shown.get("path"),
+            dry_run=False,
+            force=False,
+            inputs=child_inputs if isinstance(child_inputs, dict) else {},
+            parent_run_id=str(context.get("workflow", {}).get("run_id") or ""),
+            parent_step_path=".".join([*path, step_id]),
+            call_depth=call_depth + 1,
+            call_stack=[*call_stack, child_workflow],
+        )
+        status = child.get("status")
+        result_status = "done" if status == "done" else ("awaiting_approval" if status == "awaiting_approval" else "failed")
+        output = self._workflow_exposed_outputs(child.get("output") if isinstance(child.get("output"), dict) else {}, step.get("expose"))
+        result = {
+            "id": step_id,
+            "kind": "workflow",
+            "status": result_status,
+            "workflow": child_workflow,
+            "child_run_id": child.get("run_id"),
+            "child_status": status,
+            "output": output,
+            "child": {
+                "path": child.get("path"),
+                "pending_approval_id": child.get("pending_approval_id"),
+                "failed_step": child.get("failed_step"),
+                "input_digest": child.get("input_digest"),
+                "workflow_digest": child.get("workflow_digest"),
+            },
+        }
+        if status == "awaiting_approval" and child.get("pending_approval_id"):
+            result["approval_id"] = child["pending_approval_id"]
+        return result
+
+    def _parallel_branch_resources(self, branch: dict[str, Any]) -> tuple[set[str], set[str]]:
+        resources = branch.get("resources") if isinstance(branch.get("resources"), dict) else {}
+        read = {str(item) for item in resources.get("read", []) if isinstance(item, str)}
+        write = {str(item) for item in resources.get("write", []) if isinstance(item, str)}
+        return read, write
+
+    def _parallel_has_resource_conflict(self, branches: list[dict[str, Any]]) -> bool:
+        claims: list[tuple[set[str], set[str]]] = [self._parallel_branch_resources(branch) for branch in branches]
+        for left_index, (left_read, left_write) in enumerate(claims):
+            for right_read, right_write in claims[left_index + 1 :]:
+                if left_write & (right_read | right_write):
+                    return True
+                if right_write & (left_read | left_write):
+                    return True
+        return False
+
+    def _parallel_branch_output(self, steps: list[dict[str, Any]]) -> dict[str, Any]:
+        output: dict[str, Any] = {}
+        for result in steps:
+            step_id = result.get("id")
+            if isinstance(step_id, str) and "output" in result:
+                output[step_id] = result["output"]
+        return output
+
+    def _execute_parallel_branch(
+        self,
+        workflow_id: str,
+        branch: dict[str, Any],
+        *,
+        branch_index: int,
+        spec: dict[str, Any],
+        dry_run: bool,
+        run_dir: Path,
+        context: dict[str, Any],
+        path: tuple[str, ...],
+    ) -> dict[str, Any]:
+        branch_id = str(branch.get("id") or f"branch_{branch_index}")
+        branch_context = copy.deepcopy(context)
+        branch_context["branch"] = {"id": branch_id, "index": branch_index}
+        steps = branch.get("steps") if isinstance(branch.get("steps"), list) else []
+        child_results = self._execute_workflow_steps(
+            workflow_id,
+            steps,
+            spec=spec,
+            dry_run=dry_run,
+            run_dir=run_dir,
+            context=branch_context,
+            path=(*path, branch_id),
+        )
+        failures = self._flatten_workflow_failures(child_results)
+        pauses = self._flatten_workflow_pauses(child_results)
+        required = bool(branch.get("required", True))
+        status = "awaiting_approval" if pauses else ("failed" if failures and required else ("warning" if failures else ("dry_run" if dry_run else "done")))
+        return {
+            "id": branch_id,
+            "status": status,
+            "required": required,
+            "steps": child_results,
+            "output": self._parallel_branch_output(child_results),
+            "failed_step": failures[0].get("id") if failures else None,
+            "pending_approval_id": pauses[0].get("approval_id") if pauses else None,
+        }
+
+    def _execute_workflow_parallel_step(
+        self,
+        workflow_id: str,
+        step: dict[str, Any],
+        *,
+        step_id: str,
+        spec: dict[str, Any],
+        dry_run: bool,
+        run_dir: Path,
+        context: dict[str, Any],
+        path: tuple[str, ...],
+    ) -> dict[str, Any]:
+        branches = step.get("branches") if isinstance(step.get("branches"), list) else []
+        max_parallel = min(int(step.get("max_parallel") or len(branches) or 1), 8)
+        fail_fast = bool(step.get("fail_fast", False))
+        conflict_policy = str(step.get("conflict_policy") or step.get("join", {}).get("conflict_policy") if isinstance(step.get("join"), dict) else step.get("conflict_policy") or "reject")
+        if self._parallel_has_resource_conflict(branches):
+            if conflict_policy == "reject":
+                return {"id": step_id, "kind": "parallel", "status": "failed", "error": "parallel branch resource conflict"}
+            max_parallel = 1
+        result = {"id": step_id, "kind": "parallel", "status": "running", "max_parallel": max_parallel, "branches": {}, "branch_results": []}
+        if dry_run:
+            for index, branch in enumerate(branches):
+                branch_result = self._execute_parallel_branch(workflow_id, branch, branch_index=index, spec=spec, dry_run=True, run_dir=run_dir, context=context, path=(*path, step_id))
+                result["branch_results"].append(branch_result)
+                result["branches"][branch_result["id"]] = branch_result
+            result["status"] = "dry_run"
+            return result
+        branch_results: list[dict[str, Any]] = []
+        if max_parallel == 1:
+            for index, branch in enumerate(branches):
+                branch_result = self._execute_parallel_branch(workflow_id, branch, branch_index=index, spec=spec, dry_run=False, run_dir=run_dir, context=context, path=(*path, step_id))
+                branch_results.append(branch_result)
+                if fail_fast and branch_result.get("status") == "failed":
+                    break
+        else:
+            with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+                futures = {
+                    executor.submit(
+                        self._execute_parallel_branch,
+                        workflow_id,
+                        branch,
+                        branch_index=index,
+                        spec=spec,
+                        dry_run=False,
+                        run_dir=run_dir,
+                        context=context,
+                        path=(*path, step_id),
+                    ): branch
+                    for index, branch in enumerate(branches)
+                }
+                for future in as_completed(futures):
+                    branch_result = future.result()
+                    branch_results.append(branch_result)
+                    if fail_fast and branch_result.get("status") == "failed":
+                        break
+        branch_results.sort(key=lambda item: str(item.get("id") or ""))
+        result["branch_results"] = branch_results
+        result["branches"] = {str(item["id"]): item for item in branch_results}
+        required_results = [item for item in branch_results if item.get("required", True)]
+        success_count = len([item for item in required_results if item.get("status") in {"done", "warning"}])
+        minimum_successful = int(step.get("minimum_successful") or len(required_results))
+        if any(item.get("status") == "awaiting_approval" for item in branch_results):
+            result["status"] = "awaiting_approval"
+        elif any(item.get("status") == "failed" for item in required_results):
+            result["status"] = "failed"
+        elif success_count < minimum_successful:
+            result["status"] = "failed"
+            result["error"] = f"minimum_successful not reached: {success_count}/{minimum_successful}"
+        else:
+            result["status"] = "done"
+        result["output"] = {str(item["id"]): item.get("output", {}) for item in branch_results}
+        return result
 
     def _execute_workflow_command_step(
         self,
@@ -3262,6 +3946,10 @@ krail --local graph check
             return {"id": step_id, "kind": kind, "status": "dry_run", "step": step}
         if kind == "command":
             return self._execute_workflow_command_step(step, step_id=step_id, run_dir=run_dir, log_prefix=log_prefix, context=context)
+        if kind == "approval":
+            return self._execute_workflow_approval_step(workflow_id, step, step_id=step_id, context=context, path=tuple(log_prefix.split("-")))
+        if kind == "workflow":
+            return self._execute_workflow_child_step(step, step_id=step_id, dry_run=dry_run, context=context, path=tuple(log_prefix.split("-")))
         if kind == "agent":
             attempts = int(step.get("retry", 0)) + 1
             prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
@@ -3345,7 +4033,7 @@ krail --local graph check
                 child_results = self._execute_workflow_steps(workflow_id, branch_steps, spec=spec, dry_run=dry_run, run_dir=run_dir, context=context, path=(*path, f"{index:02d}-{step_id}", branch_name))
                 result[branch_name] = child_results
                 failures = self._flatten_workflow_failures(child_results)
-                result["status"] = "failed" if failures else ("dry_run" if dry_run else "done")
+                result["status"] = "awaiting_approval" if self._flatten_workflow_pauses(child_results) else ("failed" if failures else ("dry_run" if dry_run else "done"))
             elif kind == "repeat":
                 max_iterations = int(step["max_iterations"])
                 iteration_results: list[dict[str, Any]] = []
@@ -3360,6 +4048,9 @@ krail --local graph check
                     else:
                         context["loop"] = previous_loop
                     iteration_results.append({"iteration": iteration, "steps": child_results})
+                    if self._flatten_workflow_pauses(child_results):
+                        stop_reason = "awaiting_approval"
+                        break
                     if dry_run:
                         stop_reason = "dry_run"
                         break
@@ -3374,7 +4065,7 @@ krail --local graph check
                         break
                 result["iterations"] = len(iteration_results)
                 result["stop_reason"] = stop_reason
-                result["status"] = "dry_run" if dry_run else ("done" if stop_reason == "condition_met" else "failed")
+                result["status"] = "awaiting_approval" if stop_reason == "awaiting_approval" else ("dry_run" if dry_run else ("done" if stop_reason == "condition_met" else "failed"))
             elif kind == "foreach":
                 if "items" in step:
                     items = step["items"]
@@ -3409,31 +4100,47 @@ krail --local graph check
                     else:
                         context["loop"] = previous_loop
                     iteration_results.append({"index": item_index, "item": item, "steps": child_results})
-                    if self._flatten_workflow_failures(child_results):
+                    if self._flatten_workflow_pauses(child_results) or self._flatten_workflow_failures(child_results):
                         break
                 failures = self._flatten_workflow_failures([{"iteration_results": iteration_results}])
-                result["status"] = "failed" if failures else ("dry_run" if dry_run else "done")
+                result["status"] = "awaiting_approval" if self._flatten_workflow_pauses([{"iteration_results": iteration_results}]) else ("failed" if failures else ("dry_run" if dry_run else "done"))
+            elif kind == "parallel":
+                result = self._execute_workflow_parallel_step(
+                    workflow_id,
+                    step,
+                    step_id=step_id,
+                    spec=spec,
+                    dry_run=dry_run,
+                    run_dir=run_dir,
+                    context=context,
+                    path=path,
+                )
             else:
                 result = self._execute_workflow_leaf_step(workflow_id, step, spec=spec, dry_run=dry_run, run_dir=run_dir, log_prefix=log_prefix, context=context)
             results.append(result)
             self._record_workflow_result(context, result)
+            if self._workflow_result_paused(result):
+                break
             if self._workflow_result_failed(result) and step.get("on_failure", "stop") == "stop":
                 break
             time.sleep(0.01)
         return results
 
-    def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
-        shown = self.workflow_show(workflow_id)
-        if not shown.get("materialized", True):
-            return {
-                "status": "not_materialized",
-                "workflow": workflow_id,
-                "message": "Run `krail --local workflow init` first so the workflow spec is repo-backed and reviewable.",
-                "next_action": shown.get("next_action") or f"krail --local workflow init {workflow_id}",
-                "template": shown.get("template"),
-            }
-        spec = shown["workflow"]
-        validation = shown.get("validation") or self._validate_workflow_spec(spec, path=shown["path"])
+    def _execute_workflow_spec(
+        self,
+        workflow_id: str,
+        spec: dict[str, Any],
+        *,
+        validation_path: str | None,
+        dry_run: bool = False,
+        force: bool = False,
+        inputs: dict[str, Any] | None = None,
+        parent_run_id: str | None = None,
+        parent_step_path: str | None = None,
+        call_depth: int = 0,
+        call_stack: list[str] | None = None,
+    ) -> dict[str, Any]:
+        validation = self._validate_workflow_spec(spec, path=validation_path)
         if not validation["ok"]:
             return {"status": "invalid", "workflow": workflow_id, "validation": validation}
         steps = spec.get("steps") or []
@@ -3443,6 +4150,9 @@ krail --local graph check
         run_dir = self.sessions_dir / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "workflow.yaml").write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        workflow_digest = self._approval_digest(spec)
+        input_payload = inputs if isinstance(inputs, dict) else (spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {})
+        input_digest = self._approval_digest(input_payload)
         started_at = _dt.datetime.now(_dt.UTC)
         results: list[dict[str, Any]] = []
         lock: Path | None = None
@@ -3451,10 +4161,19 @@ krail --local graph check
         try:
             workflow_name = str(spec.get("id") or workflow_id)
             context: dict[str, Any] = {
-                "inputs": spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {},
+                "inputs": input_payload,
                 "vars": spec.get("vars") if isinstance(spec.get("vars"), dict) else {},
                 "steps": {},
-                "workflow": {"run_id": run_id, "id": workflow_name, "elapsed_seconds": 0},
+                "workflow": {
+                    "run_id": run_id,
+                    "id": workflow_name,
+                    "elapsed_seconds": 0,
+                    "workflow_digest": workflow_digest,
+                    "parent_run_id": parent_run_id,
+                    "parent_step_path": parent_step_path,
+                    "call_depth": call_depth,
+                    "call_stack": call_stack or [workflow_name],
+                },
             }
             results = self._execute_workflow_steps(
                 workflow_name,
@@ -3469,20 +4188,156 @@ krail --local graph check
                 lock.unlink()
         ended_at = _dt.datetime.now(_dt.UTC)
         failed_steps = self._flatten_workflow_failures(results)
-        status = "dry_run" if dry_run else ("done" if not failed_steps and len(results) == len(steps) else "failed")
+        paused_steps = self._flatten_workflow_pauses(results)
+        status = "dry_run" if dry_run else ("awaiting_approval" if paused_steps else ("done" if not failed_steps and len(results) == len(steps) else "failed"))
+        next_step_index = None
+        if paused_steps:
+            paused_id = paused_steps[0].get("id")
+            for index, result in enumerate(results):
+                if result.get("id") == paused_id or self._workflow_result_paused(result):
+                    next_step_index = index
+                    break
+        state = self._write_workflow_state(
+            run_dir,
+            run_id=run_id,
+            workflow_id=str(spec.get("id") or workflow_id),
+            status=status,
+            results=results,
+            next_step_index=next_step_index,
+            pending_approval_id=str(paused_steps[0].get("approval_id")) if paused_steps and paused_steps[0].get("approval_id") else None,
+            workflow_digest=workflow_digest,
+        )
+        context_for_outputs: dict[str, Any] = {
+            "inputs": input_payload,
+            "vars": spec.get("vars") if isinstance(spec.get("vars"), dict) else {},
+            "steps": {},
+            "workflow": {"run_id": run_id, "id": spec.get("id") or workflow_id, "workflow_digest": workflow_digest},
+        }
+        self._record_saved_workflow_results(context_for_outputs, results)
+        output = self._workflow_outputs(spec, context_for_outputs)
         payload = {
             "status": status,
             "run_id": run_id,
             "workflow": spec.get("id") or workflow_id,
+            "parent_run_id": parent_run_id,
+            "parent_step_path": parent_step_path,
+            "call_depth": call_depth,
+            "input_digest": input_digest,
+            "workflow_digest": workflow_digest,
             "path": str(run_dir.relative_to(self.project_path)),
             "started_at": started_at.isoformat(),
             "ended_at": ended_at.isoformat(),
             "duration_seconds": round((ended_at - started_at).total_seconds(), 3),
             "failed_step": failed_steps[0]["id"] if failed_steps else None,
+            "pending_approval_id": state.get("pending_approval_id"),
+            "output": output,
             "steps": results,
             "validation": validation,
         }
         (run_dir / "result.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return payload
+
+    def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
+        shown = self.workflow_show(workflow_id)
+        if not shown.get("materialized", True):
+            return {
+                "status": "not_materialized",
+                "workflow": workflow_id,
+                "message": "Run `krail --local workflow init` first so the workflow spec is repo-backed and reviewable.",
+                "next_action": shown.get("next_action") or f"krail --local workflow init {workflow_id}",
+                "template": shown.get("template"),
+            }
+        return self._execute_workflow_spec(
+            workflow_id,
+            shown["workflow"],
+            validation_path=shown["path"],
+            dry_run=dry_run,
+            force=force,
+        )
+
+    def workflow_resume(self, run_id: str, *, force: bool = False) -> dict[str, Any]:
+        run_dir = self._workflow_run_dir(run_id)
+        state_path = run_dir / "state.json"
+        if not state_path.exists():
+            raise FileNotFoundError(f"Workflow state not found for run: {run_id}")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if state.get("status") != "awaiting_approval":
+            return {"status": "not_awaiting_approval", "run_id": run_id, "state": state}
+        spec = yaml.safe_load((run_dir / "workflow.yaml").read_text(encoding="utf-8")) or {}
+        if not isinstance(spec, dict):
+            raise ValueError("workflow snapshot must be a mapping")
+        workflow_name = str(spec.get("id") or state.get("workflow") or run_id)
+        validation = self._validate_workflow_spec(spec, path=str((run_dir / "workflow.yaml").relative_to(self.project_path)))
+        if not validation["ok"]:
+            return {"status": "invalid", "run_id": run_id, "validation": validation}
+        result_path = run_dir / "result.json"
+        previous_payload = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
+        previous_results = previous_payload.get("steps") if isinstance(previous_payload.get("steps"), list) else []
+        start_index = state.get("next_step_index")
+        if not isinstance(start_index, int) or start_index < 0:
+            start_index = len(previous_results)
+        preserved_results = previous_results[:start_index]
+        steps = spec.get("steps") or []
+        lock: Path | None = None
+        if not force:
+            lock = self._acquire_workflow_lock(workflow_name)
+        try:
+            workflow_digest = state.get("workflow_digest") or self._approval_digest(spec)
+            context: dict[str, Any] = {
+                "inputs": spec.get("inputs") if isinstance(spec.get("inputs"), dict) else {},
+                "vars": spec.get("vars") if isinstance(spec.get("vars"), dict) else {},
+                "steps": {},
+                "workflow": {"run_id": state.get("run_id") or run_id, "id": workflow_name, "elapsed_seconds": 0, "workflow_digest": workflow_digest},
+            }
+            self._record_saved_workflow_results(context, preserved_results)
+            resumed_results = self._execute_workflow_steps(
+                workflow_name,
+                steps[start_index:],
+                spec=spec,
+                dry_run=False,
+                run_dir=run_dir,
+                context=context,
+                path=(f"resume{start_index}",),
+            )
+            results = [*preserved_results, *resumed_results]
+        finally:
+            if lock and lock.exists():
+                lock.unlink()
+        ended_at = _dt.datetime.now(_dt.UTC)
+        failed_steps = self._flatten_workflow_failures(results)
+        paused_steps = self._flatten_workflow_pauses(results)
+        status = "awaiting_approval" if paused_steps else ("done" if not failed_steps and len(results) == len(steps) else "failed")
+        next_step_index = None
+        if paused_steps:
+            paused_id = paused_steps[0].get("id")
+            for index, result in enumerate(results):
+                if result.get("id") == paused_id or self._workflow_result_paused(result):
+                    next_step_index = index
+                    break
+        self._write_workflow_state(
+            run_dir,
+            run_id=str(state.get("run_id") or run_id),
+            workflow_id=workflow_name,
+            status=status,
+            results=results,
+            next_step_index=next_step_index,
+            pending_approval_id=str(paused_steps[0].get("approval_id")) if paused_steps and paused_steps[0].get("approval_id") else None,
+            workflow_digest=str(state.get("workflow_digest") or self._approval_digest(spec)),
+        )
+        payload = {
+            "status": status,
+            "run_id": state.get("run_id") or run_id,
+            "workflow": workflow_name,
+            "path": str(run_dir.relative_to(self.project_path)),
+            "started_at": previous_payload.get("started_at"),
+            "ended_at": ended_at.isoformat(),
+            "duration_seconds": previous_payload.get("duration_seconds"),
+            "failed_step": failed_steps[0]["id"] if failed_steps else None,
+            "pending_approval_id": paused_steps[0].get("approval_id") if paused_steps else None,
+            "steps": results,
+            "validation": validation,
+        }
+        result_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return payload
 
     def workflow_run(self, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict[str, Any]:

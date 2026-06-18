@@ -227,6 +227,21 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
         _print_json(project.workflow_runs(limit=args.limit))
     elif args.workflow_command == "status":
         _print_json(project.workflow_status(args.run_id))
+    elif args.workflow_command == "resume":
+        _print_json(project.workflow_resume(args.run_id, force=args.force))
+
+def cmd_approval(project: rail.Project, args: argparse.Namespace):
+    if args.approval_command == "list":
+        _print_json(project.approval_list(status=args.status))
+    elif args.approval_command == "show":
+        _print_json(project.approval_show(args.approval_id))
+    elif args.approval_command in {"approve", "reject", "request-changes"}:
+        decision = {
+            "approve": "approved",
+            "reject": "rejected",
+            "request-changes": "changes_requested",
+        }[args.approval_command]
+        _print_json(project.approval_decide(args.approval_id, decision=decision, comment=args.comment or "", resume=args.resume))
 
 def cmd_schedule(project: rail.Project, args: argparse.Namespace):
     if args.schedule_command == "install":
@@ -625,6 +640,29 @@ def main():
     wrl.add_argument("--limit", type=int, default=20)
     wst = wf_subs.add_parser("status", help="Show a local workflow run result")
     wst.add_argument("run_id")
+    wre = wf_subs.add_parser("resume", help="Resume a workflow run paused on an approval")
+    wre.add_argument("run_id")
+    wre.add_argument("--force", action="store_true", help="Bypass workflow lock")
+
+    # Approvals
+    approval_parser = subparsers.add_parser("approval", help="Review repo-backed workflow approvals")
+    approval_subs = approval_parser.add_subparsers(dest="approval_command")
+    al = approval_subs.add_parser("list", help="List approvals")
+    al.add_argument("--status", help="Filter by status, e.g. pending")
+    ash = approval_subs.add_parser("show", help="Show an approval")
+    ash.add_argument("approval_id")
+    aa = approval_subs.add_parser("approve", help="Approve an approval request")
+    aa.add_argument("approval_id")
+    aa.add_argument("--comment", default="")
+    aa.add_argument("--resume", action="store_true")
+    arj = approval_subs.add_parser("reject", help="Reject an approval request")
+    arj.add_argument("approval_id")
+    arj.add_argument("--comment", default="")
+    arj.add_argument("--resume", action="store_true")
+    arc = approval_subs.add_parser("request-changes", help="Request changes for an approval")
+    arc.add_argument("approval_id")
+    arc.add_argument("--comment", default="")
+    arc.add_argument("--resume", action="store_true")
 
     # Schedules
     schedule_parser = subparsers.add_parser("schedule", help="Generate local scheduler wrappers for workflows")
@@ -851,6 +889,8 @@ def main():
         cmd_task(project, args)
     elif args.command == "workflow":
         cmd_workflow(project, args)
+    elif args.command == "approval":
+        cmd_approval(project, args)
     elif args.command == "schedule":
         cmd_schedule(project, args)
     elif args.command == "graph":

@@ -2958,7 +2958,7 @@ async def resolve_project_approval(slug: str, approval_id: str, data: ApprovalRe
         project=project,
         approval_id=approval_id,
         status=data.status,
-        granted_by_user_id=data.grantedByUserId,
+        granted_by_user_id=None,
         resolution_note=data.resolutionNote,
     )
     if approval is None:

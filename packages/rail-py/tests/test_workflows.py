@@ -305,6 +305,250 @@ def test_workflow_repeat_fails_after_max_iterations(tmp_path: Path):
     assert result["steps"][0]["stop_reason"] == "max_iterations_reached"
 
 
+def test_workflow_approval_pauses_and_resumes(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("KRAIL_ACTOR", "local:reviewer")
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "approval-flow.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "approval_flow",
+                "steps": [
+                    {
+                        "id": "prepare",
+                        "kind": "command",
+                        "run": "python3 -c \"from pathlib import Path; Path('artifacts/prepared.txt').write_text('yes')\"",
+                    },
+                    {
+                        "id": "approve_plan",
+                        "kind": "approval",
+                        "title": "Approve plan",
+                        "description": "Review the generated plan.",
+                        "subject": {"step": "prepare"},
+                        "reviewers": {"teams": ["platform"]},
+                        "minimum_approvals": 1,
+                        "prevent_self_approval": False,
+                    },
+                    {
+                        "id": "release",
+                        "kind": "command",
+                        "when": 'steps.approve_plan.decision == "approved"',
+                        "run": "python3 -c \"from pathlib import Path; Path('artifacts/released.txt').write_text('yes')\"",
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    paused = runtime.workflow_execute("approval-flow")
+    approval_id = paused["pending_approval_id"]
+
+    assert paused["status"] == "awaiting_approval"
+    assert approval_id
+    assert (root / "research_plan" / "sessions" / paused["run_id"] / "state.json").exists()
+    assert runtime.approval_show(approval_id)["approval"]["status"] == "pending"
+
+    decision = runtime.approval_decide(approval_id, decision="approved", comment="Reviewed.")
+    resumed = runtime.workflow_resume(paused["run_id"])
+
+    assert decision["approval"]["status"] == "approved"
+    assert resumed["status"] == "done"
+    assert [step["id"] for step in resumed["steps"]] == ["prepare", "approve_plan", "release"]
+    assert resumed["steps"][1]["status"] == "done"
+    assert resumed["steps"][1]["decision"] == "approved"
+    assert (root / "artifacts" / "prepared.txt").read_text(encoding="utf-8") == "yes"
+    assert (root / "artifacts" / "released.txt").read_text(encoding="utf-8") == "yes"
+    decisions_path = root / "research_plan" / "approvals" / f"{approval_id}.decisions.jsonl"
+    assert json.loads(decisions_path.read_text(encoding="utf-8").splitlines()[0])["decision"] == "approved"
+
+
+def test_workflow_approval_rejection_fails_on_resume(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("KRAIL_ACTOR", "local:reviewer")
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "approval-reject.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "approval_reject",
+                "steps": [
+                    {"id": "prepare", "kind": "command", "run": "true"},
+                    {
+                        "id": "approval",
+                        "kind": "approval",
+                        "prevent_self_approval": False,
+                        "subject": {"step": "prepare"},
+                    },
+                    {"id": "after", "kind": "command", "run": "exit 9"},
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    paused = runtime.workflow_execute("approval-reject")
+    runtime.approval_decide(paused["pending_approval_id"], decision="rejected", comment="No.")
+    resumed = runtime.workflow_resume(paused["run_id"])
+
+    assert resumed["status"] == "failed"
+    assert resumed["failed_step"] == "approval"
+    assert resumed["steps"][1]["decision"] == "rejected"
+
+
+def test_workflow_step_runs_child_and_exposes_outputs(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "child.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "child",
+                "outputs": {
+                    "digest": {"from": "steps.validate.output.digest"},
+                    "validated": {"from": "steps.validate.output.validated"},
+                },
+                "steps": [
+                    {
+                        "id": "validate",
+                        "kind": "command",
+                        "run": "python3 -c 'import json; print(json.dumps({\"digest\": \"sha256:test\", \"validated\": True}))'",
+                        "capture": {"from": "stdout", "format": "json"},
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (workflow_dir / "parent.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "parent",
+                "inputs": {"specification": "spec.yaml"},
+                "steps": [
+                    {
+                        "id": "validate_specification",
+                        "kind": "workflow",
+                        "workflow": "child",
+                        "with": {"specification": "${{ inputs.specification }}"},
+                        "expose": {"specification_digest": "digest", "validated_specification": "validated"},
+                    },
+                    {
+                        "id": "write_digest",
+                        "kind": "command",
+                        "run": "python3 -c \"from pathlib import Path; Path('artifacts/digest.txt').write_text('${{ steps.validate_specification.output.specification_digest }}')\"",
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("parent")
+    child_step = result["steps"][0]
+    child_status = runtime.workflow_status(child_step["child_run_id"])
+
+    assert result["status"] == "done"
+    assert child_step["status"] == "done"
+    assert child_step["output"]["specification_digest"] == "sha256:test"
+    assert child_status["parent_run_id"] == result["run_id"]
+    assert child_status["parent_step_path"].endswith("validate_specification")
+    assert child_status["call_depth"] == 1
+    assert (root / "artifacts" / "digest.txt").read_text(encoding="utf-8") == "sha256:test"
+
+
+def test_workflow_step_rejects_recursion(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "self-call.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "self_call",
+                "steps": [
+                    {"id": "again", "kind": "workflow", "workflow": "self_call"},
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("self-call")
+
+    assert result["status"] == "failed"
+    assert result["steps"][0]["error"] == "recursive workflow call rejected"
+
+
+def test_workflow_parallel_block_aggregates_branch_outputs(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "parallel.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "parallel_flow",
+                "steps": [
+                    {
+                        "id": "reviews",
+                        "kind": "parallel",
+                        "max_parallel": 2,
+                        "fail_fast": False,
+                        "branches": [
+                            {
+                                "id": "security",
+                                "read_only": True,
+                                "resources": {"read": ["candidate"]},
+                                "steps": [
+                                    {
+                                        "id": "review",
+                                        "kind": "command",
+                                        "run": "python3 -c 'import json; print(json.dumps({\"finding\": \"none\"}))'",
+                                        "capture": {"from": "stdout", "format": "json"},
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "correctness",
+                                "read_only": True,
+                                "resources": {"read": ["candidate"]},
+                                "steps": [
+                                    {
+                                        "id": "review",
+                                        "kind": "command",
+                                        "run": "python3 -c 'import json; print(json.dumps({\"finding\": \"ok\"}))'",
+                                        "capture": {"from": "stdout", "format": "json"},
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("parallel")
+
+    assert result["status"] == "done"
+    reviews = result["steps"][0]
+    assert reviews["status"] == "done"
+    assert reviews["branches"]["security"]["output"]["review"]["finding"] == "none"
+    assert reviews["branches"]["correctness"]["output"]["review"]["finding"] == "ok"
+
+
 def test_dispatch_creates_session_result_template(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)
