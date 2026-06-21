@@ -215,6 +215,16 @@ class Project:
             raise RuntimeError("wiki commands require local mode")
         return self._backend.knowledge.wiki_check()
 
+    def wiki_site_build(self, *, force: bool = False, title: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("wiki commands require local mode")
+        return self._backend.knowledge.wiki_site_build(force=force, title=title)
+
+    def wiki_site_check(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("wiki commands require local mode")
+        return self._backend.knowledge.wiki_site_check()
+
     def doctor(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("doctor requires local mode")

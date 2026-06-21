@@ -182,6 +182,19 @@ def test_cmd_vector_build_passes_provider_and_model(capsys):
     assert payload == {"provider": "local_hash", "model": "demo-model"}
 
 
+def test_cmd_wiki_site_build_passes_force_and_title(capsys):
+    class _Project:
+        def wiki_site_build(self, *, force=False, title=None):
+            return {"force": force, "title": title}
+
+    args = argparse.Namespace(wiki_command="site", wiki_site_command="build", force=True, title="Team Wiki")
+
+    rail_cli.cmd_wiki(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"force": True, "title": "Team Wiki"}
+
+
 def test_cmd_ci_init_prints_written_path(capsys):
     class _Project:
         def ci_init(self, *, path):

@@ -1,6 +1,10 @@
 # KRAIL
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AkeBoss-tech/knowledge)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/krail?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/krail)
+[![PyPI version](https://badge.fury.io/py/krail.svg)](https://badge.fury.io/py/krail)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **GBrain-style brain UX. RAIL-style truth engine.**
 

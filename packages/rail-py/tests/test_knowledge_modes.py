@@ -146,3 +146,65 @@ def test_wiki_check_rejects_missing_local_image_assets(tmp_path: Path):
 
     assert checked["ok"] is False
     assert any("image target does not exist" in error for error in checked["errors"])
+
+
+def test_wiki_site_build_exports_static_reader_app(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    topic = runtime.topic_upsert(
+        "latex-and-mermaid",
+        title="Latex And Mermaid",
+        content="A formula $x^2$ and a diagram.\n\n```mermaid\ngraph TD\n  A --> B\n```",
+        entities=["KRAIL"],
+        entity_type="Package",
+    )
+    runtime.wiki_build(source_paths=[topic["path"]])
+    asset_dir = root / "docs" / "wiki" / "assets" / "latex-and-mermaid"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "diagram.svg").write_text("<svg></svg>", encoding="utf-8")
+
+    built = runtime.wiki_site_build()
+    checked = runtime.wiki_site_check()
+    pages = yaml.safe_load((root / "docs" / "wiki-site" / "data" / "pages.json").read_text(encoding="utf-8"))
+    site = yaml.safe_load((root / "docs" / "wiki-site" / "data" / "site.json").read_text(encoding="utf-8"))
+    search = yaml.safe_load((root / "docs" / "wiki-site" / "data" / "search-index.json").read_text(encoding="utf-8"))
+    app = (root / "docs" / "wiki-site" / "index.html").read_text(encoding="utf-8")
+    script = (root / "docs" / "wiki-site" / "assets" / "krail-wiki.js").read_text(encoding="utf-8")
+
+    assert built["status"] == "built"
+    assert built["entrypoint"] == "docs/wiki-site/index.html"
+    assert {"markdown", "mermaid", "latex", "knowledge_graph", "custom_html_pages", "metadata_browser"}.issubset(set(built["features"]))
+    assert built["search_records"] >= 1
+    assert checked["ok"] is True
+    assert site["counts"]["pages"] == 1
+    assert site["knowledge_mode"]["id"] == "research"
+    assert search["records"]
+    assert pages["pages"][0]["type"] == "markdown"
+    assert pages["pages"][0]["metadata"]["source_path"] == "topics/latex-and-mermaid.md"
+    assert "$x^2$" in pages["pages"][0]["body"]
+    assert "mermaid" in app
+    assert "katex" in app
+    assert "selectGraphNodeAt" in script
+    assert (root / "docs" / "wiki-site" / "assets" / "latex-and-mermaid" / "diagram.svg").exists()
+
+
+def test_wiki_site_build_includes_custom_html_pages(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    custom_dir = root / "docs" / "wiki" / "custom"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "interactive-map.html").write_text(
+        '<!-- krail-wiki: {"title":"Interactive Map","topics":["navigation"],"entities":["KRAIL"]} -->\n'
+        "<!doctype html><title>Fallback</title><main>Custom page</main>",
+        encoding="utf-8",
+    )
+
+    built = runtime.wiki_site_build()
+    pages = yaml.safe_load((root / "docs" / "wiki-site" / "data" / "pages.json").read_text(encoding="utf-8"))["pages"]
+    custom = next(page for page in pages if page["type"] == "html")
+
+    assert built["pages"] == 1
+    assert custom["title"] == "Interactive Map"
+    assert custom["topics"] == ["navigation"]
+    assert custom["entities"] == ["KRAIL"]
+    assert custom["url"] == "../wiki/custom/interactive-map.html"

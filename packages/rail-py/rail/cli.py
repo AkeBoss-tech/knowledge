@@ -155,6 +155,14 @@ def cmd_wiki(project: rail.Project, args: argparse.Namespace):
         _print_json(result)
         if not result.get("ok", False):
             sys.exit(1)
+    elif args.wiki_command == "site":
+        if args.wiki_site_command == "build":
+            _print_json(project.wiki_site_build(force=args.force, title=args.title))
+        elif args.wiki_site_command == "check":
+            result = project.wiki_site_check()
+            _print_json(result)
+            if not result.get("ok", False):
+                sys.exit(1)
 
 def cmd_doctor(project: rail.Project, args: argparse.Namespace):
     _print_json(project.doctor())
@@ -561,6 +569,12 @@ def main():
     wiki_build.add_argument("--force", action="store_true", help="Overwrite existing generated wiki pages")
     wiki_subs.add_parser("list", help="List generated wiki pages")
     wiki_subs.add_parser("check", help="Validate generated wiki pages")
+    wiki_site = wiki_subs.add_parser("site", help="Build and inspect the static wiki app")
+    wiki_site_subs = wiki_site.add_subparsers(dest="wiki_site_command")
+    wiki_site_build = wiki_site_subs.add_parser("build", help="Build a GitHub Pages-ready static wiki app")
+    wiki_site_build.add_argument("--force", action="store_true", help="Overwrite docs/wiki-site")
+    wiki_site_build.add_argument("--title", help="Override the browser title and app heading")
+    wiki_site_subs.add_parser("check", help="Validate the static wiki app")
 
     # Doctor
     subparsers.add_parser("doctor", help="Check local project health")

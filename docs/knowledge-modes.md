@@ -102,6 +102,8 @@ krail --local wiki plan
 krail --local wiki build
 krail --local wiki list
 krail --local wiki check
+krail --local wiki site build
+krail --local wiki site check
 ```
 
 Use `--source topics/example.md` to generate one page, `--include-inbox` to
@@ -111,6 +113,36 @@ The baseline wiki builder is deterministic: it preserves source notes, records
 `source_path`, stamps the active `knowledge_mode`, and keeps generated pages
 separate from the canonical topic files. A UI should read `topics/` for editable
 source material and `docs/wiki/` for polished browsing.
+
+`krail --local wiki site build` packages the generated wiki as a static app under
+`docs/wiki-site/`, suitable for GitHub Pages or any static host. The app reads
+prebuilt JSON from `docs/wiki-site/data/`, renders Markdown in the browser, and
+loads Mermaid plus KaTeX for diagrams and LaTeX math. It also includes an
+Obsidian-like graph pane backed by `research_plan/graph/graph.json`; clicking a
+graph node shows its metadata and nearby typed links.
+
+The site export writes:
+
+- `docs/wiki-site/data/site.json`: project, mode, pack, feature, and count
+  metadata.
+- `docs/wiki-site/data/pages.json`: generated Markdown and custom HTML pages
+  with frontmatter metadata.
+- `docs/wiki-site/data/graph.json`: document, topic, entity, source, and typed
+  edge graph data.
+- `docs/wiki-site/data/search-index.json`: page and graph-node search records.
+
+Coding-agent workflows can add full custom pages alongside generated Markdown by
+writing self-contained HTML files under `docs/wiki/custom/`. A custom page can
+declare list metadata with an optional opening comment:
+
+```html
+<!-- krail-wiki: {"title":"Interactive Map","topics":["planning"],"entities":["KRAIL"]} -->
+```
+
+The static app lists those files as first-class wiki pages and opens them inside
+the same reader shell. Use `docs/wiki/assets/` for reusable images, SVGs, and
+embedded demos referenced from Markdown; the site builder copies those assets
+into `docs/wiki-site/assets/`.
 
 For polished pages, use the agent-backed workflow:
 

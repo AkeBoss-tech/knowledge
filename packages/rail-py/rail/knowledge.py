@@ -4,15 +4,17 @@ import datetime as _dt
 import ast
 import copy
 import hashlib
+import html
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import yaml
@@ -230,12 +232,14 @@ than a work log: neutral, structured, skimmable, and useful.
 3. Rewrite generated pages in `docs/wiki/` into clear encyclopedia-style pages while preserving frontmatter, especially `source_path`.
 4. Add rich elements only when they improve understanding: tables, callouts, Mermaid diagrams, SVG explainers, self-contained HTML demos, lightweight simulations, timelines, local images, generated images, or web/Google Images references.
 5. Put reusable rich assets under `docs/wiki/assets/<page-slug>/` or `artifacts/wiki/<page-slug>/` and link to them from the page.
-6. Keep claims grounded in the source topic, source URLs, or integrity records. Mark gaps instead of inventing.
-7. Run `krail --local wiki check`, `krail --local graph build`, and `krail --local vector build` before finishing.
+6. When a topic needs a bespoke app-like reader page, write self-contained HTML under `docs/wiki/custom/` with a `krail-wiki` metadata comment so the static app can list it.
+7. Keep claims grounded in the source topic, source URLs, or integrity records. Mark gaps instead of inventing.
+8. Run `krail --local wiki check`, `krail --local wiki site build --force`, `krail --local wiki site check`, `krail --local graph build`, and `krail --local vector build` before finishing.
 
 ## Rich Artifact Menu
 
 - `interactive_html`: self-contained HTML files for simulations, timelines, calculators, sortable views, or concept explorers. Use inline CSS/JS only; no network scripts or trackers.
+- `custom_html_page`: self-contained HTML files under `docs/wiki/custom/` for bespoke first-class pages in the static wiki app. Include an opening `krail-wiki` metadata comment.
 - `svg`: inline or linked SVG diagrams for taxonomies, process maps, architecture sketches, and visual summaries. Include captions or nearby alt text.
 - `mermaid`: editable text diagrams for flows, sequences, state machines, and simple graphs.
 - `image_asset`: local screenshots, generated images, annotated figures, or exported diagrams under `docs/wiki/assets/<page-slug>/`.
@@ -282,6 +286,7 @@ KRAIL_AGENT_CHECKLISTS: dict[str, str] = {
 - add diagrams, demos, SVGs, tables, images, or web image references only where they clarify the topic
 - keep interactive HTML self-contained and record image source/credit details
 - run `krail --local wiki check`
+- run `krail --local wiki site build --force` and `krail --local wiki site check`
 - refresh graph/vector artifacts
 - record gaps instead of inventing missing facts
 """,
@@ -367,9 +372,10 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
                 "kind": "agent",
                 "role": "wiki",
                 "runner": "auto",
-                "prompt": "Generate or refine docs/wiki pages from the current wiki plan. Make pages concise, source-backed, and encyclopedia-like. Use the rich_artifacts catalog from `krail --local wiki plan`: self-contained interactive HTML demos, SVG explainers, Mermaid diagrams, tables, callouts, study blocks, local image assets, generated images, and web/Google Images references are allowed when they materially improve understanding. Store reusable assets under docs/wiki/assets/<page-slug>/ or artifacts/wiki/<page-slug>/. Preserve source_path frontmatter, include image source URL/credit/license status when known, and do not invent unsupported claims.",
+                "prompt": "Generate or refine docs/wiki pages from the current wiki plan. Make pages concise, source-backed, and encyclopedia-like. Use the rich_artifacts catalog from `krail --local wiki plan`: self-contained interactive HTML demos, SVG explainers, Mermaid diagrams, tables, callouts, study blocks, local image assets, generated images, and web/Google Images references are allowed when they materially improve understanding. Store reusable assets under docs/wiki/assets/<page-slug>/ or artifacts/wiki/<page-slug>/. For bespoke app-like pages, write self-contained HTML under docs/wiki/custom/ with a krail-wiki metadata comment so `krail --local wiki site build` lists it as a first-class page. Preserve source_path frontmatter, include image source URL/credit/license status when known, and do not invent unsupported claims.",
             },
             {"id": "check", "kind": "command", "run": "krail --local wiki check"},
+            {"id": "site", "kind": "command", "run": "krail --local wiki site build --force && krail --local wiki site check"},
             {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
         ],
     },
@@ -571,6 +577,13 @@ WIKI_RICH_ARTIFACTS: list[dict[str, Any]] = [
         "where": "Use for simulations, sortable/comparable views, timelines, calculators, concept explorers, and small local demos.",
         "storage": "docs/wiki/assets/<page-slug>/<artifact-slug>.html or artifacts/wiki/<page-slug>/<artifact-slug>.html",
         "rules": ["inline CSS/JS only", "no external scripts", "no trackers", "link from the wiki page with a clear caption"],
+    },
+    {
+        "id": "custom_html_page",
+        "label": "Custom HTML wiki page",
+        "where": "Use for bespoke reader pages, interactive explorers, simulators, dashboards, timelines, or layouts that should appear as first-class pages in the static wiki app.",
+        "storage": "docs/wiki/custom/<page-slug>.html",
+        "rules": ["self-contained HTML", "include an opening <!-- krail-wiki: {...} --> metadata comment", "preserve source_path when derived from a topic", "no trackers"],
     },
     {
         "id": "svg",
@@ -1703,6 +1716,10 @@ class KnowledgeRuntime:
     def wiki_root(self) -> Path:
         return self.project_path / "docs" / "wiki"
 
+    @property
+    def wiki_site_root(self) -> Path:
+        return self.project_path / "docs" / "wiki-site"
+
     def _wiki_source_docs(
         self,
         *,
@@ -1924,6 +1941,465 @@ class KnowledgeRuntime:
                 if not candidate.exists():
                     errors.append(f"{rel}: image target does not exist: {target}")
         return {"ok": not errors, "root": "docs/wiki", "pages": len(pages), "errors": errors, "warnings": warnings}
+
+    def _wiki_site_pages(self) -> list[dict[str, Any]]:
+        pages: list[dict[str, Any]] = []
+        if self.wiki_root.exists():
+            for path in sorted(self.wiki_root.rglob("*.md")):
+                rel = path.relative_to(self.project_path).as_posix()
+                metadata, body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+                title = metadata.get("title") or self._title_for(path, body)
+                pages.append(
+                    {
+                        "id": self._slug(rel.removesuffix(".md"), fallback=path.stem),
+                        "type": "markdown",
+                        "path": rel,
+                        "title": title,
+                        "source_path": metadata.get("source_path"),
+                        "knowledge_mode": metadata.get("knowledge_mode"),
+                        "topics": self._ensure_list_of_strings(metadata.get("topics")),
+                        "entities": self._ensure_list_of_strings(metadata.get("entities")),
+                        "metadata": metadata,
+                        "body": body.strip(),
+                    }
+                )
+        custom_root = self.wiki_root / "custom"
+        if custom_root.exists():
+            for path in sorted(custom_root.rglob("*.html")):
+                rel = path.relative_to(self.project_path).as_posix()
+                text = path.read_text(encoding="utf-8")
+                meta_match = re.search(r"<!--\s*krail-wiki:\s*(\{.*?\})\s*-->", text, re.DOTALL)
+                metadata: dict[str, Any] = {}
+                if meta_match:
+                    try:
+                        loaded = json.loads(meta_match.group(1))
+                        if isinstance(loaded, dict):
+                            metadata = loaded
+                    except json.JSONDecodeError:
+                        metadata = {}
+                title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+                title = metadata.get("title") or (html.unescape(re.sub(r"\s+", " ", title_match.group(1)).strip()) if title_match else path.stem.replace("-", " ").title())
+                pages.append(
+                    {
+                        "id": self._slug(rel.removesuffix(".html"), fallback=path.stem),
+                        "type": "html",
+                        "path": rel,
+                        "title": str(title),
+                        "source_path": metadata.get("source_path"),
+                        "knowledge_mode": metadata.get("knowledge_mode"),
+                        "topics": self._ensure_list_of_strings(metadata.get("topics")),
+                        "entities": self._ensure_list_of_strings(metadata.get("entities")),
+                        "metadata": metadata,
+                        "url": "../wiki/custom/" + path.relative_to(custom_root).as_posix(),
+                    }
+                )
+        return pages
+
+    @staticmethod
+    def _wiki_site_search_index(*, pages: list[dict[str, Any]], graph: dict[str, Any]) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for page in pages:
+            records.append(
+                {
+                    "id": page["id"],
+                    "type": f"page:{page['type']}",
+                    "title": page["title"],
+                    "path": page["path"],
+                    "text": " ".join(
+                        [
+                            str(page.get("title") or ""),
+                            str(page.get("path") or ""),
+                            str(page.get("source_path") or ""),
+                            " ".join(page.get("topics") or []),
+                            " ".join(page.get("entities") or []),
+                            str(page.get("body") or ""),
+                        ]
+                    ).strip(),
+                }
+            )
+        for node in graph.get("nodes") or []:
+            records.append(
+                {
+                    "id": node.get("id"),
+                    "type": f"graph:{node.get('nodeType') or 'node'}",
+                    "title": node.get("label") or node.get("id"),
+                    "path": node.get("path"),
+                    "text": " ".join(str(value) for value in node.values() if isinstance(value, (str, int, float))).strip(),
+                }
+            )
+        return records
+
+    def _write_wiki_site_app(self, site_root: Path, *, title: str) -> None:
+        index = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="assets/krail-wiki.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>{html.escape(title)}</strong>
+        <span id="site-meta"></span>
+      </div>
+      <input id="search" type="search" placeholder="Search pages, entities, topics">
+      <div id="filters" class="filters"></div>
+      <nav id="page-list"></nav>
+    </aside>
+    <main class="content">
+      <article id="page"></article>
+    </main>
+    <aside class="context">
+      <section>
+        <h2>Graph</h2>
+        <canvas id="graph" width="520" height="360"></canvas>
+      </section>
+      <section>
+        <h2>Metadata</h2>
+        <dl id="metadata"></dl>
+      </section>
+    </aside>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+  <script src="assets/krail-wiki.js"></script>
+</body>
+</html>
+"""
+        css = """* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1d2430; background: #f7f8fb; }
+#app { display: grid; grid-template-columns: 280px minmax(0, 1fr) 360px; min-height: 100vh; }
+.sidebar, .context { background: #fff; border-color: #d9deea; border-style: solid; }
+.sidebar { border-width: 0 1px 0 0; padding: 16px; overflow: auto; }
+.context { border-width: 0 0 0 1px; padding: 16px; overflow: auto; }
+.brand { display: grid; gap: 4px; margin-bottom: 14px; }
+.brand span { color: #667085; font-size: 12px; }
+#search { width: 100%; padding: 9px 10px; border: 1px solid #cfd6e4; border-radius: 6px; margin-bottom: 12px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.filters button, #page-list button { border: 1px solid #d8deeb; background: #fff; color: #263244; border-radius: 6px; cursor: pointer; }
+.filters button { padding: 4px 8px; font-size: 12px; }
+.filters button.active { background: #263244; color: #fff; border-color: #263244; }
+#page-list { display: grid; gap: 6px; }
+#page-list button { text-align: left; padding: 8px; }
+#page-list button.active { border-color: #3762d8; background: #eef3ff; }
+.content { padding: 28px min(6vw, 72px); overflow: auto; }
+#page { max-width: 920px; margin: 0 auto; }
+#page h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 18px; }
+#page h2 { margin-top: 30px; border-bottom: 1px solid #e4e8f0; padding-bottom: 5px; }
+#page pre { overflow: auto; padding: 14px; background: #111827; color: #f8fafc; border-radius: 6px; }
+#page code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+#page table { width: 100%; border-collapse: collapse; }
+#page th, #page td { border: 1px solid #dfe4ee; padding: 6px 8px; }
+.custom-frame { width: 100%; min-height: 72vh; border: 1px solid #d9deea; border-radius: 6px; background: #fff; }
+.node-doc { color: #3762d8; }
+.node-entity { color: #047857; }
+.node-topic { color: #b45309; }
+.node-source { color: #7c3aed; }
+canvas { width: 100%; height: auto; border: 1px solid #e1e5ee; border-radius: 6px; background: #fbfcff; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; }
+dt { font-weight: 650; color: #4b5563; }
+dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 980px) {
+  #app { grid-template-columns: 1fr; }
+  .sidebar, .context { border-width: 0 0 1px 0; }
+  .content { padding: 22px 16px; }
+}
+"""
+        js = """const state = { site: {}, pages: [], graph: { nodes: [], edges: [] }, searchIndex: [], selectedType: "all", query: "", graphPositions: new Map(), selectedGraphNode: null };
+const $ = (id) => document.getElementById(id);
+
+async function boot() {
+  const [siteData, pagesData, graphData, searchData] = await Promise.all([
+    fetch("data/site.json").then((r) => r.json()).catch(() => ({})),
+    fetch("data/pages.json").then((r) => r.json()),
+    fetch("data/graph.json").then((r) => r.json()).catch(() => ({ nodes: [], edges: [] })),
+    fetch("data/search-index.json").then((r) => r.json()).catch(() => ({ records: [] })),
+  ]);
+  state.site = siteData || {};
+  state.pages = pagesData.pages || [];
+  state.graph = graphData || { nodes: [], edges: [] };
+  state.searchIndex = searchData.records || [];
+  $("site-meta").textContent = `${state.pages.length} pages · ${(state.graph.nodes || []).length} graph nodes`;
+  buildFilters();
+  $("search").addEventListener("input", (event) => { state.query = event.target.value.toLowerCase(); renderList(); });
+  $("graph").addEventListener("click", selectGraphNodeAt);
+  renderList();
+  drawGraph();
+  const first = location.hash ? state.pages.find((page) => page.id === location.hash.slice(1)) : state.pages[0];
+  if (first) selectPage(first.id);
+}
+
+function buildFilters() {
+  const types = ["all", ...Array.from(new Set(state.pages.map((page) => page.type)))];
+  $("filters").innerHTML = "";
+  for (const type of types) {
+    const button = document.createElement("button");
+    button.textContent = type;
+    button.className = type === state.selectedType ? "active" : "";
+    button.addEventListener("click", () => { state.selectedType = type; buildFilters(); renderList(); });
+    $("filters").appendChild(button);
+  }
+}
+
+function pageMatches(page) {
+  if (state.selectedType !== "all" && page.type !== state.selectedType) return false;
+  if (!state.query) return true;
+  const record = state.searchIndex.find((item) => item.id === page.id);
+  const haystack = record ? record.text.toLowerCase() : [page.title, page.path, page.source_path, ...(page.topics || []), ...(page.entities || []), page.body || ""].join(" ").toLowerCase();
+  return haystack.includes(state.query);
+}
+
+function renderList() {
+  $("page-list").innerHTML = "";
+  for (const page of state.pages.filter(pageMatches)) {
+    const button = document.createElement("button");
+    button.textContent = page.title;
+    button.dataset.id = page.id;
+    button.addEventListener("click", () => selectPage(page.id));
+    $("page-list").appendChild(button);
+  }
+}
+
+function selectPage(id) {
+  const page = state.pages.find((item) => item.id === id);
+  if (!page) return;
+  history.replaceState(null, "", `#${page.id}`);
+  document.querySelectorAll("#page-list button").forEach((button) => button.classList.toggle("active", button.dataset.id === id));
+  if (page.type === "html") {
+    $("page").innerHTML = `<h1>${escapeHtml(page.title)}</h1><iframe class="custom-frame" src="${escapeHtml(page.url)}" title="${escapeHtml(page.title)}"></iframe>`;
+  } else {
+    $("page").innerHTML = DOMPurify.sanitize(marked.parse(page.body || ""));
+    $("page").querySelectorAll("pre code.language-mermaid").forEach((code) => {
+      const diagram = document.createElement("div");
+      diagram.className = "mermaid";
+      diagram.textContent = code.textContent;
+      code.closest("pre").replaceWith(diagram);
+    });
+    mermaid.run({ querySelector: ".mermaid" }).catch(() => {});
+    if (window.renderMathInElement) renderMathInElement($("page"), { delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "\\\\[", right: "\\\\]", display: true },
+      { left: "$", right: "$", display: false },
+      { left: "\\\\(", right: "\\\\)", display: false }
+    ]});
+  }
+  renderMetadata(page);
+}
+
+function renderMetadata(page) {
+  const entries = [["Path", page.path], ["Type", page.type], ["Source", page.source_path], ["Mode", page.knowledge_mode], ["Topics", (page.topics || []).join(", ")], ["Entities", (page.entities || []).join(", ")]].filter(([, value]) => value);
+  for (const [key, value] of Object.entries(page.metadata || {})) {
+    if (["title", "topics", "entities", "source_path", "knowledge_mode"].includes(key)) continue;
+    entries.push([key, Array.isArray(value) ? value.join(", ") : typeof value === "object" ? JSON.stringify(value) : value]);
+  }
+  $("metadata").innerHTML = entries.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
+}
+
+function drawGraph() {
+  const canvas = $("graph");
+  const ctx = canvas.getContext("2d");
+  const nodes = (state.graph.nodes || []).slice(0, 120);
+  const edges = (state.graph.edges || []).slice(0, 260);
+  const byId = new Map(nodes.map((node, index) => [node.id, { ...node, x: 260 + Math.cos(index * 2.399) * (40 + index * 1.3), y: 180 + Math.sin(index * 2.399) * (35 + index), vx: 0, vy: 0 }]));
+  for (let tick = 0; tick < 120; tick++) {
+    for (const a of byId.values()) for (const b of byId.values()) {
+      if (a === b) continue;
+      const dx = a.x - b.x, dy = a.y - b.y, d2 = Math.max(80, dx * dx + dy * dy);
+      a.vx += dx / d2 * 1.4; a.vy += dy / d2 * 1.4;
+    }
+    for (const edge of edges) {
+      const a = byId.get(edge.from), b = byId.get(edge.to);
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      a.vx += dx * 0.002; a.vy += dy * 0.002; b.vx -= dx * 0.002; b.vy -= dy * 0.002;
+    }
+    for (const node of byId.values()) {
+      node.x = Math.max(12, Math.min(508, node.x + node.vx));
+      node.y = Math.max(12, Math.min(348, node.y + node.vy));
+      node.vx *= 0.82; node.vy *= 0.82;
+    }
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#ccd4e1";
+  for (const edge of edges) {
+    const a = byId.get(edge.from), b = byId.get(edge.to);
+    if (!a || !b) continue;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (const node of byId.values()) {
+    ctx.fillStyle = node.nodeType === "entity" ? "#047857" : node.nodeType === "topic" ? "#b45309" : node.nodeType === "source" ? "#7c3aed" : "#3762d8";
+    ctx.beginPath(); ctx.arc(node.x, node.y, node.nodeType === "document" ? 4.5 : 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  state.graphPositions = byId;
+  if (state.selectedGraphNode && byId.has(state.selectedGraphNode)) {
+    const node = byId.get(state.selectedGraphNode);
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(node.x, node.y, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+}
+
+function selectGraphNodeAt(event) {
+  const rect = $("graph").getBoundingClientRect();
+  const x = (event.clientX - rect.left) * ($("graph").width / rect.width);
+  const y = (event.clientY - rect.top) * ($("graph").height / rect.height);
+  let nearest = null;
+  let nearestDistance = 144;
+  for (const node of state.graphPositions.values()) {
+    const distance = (node.x - x) ** 2 + (node.y - y) ** 2;
+    if (distance < nearestDistance) {
+      nearest = node;
+      nearestDistance = distance;
+    }
+  }
+  if (!nearest) return;
+  state.selectedGraphNode = nearest.id;
+  drawGraph();
+  renderGraphMetadata(nearest);
+}
+
+function renderGraphMetadata(node) {
+  const edges = (state.graph.edges || []).filter((edge) => edge.from === node.id || edge.to === node.id).slice(0, 12);
+  const entries = Object.entries(node).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  entries.push(["degree", edges.length]);
+  if (edges.length) entries.push(["links", edges.map((edge) => `${edge.type}: ${edge.from === node.id ? edge.to : edge.from}`).join("\\n")]);
+  $("metadata").innerHTML = entries.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(Array.isArray(value) ? value.join(", ") : value)}</dd>`).join("");
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+boot();
+"""
+        (site_root / "index.html").write_text(index, encoding="utf-8")
+        (site_root / "assets" / "krail-wiki.css").write_text(css, encoding="utf-8")
+        (site_root / "assets" / "krail-wiki.js").write_text(js, encoding="utf-8")
+
+    def wiki_site_build(self, *, force: bool = False, title: str | None = None) -> dict[str, Any]:
+        site_root = self.wiki_site_root
+        if site_root.exists() and not force:
+            raise FileExistsError("docs/wiki-site already exists; pass --force to rebuild")
+        if site_root.exists():
+            shutil.rmtree(site_root)
+        (site_root / "assets").mkdir(parents=True, exist_ok=True)
+        (site_root / "data").mkdir(parents=True, exist_ok=True)
+        pages = self._wiki_site_pages()
+        graph = build_markdown_graph(self.project_path, write=True)
+        manifest = yaml.safe_load((self.project_path / "rail.yaml").read_text(encoding="utf-8")) or {}
+        project = manifest.get("project") if isinstance(manifest, dict) else {}
+        site_title = title or f"{project.get('name') or 'KRAIL'} Wiki"
+        mode = self.active_mode().get("mode", {}) or {}
+        pack = self.active_pack().get("active") or {}
+        search_index = self._wiki_site_search_index(pages=pages, graph=graph)
+        site_manifest = {
+            "title": site_title,
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "project": {
+                "name": project.get("name"),
+                "slug": project.get("slug"),
+            },
+            "knowledge_mode": {
+                "id": mode.get("id"),
+                "name": mode.get("name"),
+            },
+            "active_pack": {
+                "id": pack.get("id"),
+                "name": pack.get("name"),
+            },
+            "counts": {
+                "pages": len(pages),
+                "graph_nodes": len(graph.get("nodes") or []),
+                "graph_edges": len(graph.get("edges") or []),
+                "search_records": len(search_index),
+            },
+            "features": ["markdown", "mermaid", "latex", "knowledge_graph", "custom_html_pages", "metadata_browser"],
+        }
+        (site_root / "data" / "site.json").write_text(json.dumps(site_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (site_root / "data" / "pages.json").write_text(json.dumps({"pages": pages}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (site_root / "data" / "graph.json").write_text(json.dumps(graph, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (site_root / "data" / "search-index.json").write_text(json.dumps({"records": search_index}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if (self.wiki_root / "assets").exists():
+            shutil.copytree(self.wiki_root / "assets", site_root / "assets", dirs_exist_ok=True)
+        self._write_wiki_site_app(site_root, title=site_title)
+        return {
+            "status": "built",
+            "root": "docs/wiki-site",
+            "entrypoint": "docs/wiki-site/index.html",
+            "pages": len(pages),
+            "graph_nodes": len(graph.get("nodes") or []),
+            "graph_edges": len(graph.get("edges") or []),
+            "search_records": len(search_index),
+            "features": site_manifest["features"],
+        }
+
+    def wiki_site_check(self) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        site_root = self.wiki_site_root
+        required = [
+            "index.html",
+            "assets/krail-wiki.css",
+            "assets/krail-wiki.js",
+            "data/site.json",
+            "data/pages.json",
+            "data/graph.json",
+            "data/search-index.json",
+        ]
+        for rel in required:
+            if not (site_root / rel).exists():
+                errors.append(f"missing {rel}")
+        pages_path = site_root / "data" / "pages.json"
+        if pages_path.exists():
+            try:
+                payload = json.loads(pages_path.read_text(encoding="utf-8"))
+                pages = payload.get("pages") if isinstance(payload, dict) else None
+                if not isinstance(pages, list):
+                    errors.append("data/pages.json must contain a pages list")
+                elif not pages:
+                    warnings.append("data/pages.json contains no pages")
+                else:
+                    for page in pages:
+                        if not page.get("id") or not page.get("title") or not page.get("type"):
+                            errors.append("data/pages.json contains a page missing id, title, or type")
+                            break
+            except json.JSONDecodeError as exc:
+                errors.append(f"data/pages.json is invalid JSON: {exc}")
+        graph_path = site_root / "data" / "graph.json"
+        if graph_path.exists():
+            try:
+                graph = json.loads(graph_path.read_text(encoding="utf-8"))
+                if not isinstance(graph.get("nodes"), list) or not isinstance(graph.get("edges"), list):
+                    errors.append("data/graph.json must contain nodes and edges lists")
+            except json.JSONDecodeError as exc:
+                errors.append(f"data/graph.json is invalid JSON: {exc}")
+        site_path = site_root / "data" / "site.json"
+        if site_path.exists():
+            try:
+                site = json.loads(site_path.read_text(encoding="utf-8"))
+                if not site.get("title") or not isinstance(site.get("counts"), dict):
+                    errors.append("data/site.json must contain title and counts")
+            except json.JSONDecodeError as exc:
+                errors.append(f"data/site.json is invalid JSON: {exc}")
+        search_path = site_root / "data" / "search-index.json"
+        if search_path.exists():
+            try:
+                search = json.loads(search_path.read_text(encoding="utf-8"))
+                records = search.get("records") if isinstance(search, dict) else None
+                if not isinstance(records, list):
+                    errors.append("data/search-index.json must contain a records list")
+            except json.JSONDecodeError as exc:
+                errors.append(f"data/search-index.json is invalid JSON: {exc}")
+        return {"ok": not errors, "root": "docs/wiki-site", "errors": errors, "warnings": warnings}
 
     def list_packs(self) -> dict[str, Any]:
         return {"packs": list(DEFAULT_PACKS.values())}
