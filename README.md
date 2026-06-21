@@ -1,5 +1,7 @@
 # KRAIL
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AkeBoss-tech/knowledge)
+
 **GBrain-style brain UX. RAIL-style truth engine.**
 
 KRAIL is a local-first, repo-backed knowledge runtime extracted from RAIL. It is
