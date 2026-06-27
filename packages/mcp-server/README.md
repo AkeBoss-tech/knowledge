@@ -9,6 +9,7 @@ Use it when you want:
 
 - local project memory instead of repeated file uploads
 - typed `find`, search, and `think` over a KRAIL workspace from an MCP client
+- public-by-default permission checks and `permissions_doctor`
 - capture, tasks, workflows, and project health checks exposed to agents
 
 The MCP server is an adapter over the repo-backed knowledge engine, not the

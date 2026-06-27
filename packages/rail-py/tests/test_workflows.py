@@ -549,6 +549,107 @@ def test_workflow_parallel_block_aggregates_branch_outputs(tmp_path: Path):
     assert reviews["branches"]["correctness"]["output"]["review"]["finding"] == "ok"
 
 
+def test_workflow_needs_dag_fans_out_and_joins_outputs(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "dag.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "dag_flow",
+                "dag": {"max_concurrency": 2},
+                "outputs": {"joined": {"from": "steps.join.output.joined"}},
+                "steps": [
+                    {
+                        "id": "extract_a",
+                        "kind": "command",
+                        "run": "python3 -c 'import json; print(json.dumps({\"value\": \"A\"}))'",
+                        "capture": {"from": "stdout", "format": "json"},
+                    },
+                    {
+                        "id": "extract_b",
+                        "kind": "command",
+                        "run": "python3 -c 'import json; print(json.dumps({\"value\": \"B\"}))'",
+                        "capture": {"from": "stdout", "format": "json"},
+                    },
+                    {
+                        "id": "join",
+                        "kind": "command",
+                        "needs": ["extract_a", "extract_b"],
+                        "run": "python3 -c 'import json; print(json.dumps({\"joined\": \"${{ steps.extract_a.output.value }}${{ steps.extract_b.output.value }}\"}))'",
+                        "capture": {"from": "stdout", "format": "json"},
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("dag")
+
+    assert result["status"] == "done"
+    assert result["output"]["joined"] == "AB"
+    assert result["steps"][2]["needs"] == ["extract_a", "extract_b"]
+
+
+def test_workflow_needs_blocks_dependents_after_failure(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "blocked-dag.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "blocked_dag",
+                "steps": [
+                    {"id": "fail", "kind": "command", "run": "exit 5", "on_failure": "continue"},
+                    {"id": "dependent", "kind": "command", "needs": ["fail"], "run": "true"},
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("blocked-dag")
+
+    assert result["status"] == "failed"
+    assert result["steps"][1]["status"] == "blocked"
+    assert result["steps"][1]["reason"] == "dependency_not_successful"
+
+
+def test_workflow_command_retry_policy_and_timeout_seconds(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "retry-policy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "retry_policy",
+                "steps": [
+                    {
+                        "id": "flaky",
+                        "kind": "command",
+                        "retry": {"max_attempts": 2, "backoff_seconds": 0},
+                        "timeout_seconds": 5,
+                        "run": "python3 -c \"from pathlib import Path; p=Path('artifacts/flaky.txt'); exists=p.exists(); p.parent.mkdir(exist_ok=True); p.write_text('seen'); raise SystemExit(0 if exists else 1)\"",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("retry-policy")
+
+    assert result["status"] == "done"
+    assert result["steps"][0]["attempts"] == 2
+
+
 def test_dispatch_creates_session_result_template(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)

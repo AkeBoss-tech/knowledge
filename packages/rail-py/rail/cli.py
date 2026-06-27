@@ -227,6 +227,10 @@ def cmd_doctor(project: rail.Project, args: argparse.Namespace):
 def cmd_pack(project: rail.Project, args: argparse.Namespace):
     _print_json(project.pack(args.pack_command, getattr(args, "pack_id", None)))
 
+def cmd_permissions(project: rail.Project, args: argparse.Namespace):
+    if args.permissions_command == "doctor":
+        _print_json(project.permissions_doctor())
+
 def cmd_agent(project: rail.Project, args: argparse.Namespace):
     if args.agent_command == "list":
         _print_json(project.agents())
@@ -632,6 +636,10 @@ def main():
     find_parser.add_argument("--explain", action="store_true", help="Explain searched surfaces and ranking signals")
     find_parser.add_argument("--json", action="store_true", help="Print the full JSON envelope")
     find_parser.add_argument("--paths", action="store_true", help="Print matching paths only")
+
+    perm_parser = subparsers.add_parser("permissions", help="Inspect local permission metadata and access policy")
+    perm_subs = perm_parser.add_subparsers(dest="permissions_command")
+    perm_subs.add_parser("doctor", help="Check permission metadata and audit configuration")
 
     # Think
     t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
@@ -1131,6 +1139,8 @@ def main():
         cmd_doctor(project, args)
     elif args.command == "pack":
         cmd_pack(project, args)
+    elif args.command == "permissions":
+        cmd_permissions(project, args)
     elif args.command == "agent":
         cmd_agent(project, args)
     elif args.command == "task":

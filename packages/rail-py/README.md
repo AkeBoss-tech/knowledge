@@ -162,6 +162,14 @@ artifacts, workflow sessions, and ingestion queues:
 krail --local find "repo intake" --type workflow_run --status failed --json
 ```
 
+Inspect permission metadata. Existing projects are public by default; records
+become restricted only when they opt in with metadata such as
+`visibility: private`, `allowed_roles`, or `allowed_agents`.
+
+```bash
+krail --local permissions doctor
+```
+
 Build and inspect the markdown graph:
 
 ```bash
@@ -447,6 +455,60 @@ krail --local think "what changed in onboarding this week?"
 
 Do not promote generated statements into trusted project state until they are
 registered as claims with evidence and pass the project integrity checks.
+
+## Permissions
+
+KRAIL permissions are local-first and backward-compatible. Missing permission
+metadata means public/project-readable. Add restrictions only where needed:
+
+```yaml
+visibility: private
+owner: akash
+sensitivity:
+  - confidential
+allowed_roles:
+  - reviewer
+allowed_agents:
+  - codex_cli
+```
+
+`search`, `find`, `think`, MCP retrieval, and workflow execution use the same
+policy checks. Denied reads and allowed sensitive reads are appended to
+`research_plan/audit/access.jsonl`.
+
+## Workflow DAGs
+
+Workflows can remain sequential, or they can opt into dependency-aware execution
+with `needs`:
+
+```yaml
+id: repo_intake
+dag:
+  max_concurrency: 4
+steps:
+  - id: inspect_manifests
+    kind: command
+    run: python scripts/inspect.py
+
+  - id: map_dependencies
+    kind: command
+    run: python scripts/deps.py
+
+  - id: review
+    kind: think
+    needs: [inspect_manifests, map_dependencies]
+    mode: hybrid
+    query: summarize repo architecture evidence
+```
+
+Command steps support both `retry: 2` and richer retry policies:
+
+```yaml
+retry:
+  max_attempts: 3
+  backoff_seconds: 10
+timeout_seconds: 300
+```
 
 ## MCP Server
 

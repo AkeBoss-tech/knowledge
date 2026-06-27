@@ -111,6 +111,19 @@ def test_cmd_find_prints_human_typed_results(capsys):
     assert "topics/repo-intake.md" in output
 
 
+def test_cmd_permissions_doctor_prints_project_result(capsys):
+    class _Project:
+        def permissions_doctor(self):
+            return {"public_by_default": True, "restricted_records": []}
+
+    args = argparse.Namespace(permissions_command="doctor")
+
+    rail_cli.cmd_permissions(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["public_by_default"] is True
+
+
 def test_project_hydrate_uses_cloud_project_pipeline_route():
     class _Backend:
         def __init__(self):

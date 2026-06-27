@@ -322,6 +322,19 @@ def test_mcp_find_calls_project(monkeypatch):
     assert payload["results"][0]["title"] == "Repo Intake"
 
 
+def test_mcp_permissions_doctor_calls_project(monkeypatch):
+    class _Project:
+        def permissions_doctor(self):
+            return {"public_by_default": True, "restricted_records": []}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.permissions_doctor()
+
+    payload = json.loads(result)
+    assert payload["public_by_default"] is True
+
+
 def test_mcp_integrity_artifacts_calls_project(monkeypatch):
     class _Project:
         def integrity_artifact_lineage(self):

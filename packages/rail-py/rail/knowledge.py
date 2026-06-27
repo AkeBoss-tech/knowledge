@@ -31,6 +31,7 @@ from rail.markdown_graph import (
     validate_markdown_graph,
 )
 from rail.listeners import ListenerEngine
+from rail.permissions import PermissionPolicy
 from rail.queues import QueueEngine
 from rail.source_dependencies import (
     affected_documents,
@@ -726,6 +727,9 @@ class KnowledgeRuntime:
 
         return ResearchIntegrityRepo(self.project_path)
 
+    def _permission_policy(self) -> PermissionPolicy:
+        return PermissionPolicy(self.project_path)
+
     def _iter_docs(self) -> list[Path]:
         ignored_parts = {".git", ".krail", ".rail", "__pycache__", ".pytest_cache", ".venv"}
         ignored_prefixes = ("research_plan/graph/", "research_plan/sessions/", "research_plan/state/", "docs/data/")
@@ -832,9 +836,17 @@ class KnowledgeRuntime:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 continue
+            metadata, _body = self._split_markdown_frontmatter(text) if path.suffix.lower() == ".md" else ({}, text)
+            rel = str(path.relative_to(self.project_path))
+            permission_metadata = self._permission_policy().metadata_for_path(rel, metadata)
+            allowed, reason = self._permission_policy().can_read(rel, permission_metadata)
+            if not allowed:
+                self._permission_policy().audit("read", rel, "denied", reason, metadata=permission_metadata)
+                continue
+            if permission_metadata.get("sensitivity"):
+                self._permission_policy().audit("read", rel, "allowed", reason, metadata=permission_metadata)
             lower = text.lower()
             title = self._title_for(path, text)
-            rel = str(path.relative_to(self.project_path))
             title_lower = title.lower()
             matched = sorted({term for term in terms if term in lower or term in title_lower})
             if not matched:
@@ -854,7 +866,7 @@ class KnowledgeRuntime:
             result["vector_hits"] = vector.get("hits", [])
             result["hits"] = self._merge_search_hits(lexical_hits, vector.get("hits", []), limit=limit)
             result["rag"] = {"database": vector.get("database"), "embedding": vector.get("embedding"), "status": vector.get("status", "ok")}
-        graph = self._graph_context(query, limit=5)
+        graph = self._filter_graph_context_for_permissions(self._graph_context(query, limit=5))
         if graph:
             graph_boosts = self._graph_boosts(graph)
             for hit in result["hits"]:
@@ -871,6 +883,42 @@ class KnowledgeRuntime:
                 "note": "RAG mode uses a local SQLite vector store with deterministic hashed embeddings. Model-backed embeddings can replace this later.",
             }
         return result
+
+    def _filter_graph_context_for_permissions(self, graph: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not graph:
+            return graph
+        policy = self._permission_policy()
+        readable_docs: list[dict[str, Any]] = []
+        readable_paths: set[str] = set()
+        for doc in graph.get("documents", []):
+            if not isinstance(doc, dict):
+                continue
+            rel = str(doc.get("path") or "")
+            metadata = policy.metadata_for_path(rel, doc)
+            allowed, reason = policy.can_read(rel, metadata)
+            if allowed:
+                if metadata.get("sensitivity"):
+                    policy.audit("read", rel, "allowed", reason, metadata=metadata)
+                readable_docs.append(doc)
+                readable_paths.add(rel)
+            else:
+                policy.audit("read", rel, "denied", reason, metadata=metadata)
+        readable_edges = [
+            edge for edge in graph.get("edges", [])
+            if not isinstance(edge, dict) or not edge.get("source") or str(edge.get("source")) in readable_paths
+        ]
+        visible_entity_labels: set[str] = set()
+        for doc in readable_docs:
+            for entity in doc.get("entities", []) if isinstance(doc.get("entities"), list) else []:
+                visible_entity_labels.add(str(entity))
+        readable_entities = [
+            entity for entity in graph.get("entities", [])
+            if not isinstance(entity, dict) or not visible_entity_labels or str(entity.get("label") or "") in visible_entity_labels
+        ]
+        filtered = {**graph, "documents": readable_docs, "edges": readable_edges, "entities": readable_entities}
+        if not filtered["documents"] and not filtered["edges"] and not filtered["entities"]:
+            return None
+        return filtered
 
     def find(
         self,
@@ -954,6 +1002,7 @@ class KnowledgeRuntime:
         results.extend(self._find_file_records(terms))
         results = self._dedupe_find_results(results)
         results = [item for item in results if self._find_result_matches(item, type_filter=type_filter, topic=topic, entity=entity, status=status, freshness=freshness, workflow=workflow)]
+        results = self._permission_policy().filter_readable(results)
         results.sort(key=lambda item: (-float(item.get("score") or 0), item.get("type") or "", item.get("path") or item.get("id") or ""))
         limited = results[:limit]
         by_type: dict[str, int] = {}
@@ -1213,6 +1262,9 @@ class KnowledgeRuntime:
         if any(item.get("type") == "queue_item" and item.get("status") in {"failed", "reserved", "running"} for item in results):
             actions.append("Inspect matching inventory queues with `krail --local queue status <queue>`.")
         return actions
+
+    def permissions_doctor(self) -> dict[str, Any]:
+        return self._permission_policy().doctor()
 
     @staticmethod
     def _merge_search_hits(lexical_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
@@ -3556,6 +3608,22 @@ krail --local graph check
                 when = step.get("when")
                 if when is not None and (not isinstance(when, str) or not when.strip()):
                     errors.append(f"step {step_id} when must be a non-empty string when present")
+                needs = step.get("needs")
+                if needs is not None:
+                    if isinstance(needs, str):
+                        need_values = [needs]
+                    elif isinstance(needs, list):
+                        need_values = needs
+                    else:
+                        need_values = []
+                        errors.append(f"step {step_id} needs must be a string or list of strings")
+                    for need in need_values:
+                        if not isinstance(need, str) or not need.strip():
+                            errors.append(f"step {step_id} needs entries must be non-empty strings")
+                        elif need == step_id:
+                            errors.append(f"step {step_id} cannot need itself")
+                        elif need not in seen:
+                            warnings.append(f"step {step_id} needs {need}; DAG scheduler will wait for that step id")
                 if kind == "command":
                     run = step.get("run")
                     args = step.get("args")
@@ -3701,15 +3769,69 @@ krail --local graph check
                 if on_failure not in {"stop", "continue"}:
                     errors.append(f"step {step_id} on_failure must be stop or continue")
                 retry = step.get("retry", 0)
-                if not isinstance(retry, int) or retry < 0:
-                    errors.append(f"step {step_id} retry must be a non-negative integer")
+                if isinstance(retry, dict):
+                    max_attempts = retry.get("max_attempts", retry.get("attempts", 1))
+                    backoff_seconds = retry.get("backoff_seconds", 0)
+                    if not isinstance(max_attempts, int) or max_attempts <= 0:
+                        errors.append(f"step {step_id} retry.max_attempts must be a positive integer")
+                    if not isinstance(backoff_seconds, int) or backoff_seconds < 0:
+                        errors.append(f"step {step_id} retry.backoff_seconds must be a non-negative integer")
+                elif not isinstance(retry, int) or retry < 0:
+                    errors.append(f"step {step_id} retry must be a non-negative integer or retry policy mapping")
                 timeout_minutes = step.get("timeout_minutes")
                 if timeout_minutes is not None and (not isinstance(timeout_minutes, int) or timeout_minutes <= 0):
                     errors.append(f"step {step_id} timeout_minutes must be a positive integer")
+                timeout_seconds = step.get("timeout_seconds")
+                if timeout_seconds is not None and (not isinstance(timeout_seconds, int) or timeout_seconds <= 0):
+                    errors.append(f"step {step_id} timeout_seconds must be a positive integer")
             return count
 
         step_count = validate_step_list(steps, "steps")
+        dag_errors = self._validate_workflow_needs_graph(steps)
+        errors.extend(dag_errors)
         return {"ok": not errors, "id": workflow_id, "path": path, "errors": errors, "warnings": warnings, "steps": step_count}
+
+    @staticmethod
+    def _validate_workflow_needs_graph(steps: list[dict[str, Any]]) -> list[str]:
+        ids = [str(step.get("id")) for step in steps if isinstance(step, dict) and isinstance(step.get("id"), str)]
+        id_set = set(ids)
+        graph: dict[str, list[str]] = {}
+        errors: list[str] = []
+        for step in steps:
+            if not isinstance(step, dict) or not isinstance(step.get("id"), str):
+                continue
+            step_id = str(step["id"])
+            raw_needs = step.get("needs", [])
+            needs = [raw_needs] if isinstance(raw_needs, str) else raw_needs
+            if not isinstance(needs, list):
+                continue
+            graph[step_id] = []
+            for need in needs:
+                if not isinstance(need, str) or not need.strip():
+                    continue
+                if need not in id_set:
+                    errors.append(f"step {step_id} needs unknown step: {need}")
+                else:
+                    graph[step_id].append(need)
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(node: str, stack: list[str]) -> None:
+            if node in visited:
+                return
+            if node in visiting:
+                cycle = " -> ".join([*stack, node])
+                errors.append(f"workflow needs cycle detected: {cycle}")
+                return
+            visiting.add(node)
+            for dep in graph.get(node, []):
+                visit(dep, [*stack, node])
+            visiting.remove(node)
+            visited.add(node)
+
+        for step_id in ids:
+            visit(step_id, [])
+        return errors
 
     def workflow_validate(self, workflow_id: str) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id, validate=False)
@@ -4929,8 +5051,9 @@ krail --local graph check
         log_prefix: str,
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        attempts = int(step.get("retry", 0)) + 1
-        timeout_seconds = int(step["timeout_minutes"]) * 60 if step.get("timeout_minutes") else None
+        retry = self._workflow_retry_policy(step)
+        attempts = retry["max_attempts"]
+        timeout_seconds = int(step.get("timeout_seconds") or 0) or (int(step["timeout_minutes"]) * 60 if step.get("timeout_minutes") else None)
         env = os.environ.copy()
         if isinstance(step.get("env"), dict):
             env.update({str(k): str(v) for k, v in self._interpolate_workflow_value(step["env"], context).items()})
@@ -4957,6 +5080,8 @@ krail --local graph check
             (run_dir / f"{log_prefix}.attempt{attempt}.stderr.log").write_text(stderr, encoding="utf-8")
             if last_returncode == 0:
                 break
+            if retry["backoff_seconds"] and attempt < attempts:
+                time.sleep(float(retry["backoff_seconds"]))
         result: dict[str, Any] = {
             "id": step_id,
             "kind": "command",
@@ -4979,6 +5104,17 @@ krail --local graph check
             else:
                 result["output"] = source
         return result
+
+    @staticmethod
+    def _workflow_retry_policy(step: dict[str, Any]) -> dict[str, int]:
+        retry = step.get("retry", 0)
+        if isinstance(retry, dict):
+            max_attempts = int(retry.get("max_attempts") or retry.get("attempts") or 1)
+            backoff_seconds = int(retry.get("backoff_seconds") or 0)
+        else:
+            max_attempts = int(retry) + 1
+            backoff_seconds = 0
+        return {"max_attempts": max(1, max_attempts), "backoff_seconds": max(0, backoff_seconds)}
 
     def _execute_workflow_leaf_step(
         self,
@@ -5044,6 +5180,118 @@ krail --local graph check
             return result
         raise ValueError(f"Unsupported workflow step kind: {kind}")
 
+    @staticmethod
+    def _workflow_step_needs(step: dict[str, Any]) -> list[str]:
+        raw = step.get("needs", [])
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, list):
+            return [str(item) for item in raw if isinstance(item, str) and item.strip()]
+        return []
+
+    @staticmethod
+    def _workflow_uses_needs(steps: list[dict[str, Any]]) -> bool:
+        return any(isinstance(step, dict) and bool(step.get("needs")) for step in steps)
+
+    def _execute_workflow_steps_dag(
+        self,
+        workflow_id: str,
+        steps: list[dict[str, Any]],
+        *,
+        spec: dict[str, Any],
+        dry_run: bool,
+        run_dir: Path,
+        context: dict[str, Any],
+        path: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        indexed = [(index, step) for index, step in enumerate(steps, start=1) if isinstance(step, dict)]
+        pending: dict[str, tuple[int, dict[str, Any]]] = {}
+        for index, step in indexed:
+            step_id = str(step.get("id") or f"step_{index}")
+            pending[step_id] = (index, step)
+        completed: dict[str, dict[str, Any]] = {}
+        results: list[dict[str, Any]] = []
+        dag_cfg = spec.get("dag") if isinstance(spec.get("dag"), dict) else {}
+        parallel_cfg = spec.get("parallel") if isinstance(spec.get("parallel"), dict) else {}
+        max_concurrency = int(dag_cfg.get("max_concurrency") or parallel_cfg.get("max_concurrency") or 1)
+        max_concurrency = max(1, min(max_concurrency, 8))
+        fail_fast = bool(dag_cfg.get("fail_fast", False))
+
+        while pending:
+            blocked: list[str] = []
+            ready: list[tuple[int, str, dict[str, Any]]] = []
+            for step_id, (index, step) in sorted(pending.items(), key=lambda item: item[1][0]):
+                needs = self._workflow_step_needs(step)
+                failed_deps = [dep for dep in needs if dep in completed and self._workflow_result_failed(completed[dep])]
+                paused_deps = [dep for dep in needs if dep in completed and self._workflow_result_paused(completed[dep])]
+                if failed_deps or paused_deps:
+                    blocked.append(step_id)
+                    continue
+                if all(dep in completed for dep in needs):
+                    ready.append((index, step_id, step))
+            for step_id in blocked:
+                index, step = pending.pop(step_id)
+                result = {
+                    "id": step_id,
+                    "kind": str(step.get("kind") or "command"),
+                    "status": "blocked",
+                    "reason": "dependency_not_successful",
+                    "needs": self._workflow_step_needs(step),
+                }
+                completed[step_id] = result
+                results.append(result)
+                self._record_workflow_result(context, result)
+            if not ready:
+                if pending:
+                    for step_id, (_index, step) in list(pending.items()):
+                        result = {"id": step_id, "kind": str(step.get("kind") or "command"), "status": "blocked", "reason": "no_ready_dependencies", "needs": self._workflow_step_needs(step)}
+                        pending.pop(step_id)
+                        completed[step_id] = result
+                        results.append(result)
+                        self._record_workflow_result(context, result)
+                break
+            batch = ready[:max_concurrency]
+
+            def run_one(item: tuple[int, str, dict[str, Any]]) -> tuple[int, str, dict[str, Any]]:
+                index, step_id, step = item
+                step_copy = {key: value for key, value in step.items() if key != "needs"}
+                child_context = copy.deepcopy(context)
+                child_results = self._execute_workflow_steps(
+                    workflow_id,
+                    [step_copy],
+                    spec=spec,
+                    dry_run=dry_run,
+                    run_dir=run_dir,
+                    context=child_context,
+                    path=(*path, f"{index:02d}-{self._slug(step_id)}"),
+                    dag_enabled=False,
+                )
+                result = child_results[0] if child_results else {"id": step_id, "kind": str(step.get("kind") or "command"), "status": "failed", "error": "step produced no result"}
+                result["needs"] = self._workflow_step_needs(step)
+                return index, step_id, result
+
+            if len(batch) == 1 or max_concurrency == 1:
+                batch_results = [run_one(batch[0])]
+            else:
+                with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+                    batch_results = list(executor.map(run_one, batch))
+            for _index, step_id, result in sorted(batch_results, key=lambda item: item[0]):
+                pending.pop(step_id, None)
+                completed[step_id] = result
+                results.append(result)
+                self._record_workflow_result(context, result)
+            if any(self._workflow_result_paused(result) for _index, _step_id, result in batch_results):
+                break
+            if fail_fast and any(self._workflow_result_failed(result) for _index, _step_id, result in batch_results):
+                for step_id, (_index, step) in list(pending.items()):
+                    result = {"id": step_id, "kind": str(step.get("kind") or "command"), "status": "blocked", "reason": "dag_fail_fast", "needs": self._workflow_step_needs(step)}
+                    pending.pop(step_id)
+                    completed[step_id] = result
+                    results.append(result)
+                    self._record_workflow_result(context, result)
+                break
+        return results
+
     def _execute_workflow_steps(
         self,
         workflow_id: str,
@@ -5054,7 +5302,18 @@ krail --local graph check
         run_dir: Path,
         context: dict[str, Any],
         path: tuple[str, ...] = (),
+        dag_enabled: bool = True,
     ) -> list[dict[str, Any]]:
+        if dag_enabled and self._workflow_uses_needs(steps):
+            return self._execute_workflow_steps_dag(
+                workflow_id,
+                steps,
+                spec=spec,
+                dry_run=dry_run,
+                run_dir=run_dir,
+                context=context,
+                path=path,
+            )
         results: list[dict[str, Any]] = []
         for index, step in enumerate(steps, start=1):
             if not isinstance(step, dict):
@@ -5198,6 +5457,11 @@ krail --local graph check
         validation = self._validate_workflow_spec(spec, path=validation_path)
         if not validation["ok"]:
             return {"status": "invalid", "workflow": workflow_id, "validation": validation}
+        permission_metadata = spec.get("permissions") if isinstance(spec.get("permissions"), dict) else {}
+        allowed, reason = self._permission_policy().can_execute(str(spec.get("id") or workflow_id), permission_metadata)
+        if not allowed:
+            self._permission_policy().audit("execute", str(spec.get("id") or workflow_id), "denied", reason, metadata=permission_metadata)
+            return {"status": "blocked", "workflow": workflow_id, "reason": reason, "permission": "denied"}
         steps = spec.get("steps") or []
         if not isinstance(steps, list) or not steps:
             raise ValueError(f"Workflow {workflow_id!r} must define a non-empty steps list")

@@ -36,6 +36,7 @@ task     = create auditable work orders for local agents
 workflow = run repeatable project routines from the active pack
 listener = notice local/external changes and trigger workflows
 queue    = reserve inventory batches for parallel ingestion workers
+permissions = keep access public by default, restrict only explicit records
 integrity = decide what is ready to trust, verify, or promote
 ```
 
@@ -46,6 +47,8 @@ integrity = decide what is ready to trust, verify, or promote
 - deterministic search, unified `find`, and `think` envelopes with citations,
   freshness, typed records, and next actions
 - repo-backed tasks, workflow runs, and session outputs
+- public-by-default permission metadata with local audit logs for restricted
+  reads and workflow execution
 - listener/event triggers for files, websites, RSS, GitHub polling, schedules,
   and custom command adapters
 - repo-backed inventory queues with batch reservation, checkpointing, and retry
@@ -143,9 +146,12 @@ Working well now:
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records
+- public-by-default permissions doctor and restricted-read audit log
 - listener templates, event logs, workflow triggers, and event replay
 - queue-based ingestion, workflow dashboards, parameterized workflow inputs,
   and lightweight typed workflow outputs
+- dependency-aware workflow DAGs with `needs`, parallel fan-out, retry policies,
+  timeouts, conditions, loops, approvals, and child workflows
 - dry-run and full dispatch to local CLIs
 - MCP tools for find, search, think, capture, tasks, workflows, and integrity
 - optional local FastAPI adapter using `.krail/store.json`

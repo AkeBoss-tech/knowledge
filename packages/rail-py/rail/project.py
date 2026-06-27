@@ -83,6 +83,11 @@ class Project:
             "facets": {"types": types or [], "topic": topic, "entity": entity, "status": status, "freshness": freshness, "workflow": workflow},
         }
 
+    def permissions_doctor(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("permissions doctor requires local mode")
+        return self._backend.knowledge.permissions_doctor()
+
     def think(
         self,
         q: str,

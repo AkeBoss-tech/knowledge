@@ -163,6 +163,12 @@ def find(
 
 
 @mcp.tool()
+def permissions_doctor() -> str:
+    """Inspect local permission metadata, public-by-default status, and audit-log configuration."""
+    return _json(_get_project().permissions_doctor())
+
+
+@mcp.tool()
 def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str = "auto", dry_run: bool = False) -> str:
     """
     Synthesize from retrieved project evidence with explicit gaps and conflicts.
