@@ -33,6 +33,8 @@ search   = find evidence in the project
 think    = synthesize evidence + cite files + expose gaps
 task     = create auditable work orders for local agents
 workflow = run repeatable project routines from the active pack
+listener = notice local/external changes and trigger workflows
+queue    = reserve inventory batches for parallel ingestion workers
 integrity = decide what is ready to trust, verify, or promote
 ```
 
@@ -43,6 +45,10 @@ integrity = decide what is ready to trust, verify, or promote
 - deterministic search and `think` envelopes with citations, freshness, and
   next actions
 - repo-backed tasks, workflow runs, and session outputs
+- listener/event triggers for files, websites, RSS, GitHub polling, schedules,
+  and custom command adapters
+- repo-backed inventory queues with batch reservation, checkpointing, and retry
+  surfaces for ingestion workers
 - markdown graph inspection for frontmatter-rich topic collections
 - MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
 - optional local API adapter for custom clients and interfaces
@@ -136,6 +142,9 @@ Working well now:
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records
+- listener templates, event logs, workflow triggers, and event replay
+- queue-based ingestion, workflow dashboards, parameterized workflow inputs,
+  and lightweight typed workflow outputs
 - dry-run and full dispatch to local CLIs
 - MCP tools for search, think, capture, tasks, workflows, and integrity
 - optional local FastAPI adapter using `.krail/store.json`

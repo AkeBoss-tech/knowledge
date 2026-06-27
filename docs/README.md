@@ -7,6 +7,7 @@ Start here:
 - [Architecture](architecture.md)
 - [Demo Script](demo-script.md)
 - [Growth Plan](growth-plan.md)
+- [Knowledge Ingestion Operating System](ingestion-os.md)
 - [Knowledge Modes](knowledge-modes.md)
 - [Launch Kit](launch-kit.md)
 - [Launch Posts](launch-posts.md)

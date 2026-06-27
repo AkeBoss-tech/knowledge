@@ -3,16 +3,65 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
 import shlex
 import subprocess
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+SUPPORTED_LISTENER_TYPES = {"file", "http", "rss", "schedule", "command", "github"}
+
+LISTENER_TEMPLATES: dict[str, dict[str, Any]] = {
+    "website_change_monitor": {
+        "id": "website_change_monitor",
+        "type": "http",
+        "url": "https://example.com",
+        "interval": "1h",
+        "change_detection": {"mode": "hash", "normalize": "readable_text"},
+        "on_change": {"workflow": "refresh_source_notes", "dry_run_first": True},
+    },
+    "github_issue_triage": {
+        "id": "github_issue_triage",
+        "type": "github",
+        "repo": "owner/repo",
+        "events": ["issues.opened"],
+        "interval": "5m",
+        "on_change": {"workflow": "triage_github_issue", "dry_run_first": True},
+    },
+    "new_source_ingest": {
+        "id": "new_source_ingest",
+        "type": "file",
+        "glob": "sources/**/*",
+        "on_change": {"workflow": "ingest_new_sources"},
+    },
+    "rss_literature_watch": {
+        "id": "rss_literature_watch",
+        "type": "rss",
+        "url": "https://example.com/feed.xml",
+        "interval": "1h",
+        "on_change": {"workflow": "weekly_literature_refresh", "dry_run_first": True},
+    },
+    "email_research_inbox": {
+        "id": "email_research_inbox",
+        "type": "command",
+        "run": "python scripts/check_email_research_inbox.py",
+        "interval": "10m",
+        "on_event": {"workflow": "triage_inbox", "dry_run_first": True},
+    },
+    "weekly_review": {
+        "id": "weekly_review",
+        "type": "schedule",
+        "interval": "7d",
+        "on_change": {"workflow": "weekly_review", "dry_run_first": True},
+    },
+}
 
 
 def _now() -> _dt.datetime:
@@ -50,6 +99,27 @@ def _normalize_http_body(body: bytes, *, mode: str = "raw") -> str:
     return text
 
 
+def emit_event(
+    *,
+    source: str,
+    target: str,
+    payload: dict[str, Any] | None = None,
+    changed: bool = True,
+    hash: str | None = None,
+) -> dict[str, Any]:
+    """Return a command-listener event object suitable for JSON stdout."""
+
+    event: dict[str, Any] = {
+        "source": source,
+        "target": target,
+        "changed": changed,
+        "payload": payload or {},
+    }
+    if hash:
+        event["hash"] = hash
+    return event
+
+
 class ListenerEngine:
     """Poll local listener specs and turn observations into replayable events."""
 
@@ -60,6 +130,7 @@ class ListenerEngine:
         self.listeners_dir = self.project_path / "research_plan" / "listeners"
         self.events_dir = self.project_path / "research_plan" / "events"
         self.state_path = self.krail_dir / "listener_state.json"
+        self.locks_dir = self.krail_dir / "locks"
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_path.exists():
@@ -89,6 +160,60 @@ class ListenerEngine:
         data["_path"] = str(path.relative_to(self.project_path))
         return data
 
+    def _spec_path_for(self, listener_id: str) -> Path:
+        return self.listeners_dir / f"{_safe_id(listener_id)}.yaml"
+
+    def init_spec(self, template: str, *, listener_id: str | None = None, force: bool = False) -> dict[str, Any]:
+        if template in LISTENER_TEMPLATES:
+            spec = json.loads(json.dumps(LISTENER_TEMPLATES[template]))
+        elif template in SUPPORTED_LISTENER_TYPES:
+            spec = {"id": listener_id or f"{template}_listener", "type": template}
+        else:
+            raise ValueError(f"Unknown listener template or type: {template}")
+        if listener_id:
+            spec["id"] = listener_id
+        path = self._spec_path_for(str(spec["id"]))
+        if path.exists() and not force:
+            return {"status": "exists", "path": str(path.relative_to(self.project_path)), "listener": spec}
+        self.listeners_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        return {"status": "written", "path": str(path.relative_to(self.project_path)), "listener": spec}
+
+    def templates(self) -> dict[str, Any]:
+        return {"templates": sorted(LISTENER_TEMPLATES), "types": sorted(SUPPORTED_LISTENER_TYPES)}
+
+    def validate_spec(self, listener_id: str | None = None) -> dict[str, Any]:
+        specs = [self._resolve_spec(listener_id)] if listener_id else [self._load_spec(path) for path in self._listener_files()]
+        results = [self._validate_loaded_spec(spec) for spec in specs]
+        errors = [error for result in results for error in result["errors"]]
+        return {"ok": not errors, "results": results, "errors": errors}
+
+    def _validate_loaded_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        listener_id = spec.get("id")
+        kind = str(spec.get("type") or "").strip().lower()
+        if not isinstance(listener_id, str) or not listener_id.strip():
+            errors.append("id must be a non-empty string")
+        if kind not in SUPPORTED_LISTENER_TYPES:
+            errors.append(f"type must be one of: {', '.join(sorted(SUPPORTED_LISTENER_TYPES))}")
+        if kind == "file" and not (spec.get("path") or spec.get("glob")):
+            errors.append("file listener requires path or glob")
+        if kind in {"http", "rss"} and not spec.get("url"):
+            errors.append(f"{kind} listener requires url")
+        if kind == "command" and not spec.get("run"):
+            errors.append("command listener requires run")
+        if kind == "github" and not spec.get("repo"):
+            errors.append("github listener requires repo")
+        trigger = self._trigger(spec)
+        workflow = trigger.get("workflow")
+        if workflow:
+            try:
+                self.runtime.workflow_show(str(workflow))
+            except Exception as exc:
+                warnings.append(f"trigger workflow {workflow!r} is not materialized or available: {exc}")
+        return {"id": listener_id, "type": kind, "path": spec.get("_path"), "ok": not errors, "errors": errors, "warnings": warnings}
+
     def list_specs(self) -> dict[str, Any]:
         listeners: list[dict[str, Any]] = []
         for path in self._listener_files():
@@ -101,6 +226,7 @@ class ListenerEngine:
                         "enabled": spec.get("enabled", True),
                         "path": spec["_path"],
                         "workflow": self._trigger(spec).get("workflow"),
+                        "state": self._load_state().get("listeners", {}).get(str(spec["id"]), {}),
                     }
                 )
             except Exception as exc:
@@ -123,6 +249,9 @@ class ListenerEngine:
 
     def test(self, listener_id: str) -> dict[str, Any]:
         spec = self._resolve_spec(listener_id)
+        validation = self._validate_loaded_spec(spec)
+        if not validation["ok"]:
+            return {"status": "invalid", "listener": spec["id"], "validation": validation}
         state = self._load_state()
         observed, _ = self._observe(spec, state)
         return {"status": "ok", "listener": spec["id"], "observations": observed}
@@ -138,31 +267,123 @@ class ListenerEngine:
         state = self._load_state()
         results = []
         for spec in specs:
+            validation = self._validate_loaded_spec(spec)
+            if not validation["ok"]:
+                results.append({"listener": spec.get("id"), "status": "invalid", "validation": validation, "events": []})
+                continue
             if spec.get("enabled", True) is False:
                 results.append({"listener": spec["id"], "status": "disabled", "events": []})
                 continue
-            observations, next_state = self._observe(spec, state)
-            events = [self._event_from_observation(spec, observation) for observation in observations if observation.get("changed")]
-            emitted = []
-            for event in events:
-                dedupe_key = str(event["dedupe_key"])
-                if state.get("dedupe", {}).get(dedupe_key):
-                    continue
-                if dry_run:
-                    event["status"] = "dry_run"
-                else:
-                    self._append_event(event)
-                    state.setdefault("dedupe", {})[dedupe_key] = event["id"]
-                    event["status"] = "recorded"
-                    if execute:
-                        event["workflow_result"] = self._invoke_trigger(spec, event)
-                        self._append_event_update(event)
-                emitted.append(event)
             if not dry_run:
-                state.setdefault("listeners", {})[str(spec["id"])] = next_state
-                self._write_state(state)
-            results.append({"listener": spec["id"], "status": "ok", "events": emitted, "observations": observations})
+                lock = self._acquire_listener_lock(str(spec["id"]))
+            else:
+                lock = None
+            try:
+                current_listener_state = dict(state.get("listeners", {}).get(str(spec["id"]), {}))
+                if self._in_backoff(current_listener_state):
+                    results.append({"listener": spec["id"], "status": "backoff", "state": current_listener_state, "events": []})
+                    continue
+                try:
+                    observations, next_state = self._observe(spec, state)
+                except Exception as exc:
+                    error_state = self._failure_state(current_listener_state, exc)
+                    if not dry_run:
+                        state.setdefault("listeners", {})[str(spec["id"])] = error_state
+                        self._write_state(state)
+                    results.append({"listener": spec["id"], "status": "error", "error": str(exc), "state": error_state, "events": []})
+                    continue
+                events = [self._event_from_observation(spec, observation) for observation in observations if observation.get("changed")]
+                emitted = []
+                for event in events:
+                    dedupe_key = str(event["dedupe_key"])
+                    if state.get("dedupe", {}).get(dedupe_key):
+                        continue
+                    if dry_run:
+                        event["status"] = "dry_run"
+                    else:
+                        event["status"] = "recorded"
+                        self._append_event(event)
+                        state.setdefault("dedupe", {})[dedupe_key] = event["id"]
+                        if execute:
+                            event["status"] = "dispatched"
+                            self._append_event_update(event)
+                            event["workflow_result"] = self._invoke_trigger(spec, event)
+                            event["status"] = self._status_from_workflow_result(event.get("workflow_result"))
+                            self._append_event_update(event)
+                    emitted.append(event)
+                if not dry_run:
+                    next_state = self._success_state(next_state)
+                    state.setdefault("listeners", {})[str(spec["id"])] = next_state
+                    self._write_state(state)
+                results.append({"listener": spec["id"], "status": "ok", "events": emitted, "observations": observations})
+            finally:
+                if lock and lock.exists():
+                    lock.unlink()
         return {"status": "ok", "dry_run": dry_run, "results": results}
+
+    def _listener_lock_path(self, listener_id: str) -> Path:
+        return self.locks_dir / f"listener-{_safe_id(listener_id)}.lock"
+
+    def _acquire_listener_lock(self, listener_id: str) -> Path:
+        self.locks_dir.mkdir(parents=True, exist_ok=True)
+        lock = self._listener_lock_path(listener_id)
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise RuntimeError(f"listener already running: {listener_id} ({lock})") from exc
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"listener": listener_id, "pid": os.getpid(), "created_at": _now().isoformat()}) + "\n")
+        return lock
+
+    def _in_backoff(self, listener_state: dict[str, Any]) -> bool:
+        next_retry_at = listener_state.get("next_retry_at")
+        if not next_retry_at:
+            return False
+        try:
+            return _dt.datetime.fromisoformat(str(next_retry_at)) > _now()
+        except Exception:
+            return False
+
+    def _failure_state(self, listener_state: dict[str, Any], exc: Exception) -> dict[str, Any]:
+        now = _now()
+        failure_count = int(listener_state.get("failure_count") or 0) + 1
+        backoff_seconds = min(3600, 30 * (2 ** min(failure_count - 1, 6)))
+        next_state = dict(listener_state)
+        next_state.update(
+            {
+                "status": "error",
+                "last_error": str(exc),
+                "last_error_at": now.isoformat(),
+                "failure_count": failure_count,
+                "next_retry_at": (now + _dt.timedelta(seconds=backoff_seconds)).isoformat(),
+            }
+        )
+        return next_state
+
+    def _success_state(self, listener_state: dict[str, Any]) -> dict[str, Any]:
+        next_state = dict(listener_state)
+        next_state.update({"status": "ok", "last_success_at": _now().isoformat(), "failure_count": 0})
+        next_state.pop("next_retry_at", None)
+        next_state.pop("last_error", None)
+        return next_state
+
+    def _status_from_workflow_result(self, result: Any) -> str:
+        if result is None:
+            return "recorded"
+        if not isinstance(result, dict):
+            return "done"
+        status = str(result.get("status") or "")
+        if status == "dispatched" and isinstance(result.get("dispatch"), dict):
+            nested = str(result["dispatch"].get("status") or "")
+            if nested in {"done", "failed", "blocked"}:
+                return nested
+        if status == "created" and result.get("dry_run"):
+            return "dry_run"
+        if status in {"done", "dry_run", "created", "dispatched"}:
+            return "done" if status != "dry_run" else "dry_run"
+        if status in {"blocked", "failed", "invalid", "not_materialized"}:
+            return status
+        return "done"
 
     def _observe(self, spec: dict[str, Any], state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         kind = str(spec.get("type") or "").strip().lower()
@@ -177,6 +398,8 @@ class ListenerEngine:
             return self._observe_schedule(spec, listener_state)
         if kind == "command":
             return self._observe_command(spec, listener_state)
+        if kind == "github":
+            return self._observe_github(spec, listener_state)
         raise ValueError(f"Unsupported listener type: {kind}")
 
     def _observe_file(self, spec: dict[str, Any], listener_state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -299,6 +522,50 @@ class ListenerEngine:
                     )
         return observations, {"last_exit_code": completed.returncode, "checked_at": _now().isoformat()}
 
+    def _observe_github(self, spec: dict[str, Any], listener_state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        repo = str(spec.get("repo") or "").strip()
+        if not repo:
+            raise ValueError("github listener requires repo")
+        requested = set(spec.get("events") or ["issues.opened"])
+        seen = set(listener_state.get("seen") or [])
+        next_seen: list[str] = []
+        observations: list[dict[str, Any]] = []
+
+        def gh_api(endpoint: str) -> Any:
+            completed = subprocess.run(["gh", "api", endpoint], cwd=self.project_path, capture_output=True, text=True, timeout=int(spec.get("timeout_seconds") or 60))
+            if completed.returncode != 0:
+                raise RuntimeError(completed.stderr.strip() or f"gh api failed: {endpoint}")
+            return json.loads(completed.stdout or "null")
+
+        if "issues.opened" in requested:
+            issues = gh_api(f"repos/{repo}/issues?state=open&per_page=50")
+            for issue in issues if isinstance(issues, list) else []:
+                if "pull_request" in issue:
+                    continue
+                key = f"issue:{issue.get('id') or issue.get('number')}"
+                digest = _digest(key)
+                next_seen.append(digest)
+                observations.append({"source": "github.issue.opened", "target": str(issue.get("html_url") or key), "changed": digest not in seen and (bool(seen) or bool(spec.get("emit_initial", False))), "new_hash": digest, "payload": issue})
+        if "pull_request.opened" in requested or "pulls.opened" in requested:
+            pulls = gh_api(f"repos/{repo}/pulls?state=open&per_page=50")
+            for pull in pulls if isinstance(pulls, list) else []:
+                key = f"pull:{pull.get('id') or pull.get('number')}"
+                digest = _digest(key)
+                next_seen.append(digest)
+                observations.append({"source": "github.pull_request.opened", "target": str(pull.get("html_url") or key), "changed": digest not in seen and (bool(seen) or bool(spec.get("emit_initial", False))), "new_hash": digest, "payload": pull})
+        if "check_suite.completed" in requested:
+            ref = str(spec.get("ref") or "HEAD")
+            suites_payload = gh_api(f"repos/{repo}/commits/{ref}/check-suites?per_page=50")
+            suites = suites_payload.get("check_suites") if isinstance(suites_payload, dict) else []
+            for suite in suites if isinstance(suites, list) else []:
+                if suite.get("status") != "completed":
+                    continue
+                key = f"check-suite:{suite.get('id')}"
+                digest = _digest(f"{key}:{suite.get('conclusion')}")
+                next_seen.append(digest)
+                observations.append({"source": "github.check_suite.completed", "target": str(suite.get("html_url") or key), "changed": digest not in seen and (bool(seen) or bool(spec.get("emit_initial", False))), "new_hash": digest, "payload": suite})
+        return observations, {"seen": list(dict.fromkeys([*next_seen, *list(seen)]))[:1000], "checked_at": _now().isoformat()}
+
     def _event_from_observation(self, spec: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
         occurred_at = _now()
         target = str(observation.get("target") or spec["id"])
@@ -317,6 +584,9 @@ class ListenerEngine:
             "trigger": trigger,
             "status": "pending",
         }
+
+    def _workflow_inputs_for_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        return {"event_id": event["id"], "event": event}
 
     def _events_log_path(self) -> Path:
         return self.events_dir / "events.jsonl"
@@ -345,7 +615,7 @@ class ListenerEngine:
         event["event_path"] = str((self.events_dir / f"{event['id']}.json").relative_to(self.project_path))
         if mode == "run":
             return self.runtime.workflow_run(str(workflow), runner=str(trigger.get("runner") or "auto"), dry_run=dry_run)
-        return self.runtime.workflow_execute(str(workflow), dry_run=dry_run)
+        return self.runtime.workflow_execute(str(workflow), dry_run=dry_run, inputs=self._workflow_inputs_for_event(event))
 
     def list_events(self, *, limit: int = 20, listener_id: str | None = None) -> dict[str, Any]:
         events: list[dict[str, Any]] = []
@@ -374,7 +644,7 @@ class ListenerEngine:
         workflow = trigger.get("workflow") or event.get("triggered_workflow")
         if not workflow:
             raise ValueError(f"Event has no workflow trigger: {event_id}")
-        result = self.runtime.workflow_execute(str(workflow), dry_run=dry_run)
+        result = self.runtime.workflow_execute(str(workflow), dry_run=dry_run, inputs=self._workflow_inputs_for_event(event))
         replay = {"event_id": event_id, "workflow": workflow, "dry_run": dry_run, "result": result, "replayed_at": _now().isoformat()}
         with self._events_log_path().open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"event_id": event_id, "replay": replay}, sort_keys=True) + "\n")
@@ -386,3 +656,100 @@ class ListenerEngine:
         while True:
             self.poll()
             time.sleep(max(1, interval_seconds))
+
+    def doctor(self) -> dict[str, Any]:
+        state = self._load_state()
+        validation = self.validate_spec()
+        events = self.list_events(limit=500)["events"]
+        warnings: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        now = _now()
+        specs = [self._load_spec(path) for path in self._listener_files()]
+        for spec in specs:
+            listener_id = str(spec.get("id"))
+            listener_state = state.get("listeners", {}).get(listener_id, {})
+            if spec.get("enabled", True) is False:
+                continue
+            if listener_state.get("status") == "error":
+                errors.append({"listener": listener_id, "issue": "failing", "detail": listener_state.get("last_error")})
+            last_success = listener_state.get("last_success_at")
+            if last_success:
+                try:
+                    seconds_since = (now - _dt.datetime.fromisoformat(str(last_success))).total_seconds()
+                    stale_after = _parse_interval(spec.get("stale_after") or spec.get("interval"), default_seconds=86400) * 2
+                    if seconds_since > stale_after:
+                        warnings.append({"listener": listener_id, "issue": "not_run_recently", "seconds_since_success": int(seconds_since)})
+                except Exception:
+                    warnings.append({"listener": listener_id, "issue": "invalid_last_success_at", "value": last_success})
+            else:
+                warnings.append({"listener": listener_id, "issue": "never_succeeded"})
+            workflow = self._trigger(spec).get("workflow")
+            if workflow:
+                try:
+                    self.runtime.workflow_show(str(workflow))
+                except Exception as exc:
+                    errors.append({"listener": listener_id, "issue": "missing_workflow", "workflow": workflow, "detail": str(exc)})
+        unhandled = [event for event in events if event.get("status") in {"pending", "recorded", "dispatched"}]
+        if unhandled:
+            warnings.append({"issue": "unhandled_events", "count": len(unhandled)})
+        log_path = self._events_log_path()
+        if log_path.exists() and log_path.stat().st_size > 5_000_000:
+            warnings.append({"issue": "large_event_log", "path": str(log_path.relative_to(self.project_path)), "bytes": log_path.stat().st_size})
+        stale_locks = [str(path.relative_to(self.project_path)) for path in sorted(self.locks_dir.glob("listener-*.lock"))]
+        if stale_locks:
+            warnings.append({"issue": "listener_locks_present", "locks": stale_locks})
+        return {
+            "ok": validation["ok"] and not errors,
+            "listeners": len(specs),
+            "enabled": len([spec for spec in specs if spec.get("enabled", True) is not False]),
+            "validation": validation,
+            "errors": errors,
+            "warnings": warnings,
+            "recent_events": len(events),
+        }
+
+    def serve(self, *, host: str = "127.0.0.1", port: int = 8787) -> dict[str, Any]:
+        engine = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(length)
+                try:
+                    payload = json.loads(raw.decode("utf-8") or "{}")
+                    if not isinstance(payload, dict):
+                        raise ValueError("payload must be a JSON object")
+                    observation = {
+                        "source": payload.get("source") or "webhook.event",
+                        "target": payload.get("target") or self.path,
+                        "changed": payload.get("changed", True),
+                        "new_hash": payload.get("hash") or _digest(json.dumps(payload, sort_keys=True)),
+                        "payload": payload,
+                    }
+                    spec = {"id": payload.get("listener_id") or "webhook", "type": "webhook", "on_event": payload.get("on_event") or {}}
+                    event = engine._event_from_observation(spec, observation)
+                    event["status"] = "recorded"
+                    engine._append_event(event)
+                    self.send_response(202)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "recorded", "event_id": event["id"]}).encode("utf-8"))
+                except Exception as exc:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "error": str(exc)}).encode("utf-8"))
+
+            def log_message(self, _format: str, *_args: Any) -> None:
+                return
+
+        server = ThreadingHTTPServer((host, port), Handler)
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+
+
+def _safe_id(value: str) -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug[:80] or "listener"

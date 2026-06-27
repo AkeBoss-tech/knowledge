@@ -31,6 +31,7 @@ from rail.markdown_graph import (
     validate_markdown_graph,
 )
 from rail.listeners import ListenerEngine
+from rail.queues import QueueEngine
 from rail.source_dependencies import (
     affected_documents,
     changed_sources,
@@ -2481,6 +2482,12 @@ boot();
             workflow_validation["ok"],
             f"{workflow_validation['valid']} valid workflow specs, {workflow_validation['invalid']} invalid",
         )
+        listener_health = self.listener_doctor()
+        check(
+            "listeners",
+            listener_health["ok"],
+            f"{listener_health['enabled']} enabled listener(s), {len(listener_health['errors'])} error(s)",
+        )
         for rel in ["agents/prompts/doctor.md", "agents/prompts/platform.md", "skills/krail-platform.md"]:
             path = self.project_path / rel
             check(f"krail_agent:{rel}", path.exists(), f"{rel} exists" if path.exists() else f"{rel} missing; run `krail --local agent scaffold-krail`")
@@ -2559,11 +2566,41 @@ boot();
             "checks": checks,
             "warnings": warnings,
             "workflow_validation": workflow_validation,
+            "listener_health": listener_health,
             "source_dependency_validation": dependency_validation,
         }
 
     def graph_build(self, *, write: bool = True) -> dict[str, Any]:
         return build_markdown_graph(self.project_path, write=write)
+
+    def graph_summary(self) -> dict[str, Any]:
+        graph = load_or_build_graph(self.project_path)
+        counts = graph.get("counts") if isinstance(graph.get("counts"), dict) else {}
+        return {
+            "counts": counts,
+            "warnings": graph.get("warnings", []),
+            "exports": graph.get("written", []),
+        }
+
+    def graph_diff(self) -> dict[str, Any]:
+        previous_path = self.project_path / "research_plan" / "graph" / "graph.json"
+        previous: dict[str, Any] = {}
+        if previous_path.exists():
+            try:
+                previous = json.loads(previous_path.read_text(encoding="utf-8"))
+            except Exception:
+                previous = {}
+        current = build_markdown_graph(self.project_path, write=False)
+        old_nodes = {str(item.get("id")) for item in previous.get("nodes", []) if isinstance(item, dict)}
+        new_nodes = {str(item.get("id")) for item in current.get("nodes", []) if isinstance(item, dict)}
+        old_edges = {str(item.get("id")) for item in previous.get("edges", []) if isinstance(item, dict)}
+        new_edges = {str(item.get("id")) for item in current.get("edges", []) if isinstance(item, dict)}
+        return {
+            "nodes": {"added": sorted(new_nodes - old_nodes), "removed": sorted(old_nodes - new_nodes), "unchanged": len(old_nodes & new_nodes)},
+            "edges": {"added": sorted(new_edges - old_edges), "removed": sorted(old_edges - new_edges), "unchanged": len(old_edges & new_edges)},
+            "current_counts": current.get("counts", {}),
+            "previous_counts": previous.get("counts", {}),
+        }
 
     def graph_validate(self) -> dict[str, Any]:
         return validate_markdown_graph(self.project_path)
@@ -2630,6 +2667,44 @@ boot();
 
     def sources_affected(self, *, source_ids: list[str] | None = None) -> dict[str, Any]:
         return affected_documents(self.project_path, source_ids=source_ids)
+
+    def repo_inspect(self, path_or_url: str) -> dict[str, Any]:
+        target = Path(path_or_url)
+        if not target.is_absolute():
+            target = self.project_path / target
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": path_or_url,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        markers = {
+            "python": ["pyproject.toml", "requirements.txt", "setup.py"],
+            "node": ["package.json", "pnpm-lock.yaml", "yarn.lock"],
+            "go": ["go.mod"],
+            "rust": ["Cargo.toml"],
+            "java": ["pom.xml", "build.gradle", "build.gradle.kts"],
+            "docker": ["Dockerfile", "docker-compose.yml", "compose.yaml"],
+        }
+        files = {path.name for path in target.iterdir()} if target.is_dir() else set()
+        marker_names = {item for values in markers.values() for item in values}
+        frameworks = [name for name, names in markers.items() if any(marker in files for marker in names)]
+        endpoint_files = []
+        if target.is_dir():
+            for path in list(target.rglob("*.py"))[:200]:
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                if "@app." in text or "@router." in text:
+                    endpoint_files.append(str(path.relative_to(target)))
+        return {
+            "status": "inspected",
+            "target": str(target),
+            "frameworks": frameworks,
+            "manifests": sorted(files & marker_names),
+            "endpoint_files": endpoint_files[:50],
+        }
 
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict[str, Any]:
         rel = path
@@ -3345,6 +3420,72 @@ krail --local graph check
             return json.loads(matches[0].read_text(encoding="utf-8"))
         raise FileNotFoundError(f"Workflow run not found: {run_id}")
 
+    def workflow_dashboard(self, *, limit: int = 50) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
+        for session_dir in sorted(self.sessions_dir.glob("*"), reverse=True):
+            if not session_dir.is_dir():
+                continue
+            result_path = session_dir / "result.json"
+            state_path = session_dir / "state.json"
+            work_order_path = session_dir / "work_order.json"
+            row: dict[str, Any] = {"session_id": session_dir.name, "path": str(session_dir.relative_to(self.project_path))}
+            if result_path.exists():
+                try:
+                    result = json.loads(result_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    result = {"status": "unreadable", "error": str(exc)}
+                row.update(
+                    {
+                        "kind": "workflow",
+                        "workflow": result.get("workflow"),
+                        "status": result.get("status"),
+                        "started_at": result.get("started_at"),
+                        "ended_at": result.get("ended_at"),
+                        "failed_step": result.get("failed_step"),
+                        "result_present": True,
+                        "schema_errors": result.get("schema_errors") or [],
+                    }
+                )
+            elif work_order_path.exists():
+                try:
+                    work_order = json.loads(work_order_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    work_order = {"status": "unreadable", "error": str(exc)}
+                result_file = session_dir / "session_result.json"
+                row.update(
+                    {
+                        "kind": "agent",
+                        "workflow": work_order.get("workflow"),
+                        "task_id": work_order.get("task_id"),
+                        "status": "done" if result_file.exists() else "running_or_incomplete",
+                        "result_present": result_file.exists(),
+                        "work_order": str(work_order_path.relative_to(self.project_path)),
+                    }
+                )
+            elif state_path.exists():
+                try:
+                    state = json.loads(state_path.read_text(encoding="utf-8"))
+                except Exception:
+                    state = {}
+                row.update({"kind": "workflow", "workflow": state.get("workflow"), "status": state.get("status"), "result_present": False})
+            else:
+                continue
+            last_logs = sorted([*session_dir.glob("*.stdout.log"), *session_dir.glob("*.stderr.log")], key=lambda p: p.stat().st_mtime if p.exists() else 0)
+            if last_logs:
+                try:
+                    lines = last_logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()
+                    row["last_log"] = lines[-1] if lines else ""
+                    row["last_log_path"] = str(last_logs[-1].relative_to(self.project_path))
+                except Exception:
+                    pass
+            status = str(row.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+            rows.append(row)
+            if len(rows) >= limit:
+                break
+        return {"sessions": rows, "counts": counts, "limit": limit}
+
     def _workflow_run_dir(self, run_id: str) -> Path:
         candidates = [self.sessions_dir / run_id, self.sessions_dir / self._slug(run_id)]
         for path in candidates:
@@ -3667,6 +3808,36 @@ krail --local graph check
     def _listener_engine(self) -> ListenerEngine:
         return ListenerEngine(self)
 
+    def _queue_engine(self) -> QueueEngine:
+        return QueueEngine(self.project_path)
+
+    def queue_init(self, queue_id: str, *, source: str, key: str, force: bool = False) -> dict[str, Any]:
+        return self._queue_engine().init(queue_id, source=source, key=key, force=force)
+
+    def queue_status(self, queue_id: str) -> dict[str, Any]:
+        return self._queue_engine().status(queue_id)
+
+    def queue_claim(self, queue_id: str, *, limit: int = 10, where: list[str] | None = None, owner: str | None = None, lease_minutes: int = 120) -> dict[str, Any]:
+        return self._queue_engine().claim(queue_id, limit=limit, where=where, owner=owner, lease_minutes=lease_minutes)
+
+    def queue_update_batch(self, queue_id: str, batch_id: str, *, status: str) -> dict[str, Any]:
+        return self._queue_engine().update_batch(queue_id, batch_id, status=status)
+
+    def queue_release(self, queue_id: str, *, stale: bool = False) -> dict[str, Any]:
+        return self._queue_engine().release(queue_id, stale=stale)
+
+    def listener_templates(self) -> dict[str, Any]:
+        return self._listener_engine().templates()
+
+    def listener_init(self, template: str, *, listener_id: str | None = None, force: bool = False) -> dict[str, Any]:
+        return self._listener_engine().init_spec(template, listener_id=listener_id, force=force)
+
+    def listener_validate(self, listener_id: str | None = None) -> dict[str, Any]:
+        return self._listener_engine().validate_spec(listener_id)
+
+    def listener_doctor(self) -> dict[str, Any]:
+        return self._listener_engine().doctor()
+
     def listener_list(self) -> dict[str, Any]:
         return self._listener_engine().list_specs()
 
@@ -3681,6 +3852,9 @@ krail --local graph check
 
     def listener_daemon(self, *, once: bool = False, interval_seconds: int = 30) -> dict[str, Any]:
         return self._listener_engine().daemon(once=once, interval_seconds=interval_seconds)
+
+    def listener_serve(self, *, host: str = "127.0.0.1", port: int = 8787) -> dict[str, Any]:
+        return self._listener_engine().serve(host=host, port=port)
 
     def event_list(self, *, limit: int = 20, listener_id: str | None = None) -> dict[str, Any]:
         return self._listener_engine().list_events(limit=limit, listener_id=listener_id)
@@ -4153,6 +4327,37 @@ krail --local graph check
                 result[name] = {"error": str(exc)}
         return result
 
+    def _validate_simple_schema(self, value: Any, schema: Any, *, path: str = "output") -> list[str]:
+        if not isinstance(schema, dict):
+            return []
+        errors: list[str] = []
+        expected_type = schema.get("type")
+        if expected_type:
+            type_map = {
+                "object": dict,
+                "array": list,
+                "string": str,
+                "number": (int, float),
+                "integer": int,
+                "boolean": bool,
+            }
+            expected = type_map.get(str(expected_type))
+            if expected and not isinstance(value, expected):
+                errors.append(f"{path} must be {expected_type}")
+                return errors
+        if isinstance(value, dict):
+            for key in schema.get("required") or []:
+                if isinstance(key, str) and key not in value:
+                    errors.append(f"{path}.{key} is required")
+            properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+            for key, child_schema in properties.items():
+                if key in value:
+                    errors.extend(self._validate_simple_schema(value[key], child_schema, path=f"{path}.{key}"))
+        if isinstance(value, list) and isinstance(schema.get("items"), dict):
+            for index, item in enumerate(value):
+                errors.extend(self._validate_simple_schema(item, schema["items"], path=f"{path}[{index}]"))
+        return errors
+
     def _workflow_exposed_outputs(self, output: dict[str, Any], expose: Any) -> dict[str, Any]:
         if not isinstance(expose, dict) or not expose:
             return output
@@ -4477,6 +4682,10 @@ krail --local graph check
             task = dispatch.get("task") if isinstance(dispatch, dict) else None
             if isinstance(task, dict) and isinstance(task.get("session_result"), dict):
                 result["output"] = task["session_result"]
+            schema_errors = self._validate_simple_schema(result.get("output", {}), step.get("output_schema"), path=f"steps.{step_id}.output")
+            if schema_errors:
+                result["status"] = "failed"
+                result["schema_errors"] = schema_errors
             return result
         if kind == "think":
             runner = str(step.get("runner") or spec.get("runner") or "auto")
@@ -4719,6 +4928,9 @@ krail --local graph check
         }
         self._record_saved_workflow_results(context_for_outputs, results)
         output = self._workflow_outputs(spec, context_for_outputs)
+        schema_errors = self._validate_simple_schema(output, spec.get("outputs_schema"), path="output")
+        if schema_errors and status not in {"dry_run", "awaiting_approval"}:
+            status = "failed"
         payload = {
             "status": status,
             "run_id": run_id,
@@ -4735,13 +4947,14 @@ krail --local graph check
             "failed_step": failed_steps[0]["id"] if failed_steps else None,
             "pending_approval_id": state.get("pending_approval_id"),
             "output": output,
+            "schema_errors": schema_errors,
             "steps": results,
             "validation": validation,
         }
         (run_dir / "result.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return payload
 
-    def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
+    def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id)
         if not shown.get("materialized", True):
             return {
@@ -4757,6 +4970,7 @@ krail --local graph check
             validation_path=shown["path"],
             dry_run=dry_run,
             force=force,
+            inputs=inputs,
         )
 
     def workflow_resume(self, run_id: str, *, force: bool = False) -> dict[str, Any]:

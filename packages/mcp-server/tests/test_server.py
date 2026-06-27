@@ -183,6 +183,45 @@ def test_mcp_workflow_status_calls_project(monkeypatch):
     assert payload["status"] == "done"
 
 
+def test_mcp_listener_list_calls_project(monkeypatch):
+    class _Project:
+        def listener_list(self):
+            return {"listeners": [{"id": "watch"}]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.listener_list()
+
+    payload = json.loads(result)
+    assert payload["listeners"][0]["id"] == "watch"
+
+
+def test_mcp_listener_poll_defaults_to_safe_preview(monkeypatch):
+    class _Project:
+        def listener_poll(self, listener_id=None, *, dry_run=False, execute=True):
+            return {"listener_id": listener_id, "dry_run": dry_run, "execute": execute}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.listener_poll("watch")
+
+    payload = json.loads(result)
+    assert payload == {"listener_id": "watch", "dry_run": True, "execute": False}
+
+
+def test_mcp_event_replay_defaults_to_dry_run(monkeypatch):
+    class _Project:
+        def event_replay(self, event_id, *, dry_run=False):
+            return {"event_id": event_id, "dry_run": dry_run}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.event_replay("evt_123")
+
+    payload = json.loads(result)
+    assert payload == {"event_id": "evt_123", "dry_run": True}
+
+
 def test_mcp_sources_affected_passes_source_ids(monkeypatch):
     class _Project:
         def sources_affected(self, *, source_ids=None):

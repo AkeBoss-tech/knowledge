@@ -338,6 +338,11 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_status(run_id)
 
+    def workflow_dashboard(self, *, limit: int = 50) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_dashboard(limit=limit)
+
     def workflow_resume(self, run_id: str, *, force: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
@@ -348,10 +353,10 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)
 
-    def execute_workflow(self, workflow_id: str, *, dry_run: bool = False, force: bool = False) -> dict:
+    def execute_workflow(self, workflow_id: str, *, dry_run: bool = False, force: bool = False, inputs: dict | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
-        return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force)
+        return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force, inputs=inputs)
 
     def approval_list(self, *, status: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
@@ -388,6 +393,26 @@ class Project:
             raise RuntimeError("listener commands require local mode")
         return self._backend.knowledge.listener_list()
 
+    def listener_templates(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_templates()
+
+    def listener_init(self, template: str, *, listener_id: str | None = None, force: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_init(template, listener_id=listener_id, force=force)
+
+    def listener_validate(self, listener_id: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_validate(listener_id)
+
+    def listener_doctor(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_doctor()
+
     def listener_show(self, listener_id: str) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("listener commands require local mode")
@@ -408,6 +433,11 @@ class Project:
             raise RuntimeError("listener commands require local mode")
         return self._backend.knowledge.listener_daemon(once=once, interval_seconds=interval_seconds)
 
+    def listener_serve(self, *, host: str = "127.0.0.1", port: int = 8787) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_serve(host=host, port=port)
+
     def event_list(self, *, limit: int = 20, listener_id: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("event commands require local mode")
@@ -423,10 +453,45 @@ class Project:
             raise RuntimeError("event commands require local mode")
         return self._backend.knowledge.event_replay(event_id, dry_run=dry_run)
 
+    def queue_init(self, queue_id: str, *, source: str, key: str, force: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("queue commands require local mode")
+        return self._backend.knowledge.queue_init(queue_id, source=source, key=key, force=force)
+
+    def queue_status(self, queue_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("queue commands require local mode")
+        return self._backend.knowledge.queue_status(queue_id)
+
+    def queue_claim(self, queue_id: str, *, limit: int = 10, where: list[str] | None = None, owner: str | None = None, lease_minutes: int = 120) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("queue commands require local mode")
+        return self._backend.knowledge.queue_claim(queue_id, limit=limit, where=where, owner=owner, lease_minutes=lease_minutes)
+
+    def queue_update_batch(self, queue_id: str, batch_id: str, *, status: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("queue commands require local mode")
+        return self._backend.knowledge.queue_update_batch(queue_id, batch_id, status=status)
+
+    def queue_release(self, queue_id: str, *, stale: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("queue commands require local mode")
+        return self._backend.knowledge.queue_release(queue_id, stale=stale)
+
     def graph_build(self, *, write: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")
         return self._backend.knowledge.graph_build(write=write)
+
+    def graph_summary(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_summary()
+
+    def graph_diff(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.graph_diff()
 
     def graph_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
@@ -507,6 +572,11 @@ class Project:
             raise RuntimeError("sources commands require local mode")
         return self._backend.knowledge.sources_affected(source_ids=source_ids)
 
+    def repo_inspect(self, path_or_url: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_inspect(path_or_url)
+
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("ci commands require local mode")
@@ -580,6 +650,9 @@ class Project:
 
     def integrity_claim_candidates(self) -> list[dict]:
         return self._backend.get_integrity_claim_candidates(self.slug)
+
+    def integrity_source_candidates(self) -> list[dict]:
+        return self._backend.get_integrity_source_candidates(self.slug)
 
     def integrity_artifact_lineage(self) -> list[dict]:
         return self._backend.get_integrity_artifact_lineage(self.slug)

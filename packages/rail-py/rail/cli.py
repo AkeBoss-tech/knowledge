@@ -15,6 +15,20 @@ RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli"
 def _print_json(data: Any):
     print(json.dumps(data, indent=2, default=str))
 
+def _parse_inputs(items: list[str] | None) -> dict[str, Any]:
+    inputs: dict[str, Any] = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError(f"--input must be key=value: {item}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        try:
+            inputs[key] = json.loads(value)
+        except json.JSONDecodeError:
+            inputs[key] = value
+    return inputs
+
 def _get_project(args: argparse.Namespace) -> rail.Project:
     if args.local:
         return rail.local(path=args.path)
@@ -230,9 +244,11 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
     elif args.workflow_command == "run":
         _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
     elif args.workflow_command == "execute":
-        _print_json(project.execute_workflow(args.workflow_id, dry_run=args.dry_run, force=args.force))
+        _print_json(project.execute_workflow(args.workflow_id, dry_run=args.dry_run, force=args.force, inputs=_parse_inputs(args.input)))
     elif args.workflow_command == "runs":
         _print_json(project.workflow_runs(limit=args.limit))
+    elif args.workflow_command == "dashboard":
+        _print_json(project.workflow_dashboard(limit=args.limit))
     elif args.workflow_command == "status":
         _print_json(project.workflow_status(args.run_id))
     elif args.workflow_command == "resume":
@@ -269,6 +285,20 @@ def cmd_schedule(project: rail.Project, args: argparse.Namespace):
 def cmd_listener(project: rail.Project, args: argparse.Namespace):
     if args.listener_command == "list":
         _print_json(project.listener_list())
+    elif args.listener_command == "templates":
+        _print_json(project.listener_templates())
+    elif args.listener_command == "init":
+        _print_json(project.listener_init(args.template, listener_id=args.id, force=args.force))
+    elif args.listener_command == "validate":
+        result = project.listener_validate(args.listener_id)
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
+    elif args.listener_command == "doctor":
+        result = project.listener_doctor()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
     elif args.listener_command == "show":
         _print_json(project.listener_show(args.listener_id))
     elif args.listener_command == "test":
@@ -277,6 +307,8 @@ def cmd_listener(project: rail.Project, args: argparse.Namespace):
         _print_json(project.listener_poll(args.listener_id, dry_run=args.dry_run, execute=not args.no_execute))
     elif args.listener_command == "daemon":
         _print_json(project.listener_daemon(once=args.once, interval_seconds=args.interval_seconds))
+    elif args.listener_command == "serve":
+        _print_json(project.listener_serve(host=args.host, port=args.port))
 
 def cmd_event(project: rail.Project, args: argparse.Namespace):
     if args.event_command == "list":
@@ -286,9 +318,32 @@ def cmd_event(project: rail.Project, args: argparse.Namespace):
     elif args.event_command == "replay":
         _print_json(project.event_replay(args.event_id, dry_run=args.dry_run))
 
+def cmd_queue(project: rail.Project, args: argparse.Namespace):
+    if args.queue_command == "init":
+        _print_json(project.queue_init(args.queue_id, source=args.source, key=args.key, force=args.force))
+    elif args.queue_command == "status":
+        _print_json(project.queue_status(args.queue_id))
+    elif args.queue_command == "claim":
+        _print_json(project.queue_claim(args.queue_id, limit=args.limit, where=args.where, owner=args.owner, lease_minutes=args.lease_minutes))
+    elif args.queue_command in {"complete", "fail", "skip"}:
+        status = {"complete": "done", "fail": "failed", "skip": "skipped"}[args.queue_command]
+        _print_json(project.queue_update_batch(args.queue_id, args.batch_id, status=status))
+    elif args.queue_command == "release":
+        _print_json(project.queue_release(args.queue_id, stale=args.stale))
+
 def cmd_graph(project: rail.Project, args: argparse.Namespace):
     if args.graph_command == "build":
-        _print_json(project.graph_build(write=not args.no_write))
+        result = project.graph_build(write=not args.no_write)
+        if args.quiet:
+            return
+        if args.json:
+            _print_json(result)
+        else:
+            _print_json({"counts": result.get("counts", {}), "warnings": result.get("warnings", []), "written": result.get("written", [])})
+    elif args.graph_command == "summary":
+        _print_json(project.graph_summary())
+    elif args.graph_command == "diff":
+        _print_json(project.graph_diff())
     elif args.graph_command == "validate":
         result = project.graph_validate()
         _print_json(result)
@@ -343,6 +398,18 @@ def cmd_sources(project: rail.Project, args: argparse.Namespace):
         _print_json(project.sources_changed())
     elif args.sources_command == "affected":
         _print_json(project.sources_affected(source_ids=args.source_id))
+
+def cmd_evidence(project: rail.Project, args: argparse.Namespace):
+    if args.evidence_command == "candidates":
+        _print_json({"sources": project.integrity_source_candidates(), "claims": project.integrity_claim_candidates()})
+    elif args.evidence_command == "promote-source":
+        _print_json(project.apply_integrity_source_candidate_promotion(args.candidate_key, source_type=args.source_type, source_key=args.source_key))
+    elif args.evidence_command == "promote-claim":
+        _print_json(project.apply_integrity_claim_candidate_promotion(args.candidate_key, claim_key=args.claim_key, status=args.status, artifact_path=args.artifact_path))
+
+def cmd_repo(project: rail.Project, args: argparse.Namespace):
+    if args.repo_command == "inspect":
+        _print_json(project.repo_inspect(args.path_or_url))
 
 def cmd_ci(project: rail.Project, args: argparse.Namespace):
     if args.ci_command == "init":
@@ -670,8 +737,11 @@ def main():
     wx.add_argument("workflow_id")
     wx.add_argument("--dry-run", action="store_true")
     wx.add_argument("--force", action="store_true", help="Bypass workflow lock")
+    wx.add_argument("--input", action="append", help="Workflow input as key=value; JSON values are accepted")
     wrl = wf_subs.add_parser("runs", help="List local workflow runs")
     wrl.add_argument("--limit", type=int, default=20)
+    wdash = wf_subs.add_parser("dashboard", help="Summarize workflow and agent session status")
+    wdash.add_argument("--limit", type=int, default=50)
     wst = wf_subs.add_parser("status", help="Show a local workflow run result")
     wst.add_argument("run_id")
     wre = wf_subs.add_parser("resume", help="Resume a workflow run paused on an approval")
@@ -714,6 +784,14 @@ def main():
     listener_parser = subparsers.add_parser("listener", help="Poll local event listeners and trigger workflows")
     listener_subs = listener_parser.add_subparsers(dest="listener_command")
     listener_subs.add_parser("list", help="List listener specs under research_plan/listeners")
+    listener_subs.add_parser("templates", help="List built-in listener templates")
+    linit = listener_subs.add_parser("init", help="Create a listener spec from a template or type")
+    linit.add_argument("template", help="Template name or listener type")
+    linit.add_argument("--id", help="Override listener id")
+    linit.add_argument("--force", action="store_true")
+    lval = listener_subs.add_parser("validate", help="Validate one listener or all listeners")
+    lval.add_argument("listener_id", nargs="?")
+    listener_subs.add_parser("doctor", help="Diagnose listener health, state, and events")
     lshow = listener_subs.add_parser("show", help="Show a listener spec")
     lshow.add_argument("listener_id")
     ltest = listener_subs.add_parser("test", help="Observe a listener without writing events or state")
@@ -726,6 +804,9 @@ def main():
     ldaemon = listener_subs.add_parser("daemon", help="Continuously poll all enabled listeners")
     ldaemon.add_argument("--once", action="store_true", help="Poll all listeners once and exit")
     ldaemon.add_argument("--interval-seconds", type=int, default=30, help="Sleep interval between polling passes")
+    lserve = listener_subs.add_parser("serve", help="Run a local webhook receiver that records events")
+    lserve.add_argument("--host", default="127.0.0.1")
+    lserve.add_argument("--port", type=int, default=8787)
 
     event_parser = subparsers.add_parser("event", help="Inspect and replay listener events")
     event_subs = event_parser.add_subparsers(dest="event_command")
@@ -738,11 +819,39 @@ def main():
     ereplay.add_argument("event_id")
     ereplay.add_argument("--dry-run", action="store_true")
 
+    queue_parser = subparsers.add_parser("queue", help="Manage repo-backed batch queues over inventories")
+    queue_subs = queue_parser.add_subparsers(dest="queue_command")
+    qinit = queue_subs.add_parser("init", help="Create a queue from CSV, JSON, or JSONL inventory")
+    qinit.add_argument("queue_id")
+    qinit.add_argument("--source", required=True)
+    qinit.add_argument("--key", required=True)
+    qinit.add_argument("--force", action="store_true")
+    qstatus = queue_subs.add_parser("status", help="Show queue counts and recent claims")
+    qstatus.add_argument("queue_id")
+    qclaim = queue_subs.add_parser("claim", help="Reserve a batch of queue items")
+    qclaim.add_argument("queue_id")
+    qclaim.add_argument("--limit", type=int, default=10)
+    qclaim.add_argument("--where", action="append", help="Filter as key=value; can be repeated")
+    qclaim.add_argument("--owner")
+    qclaim.add_argument("--lease-minutes", type=int, default=120)
+    for qcmd in ["complete", "fail", "skip"]:
+        qp = queue_subs.add_parser(qcmd, help=f"Mark a claimed batch {qcmd}")
+        qp.add_argument("queue_id")
+        qp.add_argument("batch_id")
+    qrel = queue_subs.add_parser("release", help="Release reserved/running queue items back to pending")
+    qrel.add_argument("queue_id")
+    qrel.add_argument("--stale", action="store_true", help="Only release expired leases")
+
     # Markdown graph
     graph_parser = subparsers.add_parser("graph", help="Build and query markdown-frontmatter graphs")
     graph_subs = graph_parser.add_subparsers(dest="graph_command")
     gb = graph_subs.add_parser("build", help="Build graph artifacts from markdown frontmatter")
     gb.add_argument("--no-write", action="store_true", help="Return the graph without writing artifacts")
+    gb.add_argument("--quiet", action="store_true", help="Build without printing the graph JSON")
+    gb.add_argument("--summary", action="store_true", help="Print only counts, warnings, and written paths")
+    gb.add_argument("--json", action="store_true", help="Print the full graph JSON")
+    graph_subs.add_parser("summary", help="Print graph counts and warnings without dumping graph JSON")
+    graph_subs.add_parser("diff", help="Compare current markdown graph to the saved graph artifact")
     graph_subs.add_parser("validate", help="Validate markdown graph frontmatter")
     graph_subs.add_parser("check", help="Fail-style check for stale graph artifacts")
     ge = graph_subs.add_parser("entities", help="List markdown-derived entities")
@@ -782,6 +891,24 @@ def main():
     sources_subs.add_parser("changed", help="List sources marked changed by the last check")
     sa = sources_subs.add_parser("affected", help="List documents affected by changed sources")
     sa.add_argument("--source-id", action="append", help="Limit affected-doc lookup to a source id; can be repeated")
+
+    evidence_parser = subparsers.add_parser("evidence", help="Review and promote candidate evidence")
+    evidence_subs = evidence_parser.add_subparsers(dest="evidence_command")
+    evidence_subs.add_parser("candidates", help="List source and claim candidates")
+    eps = evidence_subs.add_parser("promote-source", help="Promote a source candidate")
+    eps.add_argument("candidate_key")
+    eps.add_argument("--source-key")
+    eps.add_argument("--source-type", default="dataset")
+    epc = evidence_subs.add_parser("promote-claim", help="Promote a claim candidate")
+    epc.add_argument("candidate_key")
+    epc.add_argument("--claim-key")
+    epc.add_argument("--status", default="needs_evidence")
+    epc.add_argument("--artifact-path")
+
+    repo_parser = subparsers.add_parser("repo", help="Inspect repositories for ingestion evidence")
+    repo_subs = repo_parser.add_subparsers(dest="repo_command")
+    rinspect = repo_subs.add_parser("inspect", help="Inspect a local repository path")
+    rinspect.add_argument("path_or_url")
 
     # CI templates
     ci_parser = subparsers.add_parser("ci", help="Generate local-preview CI templates")
@@ -959,12 +1086,18 @@ def main():
         cmd_listener(project, args)
     elif args.command == "event":
         cmd_event(project, args)
+    elif args.command == "queue":
+        cmd_queue(project, args)
     elif args.command == "graph":
         cmd_graph(project, args)
     elif args.command == "vector":
         cmd_vector(project, args)
     elif args.command == "sources":
         cmd_sources(project, args)
+    elif args.command == "evidence":
+        cmd_evidence(project, args)
+    elif args.command == "repo":
+        cmd_repo(project, args)
     elif args.command == "ci":
         cmd_ci(project, args)
     elif args.command == "query":

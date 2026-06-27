@@ -506,6 +506,101 @@ def execute_workflow(workflow_id: str, dry_run: bool = True, force: bool = False
 
 
 @mcp.tool()
+def workflow_dashboard(limit: int = 50) -> str:
+    """Summarize workflow and agent session status for operators."""
+    return _json(_get_project().workflow_dashboard(limit=limit))
+
+
+@mcp.tool()
+def listener_list() -> str:
+    """List local listener specs and current listener state."""
+    return _json(_get_project().listener_list())
+
+
+@mcp.tool()
+def listener_templates() -> str:
+    """List built-in listener templates and supported listener types."""
+    return _json(_get_project().listener_templates())
+
+
+@mcp.tool()
+def listener_init(template: str, listener_id: str = "", force: bool = False) -> str:
+    """Create a listener spec from a built-in template or listener type."""
+    return _json(_get_project().listener_init(template, listener_id=listener_id or None, force=force))
+
+
+@mcp.tool()
+def listener_validate(listener_id: str = "") -> str:
+    """Validate one listener spec or all listener specs."""
+    return _json(_get_project().listener_validate(listener_id or None))
+
+
+@mcp.tool()
+def listener_doctor() -> str:
+    """Diagnose listener health, failures, missing workflows, and unhandled events."""
+    return _json(_get_project().listener_doctor())
+
+
+@mcp.tool()
+def listener_poll(listener_id: str = "", dry_run: bool = True, execute: bool = False) -> str:
+    """
+    Poll one listener or all listeners.
+
+    Defaults to dry_run=True and execute=False for agent safety.
+    """
+    return _json(_get_project().listener_poll(listener_id or None, dry_run=dry_run, execute=execute))
+
+
+@mcp.tool()
+def event_list(limit: int = 20, listener_id: str = "") -> str:
+    """List recorded listener events."""
+    return _json(_get_project().event_list(limit=limit, listener_id=listener_id or None))
+
+
+@mcp.tool()
+def event_show(event_id: str) -> str:
+    """Show one recorded listener event."""
+    return _json(_get_project().event_show(event_id))
+
+
+@mcp.tool()
+def event_replay(event_id: str, dry_run: bool = True) -> str:
+    """Replay an event's workflow trigger. Defaults to dry_run=True."""
+    return _json(_get_project().event_replay(event_id, dry_run=dry_run))
+
+
+@mcp.tool()
+def queue_status(queue_id: str) -> str:
+    """Show queue counts and recent batch claims."""
+    return _json(_get_project().queue_status(queue_id))
+
+
+@mcp.tool()
+def queue_claim(queue_id: str, limit: int = 10, where_json: str = "", owner: str = "", lease_minutes: int = 120) -> str:
+    """Reserve a queue batch. where_json is an optional JSON list of key=value filters."""
+    where = json.loads(where_json) if where_json else None
+    return _json(_get_project().queue_claim(queue_id, limit=limit, where=where, owner=owner or None, lease_minutes=lease_minutes))
+
+
+@mcp.tool()
+def graph_summary() -> str:
+    """Return graph counts and warnings without dumping full graph JSON."""
+    return _json(_get_project().graph_summary())
+
+
+@mcp.tool()
+def graph_diff() -> str:
+    """Compare the current markdown graph to the saved graph artifact."""
+    return _json(_get_project().graph_diff())
+
+
+@mcp.tool()
+def repo_inspect(path_or_url: str) -> str:
+    """Inspect a local repository path for manifests, framework markers, and endpoint files."""
+    return _json(_get_project().repo_inspect(path_or_url))
+
+
+@mcp.tool()
 def workflow_runs(limit: int = 20) -> str:
     """List local workflow run records."""
     return _json(_get_project().workflow_runs(limit=limit))
