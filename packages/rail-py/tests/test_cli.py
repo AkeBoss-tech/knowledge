@@ -69,6 +69,48 @@ def test_project_reconcile_uses_cloud_backend_method():
     assert backend.calls == ["demo-project"]
 
 
+def test_cmd_find_prints_human_typed_results(capsys):
+    class _Project:
+        def find(self, q, **kwargs):
+            assert q == "repo intake"
+            assert kwargs["types"] == ["document"]
+            return {
+                "summary": {"total": 1, "returned": 1, "by_type": {"document": 1}},
+                "results": [
+                    {
+                        "type": "document",
+                        "title": "Repo Intake",
+                        "path": "topics/repo-intake.md",
+                        "score": 7,
+                        "snippet": "repo intake work order",
+                    }
+                ],
+                "suggested_actions": [],
+            }
+
+    args = argparse.Namespace(
+        query="repo intake",
+        limit=10,
+        type=["document"],
+        topic=None,
+        entity=None,
+        status=None,
+        freshness=None,
+        workflow=None,
+        explain=False,
+        no_rag=True,
+        json=False,
+        paths=False,
+    )
+
+    rail_cli.cmd_find(_Project(), args)
+
+    output = capsys.readouterr().out
+    assert "Found 1 result(s)" in output
+    assert "[document] Repo Intake" in output
+    assert "topics/repo-intake.md" in output
+
+
 def test_project_hydrate_uses_cloud_project_pipeline_route():
     class _Backend:
         def __init__(self):

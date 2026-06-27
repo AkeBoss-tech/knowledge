@@ -302,6 +302,26 @@ def test_mcp_integrity_claim_candidates_calls_project(monkeypatch):
     assert payload[0]["candidate_key"] == "claim:candidate-001"
 
 
+def test_mcp_find_calls_project(monkeypatch):
+    class _Project:
+        def find(self, query, **kwargs):
+            assert query == "repo intake"
+            assert kwargs["types"] == ["document", "claim"]
+            assert kwargs["workflow"] == "corptech_repo_architecture_intake"
+            return {"query": query, "results": [{"type": "document", "title": "Repo Intake"}]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.find(
+        "repo intake",
+        types_json='["document", "claim"]',
+        workflow="corptech_repo_architecture_intake",
+    )
+
+    payload = json.loads(result)
+    assert payload["results"][0]["title"] == "Repo Intake"
+
+
 def test_mcp_integrity_artifacts_calls_project(monkeypatch):
     class _Project:
         def integrity_artifact_lineage(self):

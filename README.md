@@ -29,7 +29,8 @@ Most agent workflows break down in the same places:
 KRAIL is the repo-backed layer that sits between raw files and agent actions.
 
 ```text
-search   = find evidence in the project
+search   = retrieve document evidence in the project
+find     = find typed records across docs, graph, evidence, sessions, and queues
 think    = synthesize evidence + cite files + expose gaps
 task     = create auditable work orders for local agents
 workflow = run repeatable project routines from the active pack
@@ -42,8 +43,8 @@ integrity = decide what is ready to trust, verify, or promote
 
 - local-first knowledge projects with `krail.yaml`, `topics/`, `sources/`, and
   `research_plan/`
-- deterministic search and `think` envelopes with citations, freshness, and
-  next actions
+- deterministic search, unified `find`, and `think` envelopes with citations,
+  freshness, typed records, and next actions
 - repo-backed tasks, workflow runs, and session outputs
 - listener/event triggers for files, websites, RSS, GitHub polling, schedules,
   and custom command adapters
@@ -138,7 +139,7 @@ Working well now:
 - local project scaffolding
 - knowledge pack activation
 - capture inbox
-- deterministic local file search
+- deterministic local file search and unified typed `find`
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records
@@ -146,7 +147,7 @@ Working well now:
 - queue-based ingestion, workflow dashboards, parameterized workflow inputs,
   and lightweight typed workflow outputs
 - dry-run and full dispatch to local CLIs
-- MCP tools for search, think, capture, tasks, workflows, and integrity
+- MCP tools for find, search, think, capture, tasks, workflows, and integrity
 - optional local FastAPI adapter using `.krail/store.json`
 
 Still early:

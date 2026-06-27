@@ -110,6 +110,59 @@ def search(query: str, limit: int = 10, explain: bool = False) -> str:
 
 
 @mcp.tool()
+def find(
+    query: str,
+    limit: int = 10,
+    types_json: str = "",
+    topic: str = "",
+    entity: str = "",
+    status: str = "",
+    freshness: str = "",
+    workflow: str = "",
+    explain: bool = False,
+    rag: bool = True,
+) -> str:
+    """
+    Find typed knowledge records across docs, graph, integrity state, sessions, queues, and artifacts.
+
+    Args:
+        query: Search query.
+        limit: Maximum number of results.
+        types_json: Optional JSON list of result types, e.g. ["claim", "workflow_run"].
+        topic: Optional topic filter.
+        entity: Optional entity filter.
+        status: Optional status filter.
+        freshness: Optional freshness filter.
+        workflow: Optional workflow filter.
+        explain: Include searched surfaces and ranking notes.
+        rag: Include local vector retrieval when available.
+    """
+    types: list[str] | None = None
+    if types_json.strip():
+        try:
+            loaded = json.loads(types_json)
+            if isinstance(loaded, list):
+                types = [str(item) for item in loaded]
+        except Exception:
+            types = [item.strip() for item in types_json.split(",") if item.strip()]
+    project = _get_project()
+    return _json(
+        project.find(
+            query,
+            limit=limit,
+            types=types,
+            topic=topic or None,
+            entity=entity or None,
+            status=status or None,
+            freshness=freshness or None,
+            workflow=workflow or None,
+            explain=explain,
+            rag=rag,
+        )
+    )
+
+
+@mcp.tool()
 def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str = "auto", dry_run: bool = False) -> str:
     """
     Synthesize from retrieved project evidence with explicit gaps and conflicts.

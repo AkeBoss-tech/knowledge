@@ -73,6 +73,49 @@ def cmd_search(project: rail.Project, args: argparse.Namespace):
     else:
         _print_json(project.search(args.query))
 
+def cmd_find(project: rail.Project, args: argparse.Namespace):
+    result = project.find(
+        args.query,
+        limit=args.limit,
+        types=args.type,
+        topic=args.topic,
+        entity=args.entity,
+        status=args.status,
+        freshness=args.freshness,
+        workflow=args.workflow,
+        explain=args.explain,
+        rag=not args.no_rag,
+    )
+    if args.paths:
+        for item in result.get("results", []):
+            path = item.get("path")
+            if path:
+                print(path)
+        return
+    if args.json:
+        _print_json(result)
+        return
+    summary = result.get("summary", {})
+    by_type = ", ".join(f"{kind}={count}" for kind, count in sorted((summary.get("by_type") or {}).items()))
+    print(f"Found {summary.get('total', 0)} result(s)" + (f" ({by_type})" if by_type else ""))
+    for item in result.get("results", []):
+        label = item.get("type", "unknown")
+        title = item.get("title") or item.get("id")
+        path = item.get("path")
+        score = item.get("score")
+        status = f" status={item['status']}" if item.get("status") else ""
+        print(f"[{label}] {title} score={score}{status}")
+        if path:
+            print(f"  {path}")
+        snippet = (item.get("snippet") or "").strip()
+        if snippet:
+            print(f"  {snippet}")
+    actions = result.get("suggested_actions") or []
+    if actions:
+        print("\nSuggested actions:")
+        for action in actions:
+            print(f"- {action}")
+
 def cmd_think(project: rail.Project, args: argparse.Namespace):
     result = project.think(args.query, limit=args.limit, mode=args.mode, runner=args.runner, dry_run=args.dry_run)
     if args.output and not args.dry_run:
@@ -576,6 +619,20 @@ def main():
     s_parser.add_argument("--explain", action="store_true", help="Explain local ranking signals")
     s_parser.add_argument("--rag", action="store_true", help="Use the local SQLite vector index for RAG-style retrieval")
 
+    find_parser = subparsers.add_parser("find", help="Find typed knowledge records across docs, graph, integrity, sessions, queues, and artifacts")
+    find_parser.add_argument("query", help="Find query")
+    find_parser.add_argument("--limit", type=int, default=10)
+    find_parser.add_argument("--type", action="append", help="Filter by result type; repeat for multiple types")
+    find_parser.add_argument("--topic", help="Filter results containing a topic")
+    find_parser.add_argument("--entity", help="Filter results containing an entity")
+    find_parser.add_argument("--status", help="Filter results containing a status")
+    find_parser.add_argument("--freshness", help="Filter results containing a freshness value")
+    find_parser.add_argument("--workflow", help="Filter results containing a workflow")
+    find_parser.add_argument("--no-rag", action="store_true", help="Skip local vector retrieval")
+    find_parser.add_argument("--explain", action="store_true", help="Explain searched surfaces and ranking signals")
+    find_parser.add_argument("--json", action="store_true", help="Print the full JSON envelope")
+    find_parser.add_argument("--paths", action="store_true", help="Print matching paths only")
+
     # Think
     t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
     t_parser.add_argument("query", help="Question to answer")
@@ -1054,6 +1111,8 @@ def main():
 
     if args.command == "search":
         cmd_search(project, args)
+    elif args.command == "find":
+        cmd_find(project, args)
     elif args.command == "think":
         cmd_think(project, args)
     elif args.command == "think-session":

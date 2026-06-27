@@ -155,6 +155,13 @@ Search local evidence:
 krail --local search "GCS feasibility" --explain
 ```
 
+Find typed records across documents, graph entities, integrity records,
+artifacts, workflow sessions, and ingestion queues:
+
+```bash
+krail --local find "repo intake" --type workflow_run --status failed --json
+```
+
 Build and inspect the markdown graph:
 
 ```bash
@@ -417,10 +424,18 @@ for event in project.agent.ask(
 
 ## Search Versus Think
 
-Use `search` when you need raw evidence.
+Use `search` when you need raw document evidence.
 
 ```bash
 krail --local search "customer onboarding workflow" --explain
+```
+
+Use `find` when you need typed operational and knowledge records in one result
+envelope, including documents, entities, claims, candidate evidence, artifacts,
+workflow runs, and queue items.
+
+```bash
+krail --local find "customer onboarding workflow" --type claim --type workflow_run
 ```
 
 Use `think` when you need a cited answer shape with explicit gaps, conflicts,
@@ -452,7 +467,8 @@ RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 
 Useful MCP tool families include:
 
-- `search`: retrieve evidence
+- `find`: retrieve typed records across docs, graph, integrity, sessions, queues, and artifacts
+- `search`: retrieve document evidence
 - `think`: synthesize evidence with gaps and conflicts
 - `capture`: add local notes or source pointers
 - `mode_active` and `mode_list`: inspect operating mode

@@ -8,7 +8,7 @@ ephemeral chat context alone.
 Use it when you want:
 
 - local project memory instead of repeated file uploads
-- search and `think` over a KRAIL workspace from an MCP client
+- typed `find`, search, and `think` over a KRAIL workspace from an MCP client
 - capture, tasks, workflows, and project health checks exposed to agents
 
 The MCP server is an adapter over the repo-backed knowledge engine, not the

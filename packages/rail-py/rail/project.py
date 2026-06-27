@@ -48,6 +48,41 @@ class Project:
             return self._backend.knowledge.search(q)["hits"]
         return self._backend.search_entities(q)
 
+    def find(
+        self,
+        q: str,
+        *,
+        limit: int = 10,
+        types: list[str] | None = None,
+        topic: str | None = None,
+        entity: str | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        explain: bool = False,
+        rag: bool = True,
+    ) -> dict:
+        if hasattr(self._backend, "knowledge"):
+            return self._backend.knowledge.find(
+                q,
+                limit=limit,
+                types=types,
+                topic=topic,
+                entity=entity,
+                status=status,
+                freshness=freshness,
+                workflow=workflow,
+                explain=explain,
+                rag=rag,
+            )
+        hits = self.search(q)[:limit]
+        return {
+            "query": q,
+            "results": [{"type": "entity", **hit} for hit in hits],
+            "summary": {"total": len(hits), "returned": len(hits), "by_type": {"entity": len(hits)}},
+            "facets": {"types": types or [], "topic": topic, "entity": entity, "status": status, "freshness": freshness, "workflow": workflow},
+        }
+
     def think(
         self,
         q: str,

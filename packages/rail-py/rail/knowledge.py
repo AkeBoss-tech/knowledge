@@ -872,6 +872,348 @@ class KnowledgeRuntime:
             }
         return result
 
+    def find(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        types: list[str] | None = None,
+        topic: str | None = None,
+        entity: str | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        explain: bool = False,
+        rag: bool = True,
+    ) -> dict[str, Any]:
+        terms = self._terms(query)
+        type_filter = {item.strip().lower() for item in (types or []) if item.strip()}
+        filters = {
+            "types": sorted(type_filter),
+            "topic": topic,
+            "entity": entity,
+            "status": status,
+            "freshness": freshness,
+            "workflow": workflow,
+        }
+        if not terms:
+            return {
+                "query": query,
+                "results": [],
+                "summary": {"total": 0, "by_type": {}},
+                "facets": filters,
+                "explain": "No searchable terms found." if explain else None,
+            }
+
+        results: list[dict[str, Any]] = []
+        search_result = self.search(query, limit=max(limit, 20), explain=explain, rag=rag)
+        for hit in search_result.get("hits", []):
+            results.append(
+                self._find_result(
+                    "document",
+                    hit.get("path") or hit.get("id") or "",
+                    title=hit.get("title") or hit.get("path") or "Document",
+                    path=hit.get("path"),
+                    score=float(hit.get("score") or 0),
+                    snippet=hit.get("snippet") or "",
+                    matched_terms=hit.get("matched_terms") or terms,
+                    record={key: value for key, value in hit.items() if key not in {"snippet"}},
+                )
+            )
+
+        graph_context = search_result.get("graph_context") if isinstance(search_result.get("graph_context"), dict) else {}
+        for node in graph_context.get("entities", []) if isinstance(graph_context, dict) else []:
+            label = str(node.get("label") or node.get("id") or "Entity")
+            results.append(
+                self._find_result(
+                    "entity",
+                    str(node.get("id") or label),
+                    title=label,
+                    score=self._record_score(node, terms, base=6.0),
+                    snippet=self._record_snippet(node, terms),
+                    matched_terms=self._matched_terms(node, terms),
+                    record=node,
+                )
+            )
+        for edge in graph_context.get("edges", []) if isinstance(graph_context, dict) else []:
+            title = f"{edge.get('from', '?')} {edge.get('type') or edge.get('label') or 'RELATED_TO'} {edge.get('to', '?')}"
+            results.append(
+                self._find_result(
+                    "graph_edge",
+                    str(edge.get("id") or title),
+                    title=title,
+                    path=edge.get("source"),
+                    score=self._record_score(edge, terms, base=4.0),
+                    snippet=self._record_snippet(edge, terms),
+                    matched_terms=self._matched_terms(edge, terms),
+                    record=edge,
+                )
+            )
+
+        results.extend(self._find_integrity_records(terms))
+        results.extend(self._find_file_records(terms))
+        results = self._dedupe_find_results(results)
+        results = [item for item in results if self._find_result_matches(item, type_filter=type_filter, topic=topic, entity=entity, status=status, freshness=freshness, workflow=workflow)]
+        results.sort(key=lambda item: (-float(item.get("score") or 0), item.get("type") or "", item.get("path") or item.get("id") or ""))
+        limited = results[:limit]
+        by_type: dict[str, int] = {}
+        for item in results:
+            item_type = str(item.get("type") or "unknown")
+            by_type[item_type] = by_type.get(item_type, 0) + 1
+        envelope: dict[str, Any] = {
+            "query": query,
+            "results": limited,
+            "summary": {"total": len(results), "returned": len(limited), "by_type": by_type},
+            "facets": filters,
+            "suggested_actions": self._find_suggested_actions(results),
+        }
+        if explain:
+            envelope["explain"] = {
+                "mode": "unified_local_find",
+                "searched": ["documents", "markdown_graph", "integrity_records", "artifacts", "workflow_sessions", "queue_items"],
+                "ranking": ["existing_search_score", "term_frequency", "title_path_status_boosts"],
+                "underlying_search": search_result.get("explain"),
+            }
+        return envelope
+
+    def _find_integrity_records(self, terms: list[str]) -> list[dict[str, Any]]:
+        loaders = [
+            ("source", "load_sources", "source_key", ["title", "url_or_path", "source_key"]),
+            ("claim", "load_claims", "claim_key", ["claim_text", "claim_key", "status"]),
+            ("source_candidate", "load_source_candidates", "candidate_key", ["title", "url_or_path", "candidate_key", "status"]),
+            ("claim_candidate", "load_claim_candidates", "candidate_key", ["claim_text", "candidate_key", "status"]),
+            ("entity_candidate", "load_entity_candidates", "candidate_key", ["label", "entity_type", "candidate_key", "status"]),
+            ("artifact", "load_artifact_lineage", "artifact_path", ["title", "artifact_path", "promotion_state"]),
+            ("verification_run", "load_verification_runs", "run_id", ["run_id", "status", "artifact_path"]),
+        ]
+        results: list[dict[str, Any]] = []
+        try:
+            repo = self._integrity_repo()
+        except Exception:
+            return results
+        for result_type, loader_name, id_field, title_fields in loaders:
+            loader = getattr(repo, loader_name, None)
+            if loader is None:
+                continue
+            try:
+                records = loader()
+            except Exception:
+                continue
+            for record in records:
+                data = self._record_to_dict(record)
+                matched = self._matched_terms(data, terms)
+                if not matched:
+                    continue
+                record_id = str(data.get(id_field) or data.get("id") or data.get("key") or "")
+                title = next((str(data.get(field)) for field in title_fields if data.get(field)), record_id or result_type)
+                path = str(data.get("artifact_path") or data.get("source_path") or data.get("url_or_path") or "")
+                status = data.get("status") or data.get("promotion_state") or data.get("freshness")
+                freshness = data.get("freshness") or data.get("source_freshness")
+                results.append(
+                    self._find_result(
+                        result_type,
+                        record_id or f"{result_type}:{title}",
+                        title=title,
+                        path=path or None,
+                        score=self._record_score(data, terms, base=5.0),
+                        snippet=self._record_snippet(data, terms),
+                        matched_terms=matched,
+                        status=str(status) if status else None,
+                        freshness=str(freshness) if freshness else None,
+                        record=data,
+                    )
+                )
+        return results
+
+    def _find_file_records(self, terms: list[str]) -> list[dict[str, Any]]:
+        specs = [
+            ("artifact", self.project_path / "artifacts", ["*.md", "*.txt", "*.json", "*.yaml", "*.yml"]),
+            ("workflow_run", self.project_path / "research_plan" / "sessions", ["result.json", "state.json", "work_order.json", "session_result.json"]),
+            ("queue_item", self.project_path / "research_plan" / "queues", ["items.jsonl", "claims/*.json"]),
+        ]
+        results: list[dict[str, Any]] = []
+        for result_type, root, patterns in specs:
+            if not root.exists():
+                continue
+            for pattern in patterns:
+                for path in sorted(root.rglob(pattern)):
+                    if not path.is_file():
+                        continue
+                    try:
+                        text = path.read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    if path.name == "items.jsonl":
+                        results.extend(self._find_jsonl_records(path, terms))
+                        continue
+                    matched = [term for term in terms if term in text.lower()]
+                    if not matched:
+                        continue
+                    rel = path.relative_to(self.project_path).as_posix()
+                    data = self._load_json_or_text(text)
+                    workflow_value = data.get("workflow") if isinstance(data, dict) else None
+                    status_value = data.get("status") if isinstance(data, dict) else None
+                    title = str(workflow_value or (data.get("title") if isinstance(data, dict) else None) or path.parent.name)
+                    results.append(
+                        self._find_result(
+                            result_type,
+                            rel,
+                            title=title,
+                            path=rel,
+                            score=self._record_score(data if isinstance(data, dict) else {"text": text, "path": rel}, terms, base=3.0),
+                            snippet=self._snippet(text, terms),
+                            matched_terms=matched,
+                            status=str(status_value) if status_value else None,
+                            workflow=str(workflow_value) if workflow_value else None,
+                            record=data if isinstance(data, dict) else {"path": rel},
+                        )
+                    )
+        return results
+
+    def _find_jsonl_records(self, path: Path, terms: list[str]) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        rel = path.relative_to(self.project_path).as_posix()
+        queue_id = path.parent.name
+        for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1):
+            if not line.strip():
+                continue
+            data = self._load_json_or_text(line)
+            matched = self._matched_terms(data, terms)
+            if not matched:
+                continue
+            item_id = str(data.get("id") if isinstance(data, dict) else line_number)
+            payload = data.get("payload") if isinstance(data, dict) and isinstance(data.get("payload"), dict) else {}
+            title = str(payload.get("name") or payload.get("title") or payload.get("repo") or item_id)
+            status = data.get("status") if isinstance(data, dict) else None
+            results.append(
+                self._find_result(
+                    "queue_item",
+                    f"{rel}:{line_number}",
+                    title=title,
+                    path=rel,
+                    score=self._record_score(data, terms, base=3.5),
+                    snippet=self._record_snippet(data, terms),
+                    matched_terms=matched,
+                    status=str(status) if status else None,
+                    record={**data, "queue": queue_id} if isinstance(data, dict) else {"line": line, "queue": queue_id},
+                )
+            )
+        return results
+
+    @staticmethod
+    def _record_to_dict(record: Any) -> dict[str, Any]:
+        if hasattr(record, "model_dump"):
+            dumped = record.model_dump(mode="json")
+            return dumped if isinstance(dumped, dict) else {"value": dumped}
+        if isinstance(record, dict):
+            return record
+        if hasattr(record, "__dict__"):
+            return dict(record.__dict__)
+        return {"value": record}
+
+    @staticmethod
+    def _load_json_or_text(text: str) -> Any:
+        try:
+            return json.loads(text)
+        except Exception:
+            return {"text": text}
+
+    def _matched_terms(self, record: Any, terms: list[str]) -> list[str]:
+        text = json.dumps(record, sort_keys=True, default=str).lower()
+        return sorted({term for term in terms if term in text})
+
+    def _record_score(self, record: Any, terms: list[str], *, base: float = 0.0) -> float:
+        text = json.dumps(record, sort_keys=True, default=str).lower()
+        matched = self._matched_terms(record, terms)
+        if not matched:
+            return 0.0
+        score = base + len(matched) * 2
+        score += sum(text.count(term) for term in matched)
+        for key in ("title", "label", "claim_text", "url_or_path", "artifact_path", "path", "status", "promotion_state"):
+            value = record.get(key) if isinstance(record, dict) else None
+            if value and any(term in str(value).lower() for term in matched):
+                score += 2
+        return round(score, 3)
+
+    def _record_snippet(self, record: Any, terms: list[str]) -> str:
+        text = json.dumps(record, sort_keys=True, default=str)
+        return self._snippet(text, terms)
+
+    @staticmethod
+    def _find_result(
+        result_type: str,
+        result_id: str,
+        *,
+        title: str,
+        path: str | None = None,
+        score: float = 0.0,
+        snippet: str = "",
+        matched_terms: list[str] | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        record: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "id": result_id,
+            "type": result_type,
+            "title": title,
+            "score": round(float(score), 3),
+            "snippet": snippet,
+            "matched_terms": matched_terms or [],
+        }
+        if path:
+            result["path"] = path
+        if status:
+            result["status"] = status
+        if freshness:
+            result["freshness"] = freshness
+        if workflow:
+            result["workflow"] = workflow
+        if record is not None:
+            result["record"] = record
+        return result
+
+    @staticmethod
+    def _dedupe_find_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in results:
+            key = (str(item.get("type") or ""), str(item.get("id") or item.get("path") or item.get("title") or ""))
+            current = deduped.get(key)
+            if current is None or float(item.get("score") or 0) > float(current.get("score") or 0):
+                deduped[key] = item
+        return list(deduped.values())
+
+    def _find_result_matches(
+        self,
+        item: dict[str, Any],
+        *,
+        type_filter: set[str],
+        topic: str | None,
+        entity: str | None,
+        status: str | None,
+        freshness: str | None,
+        workflow: str | None,
+    ) -> bool:
+        if type_filter and str(item.get("type") or "").lower() not in type_filter:
+            return False
+        haystack = json.dumps(item, sort_keys=True, default=str).lower()
+        for needle in (topic, entity, status, freshness, workflow):
+            if needle and needle.lower() not in haystack:
+                return False
+        return True
+
+    @staticmethod
+    def _find_suggested_actions(results: list[dict[str, Any]]) -> list[str]:
+        actions: list[str] = []
+        if any(item.get("type") in {"claim_candidate", "source_candidate", "entity_candidate"} for item in results):
+            actions.append("Review candidate evidence and promote only supported records into trusted state.")
+        if any(item.get("type") == "workflow_run" and item.get("status") in {"failed", "blocked", "running_or_incomplete"} for item in results):
+            actions.append("Inspect matching workflow sessions with `krail --local workflow dashboard`.")
+        if any(item.get("type") == "queue_item" and item.get("status") in {"failed", "reserved", "running"} for item in results):
+            actions.append("Inspect matching inventory queues with `krail --local queue status <queue>`.")
+        return actions
+
     @staticmethod
     def _merge_search_hits(lexical_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
         merged: dict[str, dict[str, Any]] = {}
