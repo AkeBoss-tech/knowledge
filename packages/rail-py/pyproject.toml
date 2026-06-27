@@ -5,14 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "krail"
 version = "0.2.1"
-description = "KRAIL client for local projects and the local API runtime"
+description = "Local-first memory and workflows for serious AI agent projects"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
     { name = "AkeBoss Tech" },
 ]
-keywords = ["knowledge", "research", "agents", "local-first", "mcp"]
+keywords = [
+    "knowledge",
+    "agents",
+    "local-first",
+    "mcp",
+    "research",
+    "workflows",
+    "rag",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

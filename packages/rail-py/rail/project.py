@@ -383,6 +383,46 @@ class Project:
             raise RuntimeError("schedule commands require local mode")
         return self._backend.knowledge.schedule_remove(workflow_id)
 
+    def listener_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_list()
+
+    def listener_show(self, listener_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_show(listener_id)
+
+    def listener_test(self, listener_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_test(listener_id)
+
+    def listener_poll(self, listener_id: str | None = None, *, dry_run: bool = False, execute: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_poll(listener_id, dry_run=dry_run, execute=execute)
+
+    def listener_daemon(self, *, once: bool = False, interval_seconds: int = 30) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("listener commands require local mode")
+        return self._backend.knowledge.listener_daemon(once=once, interval_seconds=interval_seconds)
+
+    def event_list(self, *, limit: int = 20, listener_id: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("event commands require local mode")
+        return self._backend.knowledge.event_list(limit=limit, listener_id=listener_id)
+
+    def event_show(self, event_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("event commands require local mode")
+        return self._backend.knowledge.event_show(event_id)
+
+    def event_replay(self, event_id: str, *, dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("event commands require local mode")
+        return self._backend.knowledge.event_replay(event_id, dry_run=dry_run)
+
     def graph_build(self, *, write: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")

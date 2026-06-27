@@ -1,7 +1,27 @@
 # Minimal KRAIL Project
 
-This is a tiny public fixture for local-mode development and documentation. It
-uses synthetic data and does not ship generated ontology databases.
+This is the recommended first demo fixture for KRAIL.
+
+It is a tiny public local project with synthetic data that lets you show the
+core KRAIL flow without needing private files or a large setup:
+
+- validate a local knowledge workspace
+- search local evidence
+- generate a cited `think` envelope
+- inspect the markdown graph
+- dry-run a workflow
+
+It uses synthetic data and does not ship generated ontology databases.
+
+## Fast Demo
+
+From the repository root:
+
+```bash
+./scripts/demo-minimal-project.sh
+```
+
+## Manual Walkthrough
 
 ```bash
 cd examples/minimal-project

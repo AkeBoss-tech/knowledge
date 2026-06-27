@@ -1,0 +1,65 @@
+name: Adoption Feedback
+description: Report onboarding friction, messaging confusion, or first-run issues with KRAIL.
+title: "[Adoption Feedback]: "
+labels:
+  - feedback
+  - onboarding
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying KRAIL. This template is for first-run feedback, adoption friction, and messaging clarity.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did you feel the most friction?
+      options:
+        - Understanding what KRAIL is for
+        - Installation or setup
+        - Creating the first local project
+        - Search / think workflow
+        - Tasks / workflows
+        - MCP integration
+        - Documentation / README
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What were you trying to do?
+      description: Describe the outcome you expected from KRAIL.
+      placeholder: I wanted to give a coding agent durable memory for a local repo...
+    validations:
+      required: true
+  - type: textarea
+    id: confusion
+    attributes:
+      label: What was confusing or unexpectedly hard?
+      placeholder: The difference between packs, modes, and workflows was not obvious...
+    validations:
+      required: true
+  - type: textarea
+    id: first_fix
+    attributes:
+      label: What is the first thing we should improve?
+      placeholder: A shorter quickstart, clearer error message, better example, etc.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and whether you used CLI, MCP, or both.
+      placeholder: macOS 15, Python 3.12, CLI only
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands or steps you ran
+      description: Paste the important commands or setup steps if helpful.
+      render: shell
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Screenshots, output snippets, or comments on the value proposition are all helpful.

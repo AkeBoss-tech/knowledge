@@ -30,6 +30,7 @@ from rail.markdown_graph import (
     load_or_build_graph,
     validate_markdown_graph,
 )
+from rail.listeners import ListenerEngine
 from rail.source_dependencies import (
     affected_documents,
     changed_sources,
@@ -3662,6 +3663,33 @@ krail --local graph check
             path.unlink()
             removed.append(str(path.relative_to(self.project_path)))
         return {"status": "removed", "workflow": workflow_id, "removed": removed}
+
+    def _listener_engine(self) -> ListenerEngine:
+        return ListenerEngine(self)
+
+    def listener_list(self) -> dict[str, Any]:
+        return self._listener_engine().list_specs()
+
+    def listener_show(self, listener_id: str) -> dict[str, Any]:
+        return self._listener_engine().show_spec(listener_id)
+
+    def listener_test(self, listener_id: str) -> dict[str, Any]:
+        return self._listener_engine().test(listener_id)
+
+    def listener_poll(self, listener_id: str | None = None, *, dry_run: bool = False, execute: bool = True) -> dict[str, Any]:
+        return self._listener_engine().poll(listener_id, dry_run=dry_run, execute=execute)
+
+    def listener_daemon(self, *, once: bool = False, interval_seconds: int = 30) -> dict[str, Any]:
+        return self._listener_engine().daemon(once=once, interval_seconds=interval_seconds)
+
+    def event_list(self, *, limit: int = 20, listener_id: str | None = None) -> dict[str, Any]:
+        return self._listener_engine().list_events(limit=limit, listener_id=listener_id)
+
+    def event_show(self, event_id: str) -> dict[str, Any]:
+        return self._listener_engine().show_event(event_id)
+
+    def event_replay(self, event_id: str, *, dry_run: bool = False) -> dict[str, Any]:
+        return self._listener_engine().replay_event(event_id, dry_run=dry_run)
 
     def workflow_list(self) -> dict[str, Any]:
         active = self.active_pack().get("active") or {}

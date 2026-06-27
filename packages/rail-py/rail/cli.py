@@ -266,6 +266,26 @@ def cmd_schedule(project: rail.Project, args: argparse.Namespace):
     elif args.schedule_command == "remove":
         _print_json(project.schedule_remove(args.workflow_id))
 
+def cmd_listener(project: rail.Project, args: argparse.Namespace):
+    if args.listener_command == "list":
+        _print_json(project.listener_list())
+    elif args.listener_command == "show":
+        _print_json(project.listener_show(args.listener_id))
+    elif args.listener_command == "test":
+        _print_json(project.listener_test(args.listener_id))
+    elif args.listener_command == "poll":
+        _print_json(project.listener_poll(args.listener_id, dry_run=args.dry_run, execute=not args.no_execute))
+    elif args.listener_command == "daemon":
+        _print_json(project.listener_daemon(once=args.once, interval_seconds=args.interval_seconds))
+
+def cmd_event(project: rail.Project, args: argparse.Namespace):
+    if args.event_command == "list":
+        _print_json(project.event_list(limit=args.limit, listener_id=args.listener_id))
+    elif args.event_command == "show":
+        _print_json(project.event_show(args.event_id))
+    elif args.event_command == "replay":
+        _print_json(project.event_replay(args.event_id, dry_run=args.dry_run))
+
 def cmd_graph(project: rail.Project, args: argparse.Namespace):
     if args.graph_command == "build":
         _print_json(project.graph_build(write=not args.no_write))
@@ -690,6 +710,34 @@ def main():
     sr = schedule_subs.add_parser("remove", help="Remove generated scheduler wrapper files")
     sr.add_argument("workflow_id")
 
+    # Listeners and events
+    listener_parser = subparsers.add_parser("listener", help="Poll local event listeners and trigger workflows")
+    listener_subs = listener_parser.add_subparsers(dest="listener_command")
+    listener_subs.add_parser("list", help="List listener specs under research_plan/listeners")
+    lshow = listener_subs.add_parser("show", help="Show a listener spec")
+    lshow.add_argument("listener_id")
+    ltest = listener_subs.add_parser("test", help="Observe a listener without writing events or state")
+    ltest.add_argument("listener_id")
+    lpoll = listener_subs.add_parser("poll", help="Poll one listener or all listeners")
+    lpoll.add_argument("listener_id", nargs="?")
+    lpoll.add_argument("--all", action="store_true", help="Poll all enabled listeners")
+    lpoll.add_argument("--dry-run", action="store_true", help="Preview events without writing state or running workflows")
+    lpoll.add_argument("--no-execute", action="store_true", help="Record events without invoking workflow triggers")
+    ldaemon = listener_subs.add_parser("daemon", help="Continuously poll all enabled listeners")
+    ldaemon.add_argument("--once", action="store_true", help="Poll all listeners once and exit")
+    ldaemon.add_argument("--interval-seconds", type=int, default=30, help="Sleep interval between polling passes")
+
+    event_parser = subparsers.add_parser("event", help="Inspect and replay listener events")
+    event_subs = event_parser.add_subparsers(dest="event_command")
+    elist = event_subs.add_parser("list", help="List recorded listener events")
+    elist.add_argument("--limit", type=int, default=20)
+    elist.add_argument("--listener-id", help="Filter by listener id")
+    eshow = event_subs.add_parser("show", help="Show a recorded listener event")
+    eshow.add_argument("event_id")
+    ereplay = event_subs.add_parser("replay", help="Replay an event's workflow trigger")
+    ereplay.add_argument("event_id")
+    ereplay.add_argument("--dry-run", action="store_true")
+
     # Markdown graph
     graph_parser = subparsers.add_parser("graph", help="Build and query markdown-frontmatter graphs")
     graph_subs = graph_parser.add_subparsers(dest="graph_command")
@@ -907,6 +955,10 @@ def main():
         cmd_approval(project, args)
     elif args.command == "schedule":
         cmd_schedule(project, args)
+    elif args.command == "listener":
+        cmd_listener(project, args)
+    elif args.command == "event":
+        cmd_event(project, args)
     elif args.command == "graph":
         cmd_graph(project, args)
     elif args.command == "vector":

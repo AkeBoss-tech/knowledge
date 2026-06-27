@@ -3,135 +3,66 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AkeBoss-tech/knowledge)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/krail?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/krail)
 [![PyPI version](https://badge.fury.io/py/krail.svg)](https://badge.fury.io/py/krail)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**GBrain-style brain UX. RAIL-style truth engine.**
+**Local-first memory and workflows for serious AI agent projects.**
 
-KRAIL is a local-first, repo-backed knowledge runtime extracted from RAIL. It is
-for projects where agents need more than chat memory: they need a durable
-knowledge workspace with sources, claims, tasks, workflows, agent instructions,
-hydration pipelines, evidence ledgers, and integrity checks.
+KRAIL gives agents a durable project workspace instead of fragile chat context.
+You keep sources, notes, claims, workflows, prompts, and task records in a
+repo-backed local project, then let agents search, synthesize, and operate on
+that knowledge with citations and audit trails.
 
-This repo is intentionally headless. There is no bundled frontend, no required
-hosted database, no Convex, no Railway deployment requirement, and no hosted
-runner dependency. The core should work from a local project folder with a CLI
-and MCP tools, then scale outward through optional API or custom interfaces.
+It is built for people who have outgrown "paste files into chat" and want a
+local-first way to give Codex, Claude Code, Cursor, and MCP-compatible tools a
+real working memory.
 
-## What KRAIL Is
+## Why KRAIL?
 
-KRAIL is a runtime for knowledge projects.
+Most agent workflows break down in the same places:
 
-A KRAIL project is a repository that can contain:
+- context disappears between sessions
+- research notes and source files drift apart
+- retrieval returns snippets but not a trustworthy working record
+- agent work is hard to audit, rerun, or promote into trusted knowledge
 
-- captured notes and source pointers
-- ontology definitions and hydration pipelines
-- project-specific knowledge packs
-- agent prompts, checklists, and skills
-- repo-backed tasks and work orders
-- workflow outputs and session records
-- source, claim, assumption, and artifact lineage ledgers
-- final artifacts that can be verified before promotion
-
-The runtime provides:
-
-- `search`: retrieve raw evidence from the project
-- `think`: return an answer envelope with evidence, gaps, conflicts, and next actions
-- `capture`: add notes, URLs, files, or stdin into a predictable inbox
-- `pack`: activate project/domain packs
-- `doctor`: inspect project health
-- `graph`: build and query markdown-frontmatter graphs
-- `agent`: run local CLI agents as auditable workers
-- `task`: create and dispatch repo-backed tasks
-- `workflow`: turn pack-defined workflow IDs into tasks
-- MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
-- optional FastAPI adapter for custom clients
-
-## Product Thesis
-
-Most retrieval systems stop at "here are the matching pages." KRAIL should
-eventually do the work:
+KRAIL is the repo-backed layer that sits between raw files and agent actions.
 
 ```text
-search = find evidence
-think = synthesize evidence + cite + expose gaps
-workflow = create auditable work + dispatch local agents + record outputs
-integrity = decide what can be trusted or promoted
+search   = find evidence in the project
+think    = synthesize evidence + cite files + expose gaps
+task     = create auditable work orders for local agents
+workflow = run repeatable project routines from the active pack
+integrity = decide what is ready to trust, verify, or promote
 ```
 
-The long-term goal is a headless knowledge runtime where each project defines
-its own schema, sources, workflows, agents, prompts, and interfaces. KRAIL
-should provide the engine: search, synthesis, graph traversal, hydration,
-provenance, integrity, scheduled refresh, and safe agent dispatch.
+## What You Get
 
-## Current Status
-
-KRAIL is ready for pilot projects. It is not yet a polished production brain.
-
-Ready now:
-
-- local project scaffolding
-- knowledge pack activation
-- capture inbox
-- deterministic local file search
-- local SQLite vector database for RAG-style retrieval
-- deterministic `think` envelope
-- local project doctor checks
-- markdown-frontmatter graph build/query/export
-- local CLI runner discovery
-- repo-backed tasks, work orders, and session records
-- dry-run and full dispatch to local CLIs
-- MCP tools for search, think, capture, tasks, workflows, and integrity
-- optional local FastAPI adapter using `.krail/store.json`
-
-Not ready yet:
-
-- real LLM synthesis inside `think`
-- model-backed embeddings and reranking
-- deeper graph-aware retrieval/reranking inside `search` and `think`
-- full workflow scheduler
-- remote permission scopes
-- pack installation from external repos
-- production-grade sandbox enforcement
-- fully green legacy integrity test suite
-
-## Install
-
-Requirements:
-
-- Python 3.11+
-- git
-- optional local agent CLIs such as `codex`, `claude`, `gemini`, `agent`, or `gh`
-
-From the repo root:
-
-```bash
-./scripts/install-rail.sh
-```
-
-This creates `.venv`, installs the local packages in editable mode, and copies
-`.env.example` to `.env` if needed.
-
-After install:
-
-```bash
-source .venv/bin/activate
-krail --help
-rail --help
-```
-
-`krail` and `rail` currently point to the same CLI. `krail` is the preferred
-name for this fork; `rail` is kept for compatibility.
-
-Optional agent CLI check:
-
-```bash
-./scripts/install-agent-clis.sh
-```
+- local-first knowledge projects with `krail.yaml`, `topics/`, `sources/`, and
+  `research_plan/`
+- deterministic search and `think` envelopes with citations, freshness, and
+  next actions
+- repo-backed tasks, workflow runs, and session outputs
+- markdown graph inspection for frontmatter-rich topic collections
+- MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
+- optional local API adapter for custom clients and interfaces
 
 ## Quick Start
 
-Create a research knowledge project:
+Install from the repo root:
+
+```bash
+./scripts/install-rail.sh
+source .venv/bin/activate
+```
+
+Important:
+
+- install name: `krail`
+- import name: `rail`
+- CLI commands: `krail` and `rail` both work
+
+Create a local project and run the first health check:
 
 ```bash
 krail init robotics-kb --pack research-intelligence --mode markdown_graph
@@ -139,1131 +70,135 @@ cd robotics-kb
 krail --local doctor
 ```
 
-Capture something:
+Capture a note, search the project, and generate a cited answer envelope:
 
 ```bash
 krail --local capture "GCS may be useful as a feasibility layer for LLM task plans"
-krail --local capture --file ./paper-notes/gcs.md --type paper-note
-echo "quick thought from stdin" | krail --local capture --stdin
-```
-
-Search raw evidence:
-
-```bash
 krail --local search "GCS feasibility" --explain
-```
-
-Build the lightweight markdown graph:
-
-```bash
-krail --local graph build
-krail --local graph entities --type Package
-krail --local graph edges --entity PDDLStream
-krail --local graph docs --topic dual-arm-planning
-```
-
-Ask for the current deterministic answer envelope:
-
-```bash
 krail --local think "What changed in task and motion planning?"
 ```
 
-`think` supports three modes:
-
-- `deterministic`: local evidence packaging only
-- `runner`: dispatch a local CLI runner to synthesize over the evidence package
-- `hybrid`: deterministic retrieval package plus runner-backed synthesis
-
-All modes return an operational envelope with:
-
-- citations into local files
-- graph context
-- vector hits
-- source dependency freshness
-- affected documents from changed sources
-- suggested next actions such as `source_refresh`
-
-```bash
-krail --local think "what do we know about GCS feasibility?"
-krail --local think "what changed in onboarding this week?" --mode hybrid --runner auto --dry-run
-krail --local think "summarize reviewed evidence" --mode deterministic --output artifacts/weekly-think.json --register-integrity
-```
-
-Runner-backed `think` does not require a direct model API key inside KRAIL. It
-uses installed local runners such as `codex`, `claude`, `gemini`, `agent`, or
-`gh copilot` and writes auditable session files under `research_plan/sessions/`.
-If `--output` and `--register-integrity` are used, KRAIL also records the
-result as an integrity artifact, creates a verification run, and registers
-claim candidates for later promotion review.
-
-List workflows declared by the active pack:
-
-```bash
-krail --local workflow list
-```
-
-Dry-run a workflow task:
-
-```bash
-krail --local workflow run weekly_literature_refresh --runner codex_cli --dry-run
-```
-
-## Pilot Project Protocol
-
-If another agent is going to use this package for a pilot, give it this protocol.
-
-```text
-You are piloting KRAIL as a local-first knowledge runtime.
-
-1. Create a local project:
-   krail init robotics-kb --pack research-intelligence
-   cd robotics-kb
-
-2. Run health checks:
-   krail --local doctor
-   krail --local pack active
-
-3. Capture initial material:
-   krail --local capture "Initial research objective..."
-   krail --local capture --file ./notes.md --type note
-
-4. Search before answering:
-   krail --local search "<question>" --explain
-
-5. Build/query the markdown graph when notes include frontmatter:
-   krail --local graph build
-   krail --local graph entities
-   krail --local graph edges --entity "<entity>"
-
-6. Use think for the answer envelope:
-   krail --local think "<question>"
-
-7. Create auditable work before launching agents:
-   krail --local task create "<task title>" --description "<task detail>" --runner codex_cli
-   krail --local task list
-   krail --local task dispatch <task_id> --dry-run
-
-8. Only remove --dry-run when the command and work order look correct.
-
-9. Treat all generated outputs as candidates until claims have evidence and
-   integrity checks pass.
-```
-
-The pilot should report:
-
-- whether project creation worked
-- whether `doctor` is useful
-- whether captures land in the right place
-- whether search results are useful enough
-- whether `think` returns a helpful envelope
-- whether task/work-order/session records are understandable
-- whether dry-run dispatch gives enough confidence to run a real agent
-- what command the agent wished existed next
-
-## Search vs Think
-
-KRAIL separates retrieval from synthesis.
-
-```bash
-krail --local search "customer onboarding workflow"
-krail --local search "customer onboarding workflow" --rag --explain
-krail --local think "what changed in onboarding this week?"
-```
-
-`search` returns ranked local evidence. It is useful for:
-
-- finding source material
-- building agent context
-- checking whether a project knows something
-- debugging why a result matched
-
-`think` returns:
-
-- answer
-- evidence
-- confidence
-- gaps
-- conflicts
-- suggested next actions
-
-Current `think` is intentionally conservative. It does not fake LLM synthesis.
-It uses search hits and tells you what is missing. The next step is to wire
-provider-backed synthesis into this envelope.
-
-## Local RAG
-
-KRAIL can build a local SQLite vector database for RAG-style retrieval:
-
-```bash
-krail --local vector build
-krail --local vector search "dual-arm planning benchmark"
-krail --local search "dual-arm planning benchmark" --rag --explain
-```
-
-The first implementation uses deterministic hashed embeddings and stores chunks
-in `.krail/vector.sqlite`. This keeps the system offline and dependency-light.
-Future embedding providers can replace the local hash encoder while keeping the
-same command surface.
-
-Optional embedding providers:
-
-```bash
-krail --local vector build --provider local_hash
-OPENAI_API_KEY=... krail --local vector build --provider openai --model text-embedding-3-small
-krail --local vector build --provider sentence_transformers --model all-MiniLM-L6-v2
-```
-
-OpenAI embeddings use the official embeddings endpoint with `input` and `model`
-fields. Sentence-transformers requires installing the optional embeddings extra.
-
-## Markdown Graphs
-
-Markdown graph mode is the middle layer between plain notes and full ontology
-hydration. Markdown remains the source of truth, and YAML frontmatter provides
-typed entities, topics, sources, and relation triples.
-
-Example frontmatter:
-
-```yaml
----
-title: Benchmark and tooling map for dual-arm TAMP
-kind: synthesis-note
-topics:
-  - benchmarks
-  - dual-arm-planning
-entities:
-  - PDDLStream
-entity_metadata:
-  - name: PDDLStream
-    entity_type: Package
-sources:
-  - https://arxiv.org/abs/1802.08705
-relations:
-  - from: PDDLStream
-    type: baseline_for
-    to: dual-arm TAMP experiments
----
-```
-
-Build artifacts:
+Build the project graph when your notes use frontmatter:
 
 ```bash
 krail --local graph build
-krail --local graph validate
-krail --local graph check
-```
-
-By default this writes:
-
-- `research_plan/graph/graph.json`
-- `research_plan/graph/graph.mmd`
-- `research_plan/graph/summary.md`
-
-`graph validate` reports malformed frontmatter or relation structure.
-`graph check` is CI-oriented: it exits non-zero when graph artifacts are missing
-or stale.
-
-Query graph metadata:
-
-```bash
-krail --local graph entities
 krail --local graph entities --type Package
 krail --local graph edges --entity PDDLStream
-krail --local graph edges --type baseline_for
-krail --local graph docs --topic dual-arm-planning
-krail --local graph docs --kind synthesis-note
 ```
 
-Export graph content:
+Create auditable work before launching another agent:
 
 ```bash
-krail --local graph export --format json
-krail --local graph export --format mermaid
-krail --local graph export --format summary
-```
-
-Run lightweight graph hydration instead of full ontology hydration:
-
-```bash
-krail --local hydrate --mode markdown_graph
-```
-
-Optional project config:
-
-```yaml
-graph:
-  mode: markdown_frontmatter
-  include:
-    - topics/**/*.md
-    - research_plan/**/*.md
-  export:
-    json: research_plan/graph/graph.json
-    mermaid: research_plan/graph/graph.mmd
-    summary: research_plan/graph/summary.md
-  docs_export:
-    json: docs/data/graph.json
-    mermaid: docs/data/graph.mmd
-```
-
-## Capture
-
-Capture makes KRAIL part of daily work.
-
-```bash
-krail --local capture "A thought I want to remember"
-krail --local capture --file ./meeting-notes.md --type meeting
-krail --local capture --url https://arxiv.org/abs/1234.5678 --workflow add_new_paper
-echo "from a pipe" | krail --local capture --stdin
-```
-
-Default path:
-
-```text
-topics/inbox/YYYY-MM-DD-<hash>.md
-```
-
-Captured notes include frontmatter:
-
-```yaml
----
-type: note
-captured_at: 2026-06-07T00:00:00+00:00
-workflow: add_new_paper
----
-```
-
-Workflows can triage the inbox later.
-
-## Knowledge Modes And Topics
-
-KRAIL projects can declare a knowledge operating mode. The mode controls default
-topic templates, workflows, integrity posture, agent guidance, and the default
-pack when one fits.
-
-```bash
-krail init robotics-kb --knowledge-mode research
-krail init acme-brain --knowledge-mode company
-krail init life-admin --knowledge-mode personal
-krail init architecture-map --knowledge-mode software
-```
-
-Inspect the active mode:
-
-```bash
-krail --local mode active
-krail --local mode list
-```
-
-Use captures as raw inbox records, then promote useful material into stable
-topic pages:
-
-```bash
-krail --local inbox list
-krail --local inbox promote topics/inbox/2026-06-13-abc123.md --topic task-and-motion-planning --type method
-krail --local topic upsert task-and-motion-planning --content "Reviewed update with evidence."
-```
-
-Durable domain knowledge should live under `topics/`. Operational state such as
-tasks, work orders, sessions, and workflow runs belongs under `research_plan/`.
-
-## Knowledge Packs
-
-Knowledge packs describe a project's domain shape.
-
-Current built-in packs:
-
-- `research-intelligence`
-- `company-brain`
-- `software-architecture`
-- `policy-compiler`
-
-Commands:
-
-```bash
-krail pack list
-krail pack show research-intelligence
-krail --local pack use company-brain
-krail --local pack active
-krail --local pack validate
-krail --local pack detect
-krail --local pack suggest
-```
-
-An active pack is stored at:
-
-```text
-.krail/pack.yaml
-```
-
-Packs currently define:
-
-- entity types
-- link types
-- workflow IDs
-
-They should eventually define:
-
-- folder structure
-- source templates
-- workflow templates
-- prompts
-- skills
-- integrity gates
-- MCP injection blocks
-- default interfaces
-
-## Local Agents and Workflows
-
-KRAIL can use local CLI agents as workers.
-
-Supported runner names:
-
-- `auto`
-- `codex_cli`
-- `claude_code`
-- `gemini_cli`
-- `cursor_cli`
-- `copilot_cli`
-
-Use `auto` when the project should prefer the configured default runner but
-fall back to another installed local CLI. KRAIL records both the requested
-runner and the resolved runner in task/work-order state.
-
-Check configured agents:
-
-```bash
-krail --local agent list
-```
-
-Install KRAIL-specific doctor/platform prompts into an existing project:
-
-```bash
-krail --local agent scaffold-krail
-```
-
-Render a prompt for a KRAIL platform agent:
-
-```bash
-krail --local agent prompt doctor --task "Audit workflow health and suggest fixes"
-krail --local agent prompt platform --task "Create a weekly research workflow"
-```
-
-Run the KRAIL doctor agent:
-
-```bash
-krail --local agent doctor --runner codex_cli --dry-run
-```
-
-Run a one-off task:
-
-```bash
-krail --local agent run "research recent papers on graph of convex sets" --runner codex_cli --dry-run
-```
-
-Create and dispatch a task manually:
-
-```bash
-krail --local task create "Compare GCS and diffusion policy" \
-  --description "Research differences, cite evidence, and record gaps" \
-  --runner claude_code
-
+krail --local task create "summarize new captures" --runner codex_cli
 krail --local task list
-krail --local task work-order <task_id>
-krail --local task dispatch <task_id> --dry-run
+krail --local task dispatch 1 --dry-run
 ```
 
-Run a workflow declared by the active pack:
+## What A Good First Run Looks Like
 
-```bash
-krail --local workflow list
-krail --local workflow show company_profile_refresh
-krail --local workflow init company_profile_refresh
-krail --local workflow run weekly_literature_refresh --runner codex_cli --dry-run
-```
+If KRAIL is working well for you, the first session should feel like this:
 
-`workflow list` includes pack-advertised workflows even before their YAML specs
-exist locally. `workflow show <id>` will tell you whether the workflow is
-materialized, available as a built-in template, or only a pack stub. Run
-`workflow init <id>` before `workflow execute` or `schedule install` so the
-workflow is reviewable in `research_plan/workflows/`.
+1. You initialize a local project in under a minute.
+2. `doctor` tells you whether the workspace is healthy.
+3. `capture` puts raw notes into a predictable inbox.
+4. `search` finds the relevant local evidence.
+5. `think` returns a usable answer envelope with citations and gaps.
+6. `task` or `workflow` prepares agent work without losing project state.
 
-When you create a project with `krail init ... --pack <pack-id>`, KRAIL now
-materializes the selected pack's workflow specs by default. Use
-`--no-init-pack-workflows` if you want a lighter scaffold with template-only
-workflow discovery.
+## Primary Use Cases
 
-Create a durable local workflow spec:
+### Research workspaces
 
-```bash
-krail --local workflow templates
-krail --local workflow init weekly_research_review --template weekly_research_review
-krail --local workflow init source_refresh --template source_refresh
-krail --local workflow show weekly_research_review
-krail --local workflow validate weekly_research_review
-krail --local workflow execute weekly_research_review --dry-run
-```
+Track papers, methods, claims, gaps, and follow-up work in a durable local
+project instead of scattered notes and ad hoc prompts.
 
-Local workflow specs live under:
+### Software knowledge bases
 
-```text
-research_plan/workflows/*.yaml
-```
+Give coding agents a repo-backed memory layer with notes, decisions, prompts,
+tasks, and workflow history.
 
-Example step shape:
+### Private company or document brains
 
-```yaml
-id: weekly_research_review
-schedule: "0 8 * * 1"
-steps:
-  - id: doctor
-    kind: command
-    run: krail --local doctor
-  - id: research
-    kind: agent
-    role: research
-    runner: codex_cli
-    prompt: "Review new captures, search for missing evidence, and update topics."
-  - id: synthesis
-    kind: think
-    mode: hybrid
-    runner: auto
-    query: "What changed this week and which notes need promotion or refresh?"
-    limit: 5
-    output_path: artifacts/weekly-synthesis.json
-  - id: verify
-    kind: command
-    run: krail --local graph check && krail --local vector build
-```
+Keep internal sources, policy notes, owners, and stale-doc reviews local and
+auditable.
 
-`kind: think` steps run KRAIL's evidence-first synthesis path directly. They can
-use manifest runner preferences:
+## Current Status
 
-```yaml
-agents:
-  default_runner: codex_cli
-  runner_policy:
-    preferred: [codex_cli]
-    think_preferred: [claude_code, codex_cli]
-```
+KRAIL is ready for pilot projects. It is not yet a polished production
+platform.
 
-When a `think` step writes `output_path`, KRAIL registers that artifact in the
-integrity ledger by default so it can move through candidate review and claim
-promotion explicitly instead of becoming invisible generated state.
+Working well now:
 
-Workflow runs are recorded under `research_plan/sessions/` and can be queried:
+- local project scaffolding
+- knowledge pack activation
+- capture inbox
+- deterministic local file search
+- deterministic `think` envelope
+- markdown graph build/query/export
+- repo-backed tasks, work orders, and session records
+- dry-run and full dispatch to local CLIs
+- MCP tools for search, think, capture, tasks, workflows, and integrity
+- optional local FastAPI adapter using `.krail/store.json`
 
-```bash
-krail --local workflow runs
-krail --local workflow status <run_id>
-```
+Still early:
 
-Cron can call a workflow directly:
-
-```cron
-0 8 * * 1 cd /path/to/project && /absolute/path/to/krail --local workflow execute weekly_research_review >> .krail/cron.log 2>&1
-```
-
-KRAIL can also generate auditable scheduler wrapper files:
-
-```bash
-krail --local schedule install source_refresh --system cron --schedule "0 8 * * 1" --dry-run
-krail --local schedule list
-krail --local schedule remove source_refresh
-```
-
-This writes wrapper files and install hints. It does not silently mutate your
-system crontab or launchd state.
-
-Dry runs create records but do not launch another agent process. Remove
-`--dry-run` only after reviewing the generated command or workflow plan.
-
-Records are written under:
-
-```text
-research_plan/tasks/*.json
-research_plan/work_orders/*.json
-research_plan/sessions/<session_id>/
-```
-
-Agent sessions include a `session_result.template.json`. Agents should write
-`session_result.json` with:
-
-```json
-{
-  "summary": "",
-  "changed_files": [],
-  "evidence": [],
-  "blockers_or_gaps": [],
-  "suggested_next_actions": []
-}
-```
-
-This is the main design point: agents should do work through auditable tasks and
-work orders, not loose invisible chat sessions.
-
-## Source Dependencies
-
-KRAIL can track which markdown documents depend on which sources.
-
-Declare dependencies in:
-
-```text
-sources/dependencies.yaml
-```
-
-Example:
-
-```yaml
-documents:
-  - path: topics/robotics/task-and-motion-planning.md
-    depends_on:
-      - id: github:RobotLocomotion/drake
-        type: github_repo
-        url: https://github.com/RobotLocomotion/drake
-        role: implementation
-        refresh: daily
-      - id: arxiv:2512.08206
-        type: arxiv
-        url: https://arxiv.org/abs/2512.08206
-        role: primary_paper
-        refresh: weekly
-```
-
-Commands:
-
-```bash
-krail --local sources validate
-krail --local sources list
-krail --local sources check
-krail --local sources changed
-krail --local sources affected
-```
-
-Snapshots are stored in:
-
-```text
-research_plan/state/source_snapshots.json
-```
-
-The first check records baseline hashes. Later checks mark changed sources and
-`sources affected` maps those changes back to dependent markdown documents.
-Dependency edges are also included in the markdown graph as:
-
-```text
-Document depends_on Source
-```
-
-## GitHub Issue Intake
-
-This repository includes a safe issue-intake workflow:
-
-```text
-.github/workflows/krail-issue-intake.yml
-```
-
-When an issue body or issue comment contains `/krail`, GitHub Actions runs
-`scripts/krail_issue_intake.py`, comments the result back on the issue, and
-commits generated task/work-order records if a command created them.
-
-Supported commands:
-
-```text
-/krail doctor
-/krail sources validate
-/krail sources list
-/krail sources check
-/krail sources changed
-/krail sources affected
-/krail workflow source_refresh
-/krail workflow execute source_refresh
-/krail task create --title "Audit sources" --description "Check stale docs" --runner codex_cli --role research --workflow source_refresh
-```
-
-Issue-triggered workflow commands always run as dry runs. They create an
-auditable plan and response, but do not launch a local agent process. Full
-agent dispatch should use a self-hosted runner path with explicit credentials
-and a separate approval policy.
-
-For explicit full dispatch, use:
-
-```text
-.github/workflows/krail-self-hosted-agent.yml
-```
-
-That workflow only runs through manual `workflow_dispatch` on a `self-hosted`
-runner. It expects local agent credentials and CLIs to live on that runner, not
-on GitHub-hosted infrastructure.
-
-By default, the issue workflow uses the repository root when it contains
-`rail.yaml`; otherwise, this package repo falls back to
-`examples/minimal-project`. Set the repository variable `KRAIL_PROJECT_PATH` to
-target a different project path in the checked-out repository.
+- model-backed synthesis inside `think`
+- better embedding and reranking defaults
+- deeper graph-aware retrieval
+- external pack installation
+- production-grade sandbox and permission controls
 
 ## MCP
 
-KRAIL exposes MCP tools for local agents.
-
-Run stdio MCP against a local project:
+`rail-mcp` exposes a local KRAIL project to MCP-compatible tools.
 
 ```bash
+pip install -e packages/rail-py
+pip install -e packages/mcp-server
 RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 ```
 
-Common tools:
+This is a strong fit if you want local project knowledge available inside agent
+tools without turning the project itself into a hosted service.
 
-- `search`
-- `think`
-- `capture`
-- `doctor`
-- `graph_build`
-- `graph_validate`
-- `graph_check`
-- `graph_entities`
-- `graph_edges`
-- `graph_docs`
-- `graph_export`
-- `vector_build`
-- `vector_search`
-- `ci_init`
-- `pack_active`
-- `list_agents`
-- `create_task`
-- `list_tasks`
-- `dispatch_task`
-- `list_workflows`
-- `run_workflow`
-- `list_classes`
-- `get_entities`
-- `query_sql`
-- `hydrate`
-- `integrity_status`
-- `integrity_sources`
-- `integrity_claims`
+## Install Notes
 
-Example local Codex-style setup depends on your Codex MCP configuration, but the
-server command is:
+Requirements:
+
+- Python 3.11+
+- git
+- optional local agent CLIs such as `codex`, `claude`, `gemini`, `agent`, or
+  `gh`
+
+Optional agent CLI setup:
 
 ```bash
-rail-mcp --local --path /path/to/project
+./scripts/install-agent-clis.sh
 ```
 
-For safety, MCP `dispatch_task` and `run_workflow` default to dry-run behavior.
+## Documentation
 
-## Optional API Runtime
-
-The API is optional. It wraps local project/runtime operations for clients that
-prefer HTTP.
-
-Start it from this repo:
-
-```bash
-make run
-```
-
-API:
-
-```text
-http://localhost:8000
-http://localhost:8000/docs
-```
-
-Operational API records use:
-
-```text
-.krail/store.json
-```
-
-or:
-
-```bash
-LOCAL_STORE_PATH=/path/to/store.json
-```
-
-Durable project truth should live in the project repo, not in the API store.
-
-## Project Layout
-
-A generated local project looks like this:
-
-```text
-project/
-  rail.yaml
-  .krail/
-    pack.yaml
-  .ontology/
-    ontology.yaml
-    sources/
-    pipelines/
-    transforms/
-  topics/
-    inbox/
-  research_plan/
-    current_plan.md
-    tasks/
-    work_orders/
-    sessions/
-    state/
-  agents/
-    prompts/
-    checklists/
-  skills/
-  specs/
-  artifacts/
-  scripts/
-```
-
-Important paths:
-
-- `topics/inbox`: captured notes and source pointers
-- `research_plan/tasks`: local task records
-- `research_plan/work_orders`: exact dispatch envelopes
-- `research_plan/sessions`: worker session records
-- `research_plan/state`: sources, claims, assumptions, conflicts, lineage
-- `.ontology`: ontology config and hydrated artifacts
-- `.krail/pack.yaml`: active project/domain pack
-
-## Integrity and Trust
-
-KRAIL should be stricter than a normal memory app.
-
-Generated content is not automatically trusted. A good workflow should:
-
-1. capture or hydrate sources
-2. extract candidate claims
-3. attach evidence
-4. record assumptions
-5. generate artifacts
-6. run verification
-7. promote only what passes integrity gates
-
-The current CLI exposes integrity commands from the existing RAIL SDK:
-
-```bash
-krail --local integrity status
-krail --local integrity sources
-krail --local integrity claims
-krail --local integrity assumptions
-```
-
-The local-first brain UX is new. The older integrity system still needs pruning
-and stabilization for this fork.
-
-## How KRAIL Differs From Upstream RAIL
-
-This fork deliberately removed or de-emphasized:
-
-- bundled Next.js frontend
-- Convex backend
-- Jules hosted runner dependency
-- Railway/Vercel deployment assumptions
-- generated project dumps
-- old release packaging scripts
-- UI-first docs/specs
-
-It kept or is keeping:
-
-- ontology/hydration engine
-- Python SDK and CLI
-- MCP server
-- optional FastAPI adapter
-- repo-backed state and integrity ideas
-- local CLI runner concepts
-- work orders and session records
-
-## What To Pull From Updated Upstream RAIL
-
-Do not merge `upstream/future` wholesale. It reintroduces frontend, Convex,
-Jules, release/deployment assets, and generated validation projects that conflict
-with this local-first fork.
-
-Worth porting by hand:
-
-1. **Generated project hygiene**
-   - `docs/generated-project-hygiene.md`
-   - useful rules for keeping project outputs out of the runtime repo
-
-2. **Goal mode / repo-backed control-plane ideas**
-   - `docs/goal-upgrades/*`
-   - parts of `goal_service.py`, `planner_runtime.py`, and control-plane docs
-   - port only if they stay repo-backed and local-first
-
-3. **Research quality gates**
-   - closeout gates for research design, figures, and quality
-   - useful for KRAIL integrity/promotion checks
-   - should be moved into local project workflow checks, not API-only routes
-
-4. **Runner lifecycle hardening**
-   - local CLI completion fixes
-   - stuck/session reconciliation improvements
-   - event normalization ideas
-   - must be adapted to KRAIL's `research_plan/tasks`, `work_orders`, and
-     `sessions` records
-
-5. **Minimal example project**
-   - upstream `examples/minimal-project`
-   - adapt into a KRAIL example or template
-
-6. **Public repo hygiene**
-   - `CONTRIBUTING.md`
-   - `SECURITY.md`
-   - parts of CI that do not require deleted API tests or frontend
-
-Skip or avoid:
-
-- `apps/web`
-- Convex client/config
-- Jules runner/profile/config
-- Railway/Vercel deployment docs
-- generated validation artifacts with databases/images/PDFs
-- UI observability pages
-- old broad specs that assume the hosted platform
-
-Recommended next porting order:
-
-```text
-1. examples/minimal-project -> examples/research-intelligence
-2. generated-project-hygiene doc -> docs/
-3. research quality gates -> rail-py local integrity checks
-4. runner lifecycle hardening -> rail-py local dispatcher
-5. repo-backed goal mode -> local workflow/task state
-6. CONTRIBUTING/SECURITY/CI -> repo hygiene
-```
-
-## Roadmap
-
-Phase 1: local brain UX
-
-- `init`
-- `doctor`
-- `capture`
-- `search`
-- `think`
-- `pack`
-- markdown graph build/query/export
-- MCP tools
-- local task/work-order/session records
-
-Phase 2: better retrieval
-
-- BM25-style scoring
-- vector search
-- search diagnostics
-- source freshness boosts
-- claim/evidence trust boosts
-
-Phase 3: auto-linking and graph-aware retrieval
-
-- typed wikilinks
-- deterministic edge extraction beyond frontmatter
-- dependency edges
-- graph-aware search boosts
-
-Phase 4: real synthesis
-
-- provider-backed `think`
-- citations
-- confidence and freshness analysis
-- conflict detection
-- suggested follow-up workflows
-
-Phase 5: workflows
-
-- declarative workflow files
-- pack-defined workflow templates
-- workflow scheduler
-- reusable workflow steps
-- local/remote trust boundaries
-
-Phase 6: integrity and promotion
-
-- claim registry cleanup
-- evidence chunk flow
-- artifact lineage promotion
-- source freshness checks
-- verification certificates
-
-Phase 7: interfaces
-
-- notebooks
-- custom project UIs
-- HTTP API clients
-- remote MCP with scopes
-
-## Known Limitations
-
-- `think` is not LLM-backed yet.
-- `search --rag` is local hybrid retrieval, but embeddings are hashed rather than model-backed.
-- Agent dispatch can launch local CLI tools, but sandboxing is still mostly the
-  responsibility of those tools and the operator.
-- Pack workflows can still run as simple task stubs; local workflow specs can
-  execute sequential command and agent steps, but do not yet support DAG
-  dependencies or parallel execution.
-- Scheduling is external for now. Use cron, launchd, or another scheduler to
-  call `krail --local workflow execute <workflow_id>`.
-- The optional API is still large relative to the desired KRAIL core.
-- Some legacy RAIL integrity tests fail and need a local-first cleanup pass.
-
-## Command Reference
-
-Project setup:
-
-```bash
-krail --version
-krail init <directory> --knowledge-mode research --pack research-intelligence --mode markdown_graph
-krail --local doctor
-krail --local ci init
-```
-
-Capture:
-
-```bash
-krail --local capture "note"
-krail --local capture "PDDLStream baseline note" --topic robotics --entity PDDLStream --entity-type Package
-krail --local capture --file ./notes.md
-krail --local capture --url https://example.com --workflow add_new_paper
-krail --local inbox list
-krail --local inbox promote topics/inbox/<capture>.md --topic robotics --type topic
-krail --local topic upsert robotics --content "Reviewed topic update"
-```
-
-Search and think:
-
-```bash
-krail --local search "query" --explain
-krail --local search "query" --rag --explain
-krail --local think "question"
-```
-
-Vector/RAG:
-
-```bash
-krail --local vector build
-krail --local vector build --provider openai --model text-embedding-3-small
-krail --local vector search "query"
-```
-
-Markdown graph:
-
-```bash
-krail --local graph build
-krail --local graph validate
-krail --local graph check
-krail --local graph entities --type Package
-krail --local graph edges --entity PDDLStream
-krail --local graph docs --topic dual-arm-planning
-krail --local graph export --format mermaid
-```
-
-Packs:
-
-```bash
-krail pack list
-krail pack show company-brain
-krail --local pack use company-brain
-krail --local pack active
-krail --local pack validate
-```
-
-Agents:
-
-```bash
-krail --local agent list
-krail --local agent run "task prompt" --runner codex_cli --dry-run
-```
-
-Tasks:
-
-```bash
-krail --local task create "Task title" --description "Task detail"
-krail --local task list
-krail --local task work-order <task_id>
-krail --local task dispatch <task_id> --dry-run
-```
-
-Workflows:
-
-```bash
-krail --local workflow list
-krail --local workflow run weekly_literature_refresh --dry-run
-krail --local workflow templates
-krail --local workflow init weekly_research_review --template weekly_research_review
-krail --local workflow init source_refresh --template source_refresh
-krail --local workflow show weekly_research_review
-krail --local workflow validate weekly_research_review
-krail --local workflow execute weekly_research_review --dry-run
-krail --local workflow runs
-krail --local workflow status <run_id>
-```
-
-Schedules:
-
-```bash
-krail --local schedule install source_refresh --system cron --schedule "0 8 * * 1" --dry-run
-krail --local schedule list
-krail --local schedule remove source_refresh
-```
-
-Sources:
-
-```bash
-krail --local sources validate
-krail --local sources list
-krail --local sources check
-krail --local sources affected
-```
-
-Ontology/hydration:
-
-```bash
-krail --local query classes
-krail --local hydrate
-krail --local hydrate --mode markdown_graph
-```
-
-Integrity:
-
-```bash
-krail --local integrity status
-krail --local integrity sources
-krail --local integrity claims
-```
-
-API:
-
-```bash
-make run
-```
-
-MCP:
-
-```bash
-RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
-```
-
-## Docs
-
-Start here:
-
+- [Docs Index](docs/README.md)
 - [Architecture](docs/architecture.md)
+- [Knowledge Modes](docs/knowledge-modes.md)
 - [Project Layout](docs/project-layout.md)
-- [API Runtime](docs/api-runtime.md)
-- [GBrain Synthesis](docs/gbrain-synthesis.md)
-- [Generated Project Hygiene](docs/generated-project-hygiene.md)
+- [Growth Plan](docs/growth-plan.md)
+- [Launch Kit](docs/launch-kit.md)
+- [Launch Posts](docs/launch-posts.md)
+- [Demo Script](docs/demo-script.md)
 
-Examples:
+## Contributing
 
-- [Minimal KRAIL Project](examples/minimal-project/README.md)
-- [Company Brain Example](examples/company-brain/README.md)
+KRAIL is early and local-first. The most useful contributions are:
 
-## For Agents
+- install and onboarding fixes
+- tighter docs and examples
+- focused tests around `packages/rail-py`, `packages/mcp-server`, or
+  `packages/api`
+- workflow, search, capture, doctor, and integrity improvements
 
-Agents should read [AGENTS.md](AGENTS.md) first.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Core habits:
+## License
 
-- search before answering
-- capture important new context
-- use dry-run before dispatch
-- write through tasks/work orders
-- treat generated claims as candidates
-- promote only evidence-backed outputs
+MIT. See [LICENSE](LICENSE).

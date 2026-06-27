@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: KRAIL Launch Docs
+    url: https://github.com/AkeBoss-tech/knowledge/blob/main/docs/launch-kit.md
+    about: Review the launch kit and demo docs before filing broad feedback.
+  - name: KRAIL Demo Script
+    url: https://github.com/AkeBoss-tech/knowledge/blob/main/docs/demo-script.md
+    about: Use the recommended demo flow before reporting first-run adoption friction.
