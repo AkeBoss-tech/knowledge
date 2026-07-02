@@ -34,6 +34,34 @@ Useful tool families include search, think, capture, local vector search,
 markdown graph inspection, ontology access, workflow dispatch, SQL queries,
 and project health checks.
 
+## Permission Model
+
+`rail-mcp` enforces KRAIL's local, repo-backed permission model when clients go
+through MCP tools. In practice that means:
+
+- missing metadata stays public-by-default for backward compatibility
+- restrictive frontmatter and manifest rules can hide records or block actions
+- audit records for sensitive allows and denials stay in the project repo
+
+The MCP server is not a separate source of authority. It mediates access to the
+same repo-backed project state the CLI and SDK use.
+
+## Work Orders And Scope
+
+When MCP tooling launches or inspects runner work, the work order may include a
+structured `capability_envelope` alongside legacy fields such as
+`capabilities_required` and `allowed_paths`.
+
+That envelope is designed to be incremental:
+
+- it narrows a session and is meant to be intersected with repo policy
+- it records write paths today and reserves tool/secret scope for adapter work
+- it is auditable through repo files and dispatch logs
+
+It does not provide host-level isolation on its own. A user with direct shell
+or disk access can still bypass MCP and read files outside KRAIL-mediated
+surfaces.
+
 ## Project Layout
 
 The server expects a local KRAIL project with:

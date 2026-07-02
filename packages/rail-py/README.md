@@ -347,6 +347,29 @@ Dry runs are the recommended first step. They materialize the prompt, work order
 session command, and project context without launching another process. Full
 dispatch can then run the selected local CLI once the work order looks right.
 
+New work orders keep the older compatibility fields and also carry a structured
+session-scope record:
+
+```json
+{
+  "capabilities_required": ["run_shell", "write_structured_output"],
+  "allowed_paths": ["research_plan", "artifacts"],
+  "capability_envelope": {
+    "version": "v1alpha1",
+    "scope_rule": "intersection_with_repo_policy",
+    "required_capabilities": ["run_shell", "write_structured_output"],
+    "paths": {
+      "write": ["research_plan", "artifacts"]
+    }
+  }
+}
+```
+
+The envelope is intentionally incremental. It gives runners and audits one
+machine-readable place to inspect session scope, but it does not widen repo
+permissions or create an OS-level sandbox. KRAIL still relies on its own
+adapters and tool surfaces to enforce the declared scope.
+
 This makes KRAIL useful as a coordination layer for agents:
 
 - the repository remains the source of truth
@@ -459,7 +482,8 @@ registered as claims with evidence and pass the project integrity checks.
 ## Permissions
 
 KRAIL permissions are local-first and backward-compatible. Missing permission
-metadata means public/project-readable. Add restrictions only where needed:
+metadata means public/project-readable through KRAIL surfaces. Add restrictions
+only where needed:
 
 ```yaml
 visibility: private
@@ -472,9 +496,18 @@ allowed_agents:
   - codex_cli
 ```
 
-`search`, `find`, `think`, MCP retrieval, and workflow execution use the same
-policy checks. Denied reads and allowed sensitive reads are appended to
-`research_plan/audit/access.jsonl`.
+Current repo-mediated protection is intentionally narrow and honest:
+
+- `search`, `find`, `think`, MCP retrieval, and workflow execution consult the
+  same record metadata model
+- denied reads and allowed sensitive reads are appended to
+  `research_plan/audit/access.jsonl`
+- runner work orders can further narrow a session with `allowed_paths` and
+  `capability_envelope`, but that scope is still KRAIL-mediated
+
+If someone already has direct shell or filesystem access to the project, KRAIL
+does not stop them from bypassing these checks outside the KRAIL CLI, SDK, API,
+or MCP server.
 
 ## Workflow DAGs
 
@@ -540,6 +573,11 @@ Useful MCP tool families include:
 - `pack_active`: inspect the active knowledge pack
 - `create_task`, `list_tasks`, and `dispatch_task`: manage worker tasks
 - `list_workflows` and `run_workflow`: create workflow tasks from the active pack
+
+Sensitive MCP operations should be treated the same way as any other KRAIL
+surface: repo policy can deny them, and per-session work-order scope can narrow
+what a launched runner is supposed to touch. That scope is declarative and
+auditable, not a substitute for host-level sandboxing.
 
 ## Source Freshness And Integrity
 

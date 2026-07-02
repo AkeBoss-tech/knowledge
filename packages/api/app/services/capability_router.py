@@ -1,7 +1,7 @@
 """
 Capability Router — intelligent selection of agents based on task requirements.
 
-Matches WorkOrder capability requirements against certified runner profiles,
+Matches WorkOrder capability requirements against registered runner profiles,
 applying project-level preferences and historical affinity scores.
 """
 from __future__ import annotations
@@ -11,8 +11,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.runners.contracts import Capability, TaskType
-from app.runners.profile_loader import load_all_profiles, load_profile
+from app.runners.contracts import Capability, CapabilityEnvelope, TaskType
+from app.runners.contracts.runner_profile import CapabilityState, CertificationStatus
+from app.runners.profile_loader import load_all_profiles
 from app.services import planner_service
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ async def route_task(
     required_capabilities: list[Capability],
     task_type: TaskType,
     *,
+    capability_envelope: CapabilityEnvelope | None = None,
     explicit_runner: str | None = None,
     project: dict[str, Any] | None = None,
 ) -> str:
@@ -53,34 +55,53 @@ async def route_task(
     # 2. Filter available runners by capabilities
     profiles = load_all_profiles()
     eligible: list[Any] = []
-    
-    reasons = {}
+
+    reasons: dict[str, str] = {}
+    dispatch_scope = capability_envelope or CapabilityEnvelope.from_legacy_scope(
+        required_capabilities=required_capabilities,
+        allowed_paths=[],
+    )
 
     for name, profile in profiles.items():
+        profile_status = getattr(profile, "status", None)
+        if profile_status in {CertificationStatus.ADVISORY_ONLY, CertificationStatus.DEPRECATED}:
+            reasons[name] = f"Runner status {profile_status.value} is not eligible for autonomous routing"
+            continue
+
         # Check explicit allow-list if defined
         if allowed_runners and allowed_runners.allowed and name not in allowed_runners.allowed:
             reasons[name] = "Not in project allow-list"
             continue
-            
+
         # Check capabilities
         missing = []
         for cap in required_capabilities:
             # profile.capabilities is a dict[Capability, CapabilityState]
-            cap_val = profile.capabilities.get(cap, "no")
-            if cap_val == "no":
-                missing.append(cap.value)
-        
+            cap_val = profile.capabilities.get(cap, CapabilityState.NO)
+            if cap_val != CapabilityState.YES:
+                state = cap_val.value if isinstance(cap_val, CapabilityState) else str(cap_val)
+                missing.append(f"{cap.value} ({state})")
+
         if missing:
             reasons[name] = f"Missing required capabilities: {', '.join(missing)}"
             continue
-            
+
         eligible.append(profile)
 
     if explicit_runner:
         # If the operator forced a runner, we still check eligibility but 
         # proceed anyway (warning if not eligible)
         is_eligible = any(p.name == explicit_runner for p in eligible)
-        _log_decision(root, work_order_id, explicit_runner, reasons, override=True)
+        _log_decision(
+            root,
+            work_order_id,
+            explicit_runner,
+            reasons,
+            task_type=task_type,
+            required_capabilities=required_capabilities,
+            capability_envelope=dispatch_scope,
+            override=True,
+        )
         if not is_eligible:
             logger.warning("Capability Router: Manual override runner %s is not technically eligible for task %s", explicit_runner, work_order_id)
         return explicit_runner
@@ -88,7 +109,16 @@ async def route_task(
     if not eligible:
         # Fallback or error
         error_msg = f"No eligible runners found for task {work_order_id}. Requirements: {[c.value for c in required_capabilities]}"
-        _log_decision(root, work_order_id, None, reasons, error=error_msg)
+        _log_decision(
+            root,
+            work_order_id,
+            None,
+            reasons,
+            task_type=task_type,
+            required_capabilities=required_capabilities,
+            capability_envelope=dispatch_scope,
+            error=error_msg,
+        )
         raise RuntimeError(error_msg)
 
     # 3. Rank eligible runners
@@ -115,7 +145,16 @@ async def route_task(
             best_score = score
             best_runner = name
 
-    _log_decision(root, work_order_id, best_runner, reasons, eligible_scores=eligible_scores)
+    _log_decision(
+        root,
+        work_order_id,
+        best_runner,
+        reasons,
+        eligible_scores=eligible_scores,
+        task_type=task_type,
+        required_capabilities=required_capabilities,
+        capability_envelope=dispatch_scope,
+    )
     return best_runner
 
 
@@ -124,7 +163,11 @@ def _log_decision(
     work_order_id: str,
     selected_runner: str | None,
     reasons: dict[str, str],
+    *,
     eligible_scores: dict[str, float] | None = None,
+    task_type: TaskType,
+    required_capabilities: list[Capability],
+    capability_envelope: CapabilityEnvelope,
     override: bool = False,
     error: str | None = None,
 ):
@@ -141,6 +184,9 @@ def _log_decision(
         "work_order_id": work_order_id,
         "selected_runner": selected_runner,
         "timestamp": datetime.datetime.now(datetime.UTC).isoformat() + "Z",
+        "task_type": task_type.value,
+        "required_capabilities": [cap.value for cap in required_capabilities],
+        "capability_envelope": capability_envelope.model_dump(mode="json"),
         "override": override,
         "error": error,
         "eligible_scores": eligible_scores or {},

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import KnowledgeRuntime
+from rail.permissions import AuthorizationResource, PermissionActor, PermissionPolicy
 
 
 def test_permissions_are_public_by_default(tmp_path: Path):
@@ -84,3 +85,123 @@ def test_allowed_roles_restrict_even_without_visibility_flag(tmp_path: Path, mon
     monkeypatch.setenv("KRAIL_ROLES", "reviewer")
     allowed = KnowledgeRuntime(root).search("rolecodename")
     assert allowed["hits"][0]["path"] == "topics/role-note.md"
+
+
+def test_authorize_returns_typed_public_by_default_decision(tmp_path: Path):
+    policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="alice", roles=("reader",)))
+
+    decision = policy.authorize("read", "topics/public.md")
+
+    assert decision.allowed is True
+    assert decision.reason == "public_default"
+    assert decision.decision == "allowed"
+    assert decision.resource.kind == "path"
+    assert decision.resource.target == "topics/public.md"
+    assert decision.to_dict()["actor"]["id"] == "alice"
+
+
+def test_explicit_deny_wins_over_allowlist_and_public_default(tmp_path: Path):
+    policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="alice", roles=("reviewer",)))
+
+    decision = policy.authorize(
+        "read",
+        "topics/restricted.md",
+        {
+            "visibility": "public",
+            "allowed_roles": ["reviewer"],
+            "denied_roles": ["reviewer"],
+        },
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "role_denied"
+    assert decision.audit_required is True
+
+
+def test_path_rules_are_merged_before_record_metadata(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Permission Project", slug="permission-project")
+    (root / "rail.yaml").write_text(
+        "version: 1\n"
+        "project:\n"
+        "  name: Permission Project\n"
+        "  slug: permission-project\n"
+        "paths:\n"
+        "  ontology_root: .ontology\n"
+        "  topics_root: topics\n"
+        "hydration:\n"
+        "  ontology_file: .ontology/ontology.yaml\n"
+        "  sources_dir: .ontology/sources\n"
+        "  pipelines_dir: .ontology/pipelines\n"
+        "agents:\n"
+        "  roles_dir: agents\n"
+        "permissions:\n"
+        "  rules:\n"
+        "    - path: topics/private/*\n"
+        "      visibility: private\n"
+        "      allowed_roles:\n"
+        "        - reviewer\n",
+        encoding="utf-8",
+    )
+    policy = PermissionPolicy(root, actor=PermissionActor(id="alice"))
+
+    denied = policy.authorize("read", "topics/private/design.md")
+    allowed = policy.authorize(
+        "read",
+        "topics/private/design.md",
+        {"visibility": "public", "allowed_roles": []},
+    )
+
+    assert denied.allowed is False
+    assert denied.reason == "allowlist_not_matched"
+    assert allowed.allowed is True
+    assert allowed.reason == "public_default"
+
+
+def test_write_authorization_checks_path_scope(tmp_path: Path):
+    policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="alice"))
+
+    denied = policy.authorize("write", "artifacts/report.md", {"write": ["topics/*"]})
+    allowed = policy.authorize("write", "topics/report.md", {"write": ["topics/*"]})
+
+    assert denied.allowed is False
+    assert denied.reason == "write_path_not_allowed"
+    assert allowed.allowed is True
+    assert allowed.reason == "public_default"
+
+
+def test_execute_authorization_checks_allowed_agents(tmp_path: Path):
+    policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="worker-1", type="agent", agent="codex"))
+
+    denied = policy.authorize(
+        "execute",
+        AuthorizationResource.workflow("weekly-refresh", {"allowed_agents": ["claude"]}),
+    )
+    allowed = policy.authorize(
+        "execute",
+        AuthorizationResource.workflow("weekly-refresh", {"allowed_agents": ["codex"]}),
+    )
+
+    assert denied.allowed is False
+    assert denied.reason == "agent_not_allowed"
+    assert allowed.allowed is True
+    assert allowed.reason == "actor_allowed"
+
+
+def test_secret_authorization_uses_allow_and_deny_lists(tmp_path: Path):
+    policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="alice"))
+
+    denied = policy.authorize(
+        "read_secret",
+        AuthorizationResource.secret("OPENAI_API_KEY", {"allow": ["OPENAI_*"], "deny": ["OPENAI_API_KEY"]}),
+    )
+    allowed = policy.authorize(
+        "read_secret",
+        AuthorizationResource.secret("OPENAI_BASE_URL", {"allow": ["OPENAI_*"]}),
+    )
+
+    assert denied.allowed is False
+    assert denied.reason == "explicit_deny"
+    assert denied.audit_required is True
+    assert allowed.allowed is True
+    assert allowed.reason == "public_default"
+    assert allowed.audit_required is True

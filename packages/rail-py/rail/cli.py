@@ -457,6 +457,18 @@ def cmd_evidence(project: rail.Project, args: argparse.Namespace):
 def cmd_repo(project: rail.Project, args: argparse.Namespace):
     if args.repo_command == "inspect":
         _print_json(project.repo_inspect(args.path_or_url))
+    elif args.repo_command == "snapshot":
+        _print_json(project.repo_snapshot(args.path_or_url))
+    elif args.repo_command == "inventory":
+        _print_json(project.repo_inventory(args.path_or_url))
+    elif args.repo_command == "owners":
+        _print_json(project.repo_owners(args.path_or_url))
+    elif args.repo_command == "dependencies":
+        _print_json(project.repo_dependencies(args.path_or_url))
+    elif args.repo_command == "symbols":
+        _print_json(project.repo_symbols(args.path_or_url, languages=args.language))
+    elif args.repo_command == "changed":
+        _print_json(project.repo_changed(args.path_or_url, base_ref=args.base_ref))
 
 def cmd_ci(project: rail.Project, args: argparse.Namespace):
     if args.ci_command == "init":
@@ -974,6 +986,20 @@ def main():
     repo_subs = repo_parser.add_subparsers(dest="repo_command")
     rinspect = repo_subs.add_parser("inspect", help="Inspect a local repository path")
     rinspect.add_argument("path_or_url")
+    rsnapshot = repo_subs.add_parser("snapshot", help="Capture repo git/head/dirty metadata for a local repository path")
+    rsnapshot.add_argument("path_or_url", nargs="?", default=".")
+    rinventory = repo_subs.add_parser("inventory", help="Build a structural inventory for a local repository path")
+    rinventory.add_argument("path_or_url", nargs="?", default=".")
+    rowners = repo_subs.add_parser("owners", help="Parse CODEOWNERS metadata for a local repository path")
+    rowners.add_argument("path_or_url", nargs="?", default=".")
+    rdeps = repo_subs.add_parser("dependencies", help="Extract dependency manifests from a local repository path")
+    rdeps.add_argument("path_or_url", nargs="?", default=".")
+    rsymbols = repo_subs.add_parser("symbols", help="Extract lightweight symbol inventories for a local repository path")
+    rsymbols.add_argument("path_or_url", nargs="?", default=".")
+    rsymbols.add_argument("--language", action="append", help="Limit extraction to a language such as python, typescript, or javascript")
+    rchanged = repo_subs.add_parser("changed", help="Summarize working tree and recent git changes for a local repository path")
+    rchanged.add_argument("path_or_url", nargs="?", default=".")
+    rchanged.add_argument("--base-ref", help="Optional git base ref to diff against, for example origin/main")
 
     # CI templates
     ci_parser = subparsers.add_parser("ci", help="Generate local-preview CI templates")

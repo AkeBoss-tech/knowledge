@@ -85,7 +85,11 @@ class TaskPayload:
     task_description: str
     local_repo_path: str | None = None
     allowed_paths: list[str] = field(default_factory=list)
+    denied_paths: list[str] = field(default_factory=list)
+    allowed_tools: list[str] = field(default_factory=list)
+    denied_tools: list[str] = field(default_factory=list)
     allowed_secrets: dict[str, str] = field(default_factory=dict)
+    allowed_secret_names: list[str] = field(default_factory=list)
     acceptance_criteria: list[str] = field(default_factory=list)
     bash_access: bool = True
     project_context: str = ""  # Rich context block: ontology, data sources, repo structure
@@ -111,7 +115,10 @@ class TaskPayload:
             "branch": self.branch,
             "local_repo_path": self.local_repo_path,
             "allowed_paths": self.allowed_paths,
-            "allowed_secrets": list(self.allowed_secrets.keys()),
+            "denied_paths": self.denied_paths,
+            "allowed_tools": self.allowed_tools,
+            "denied_tools": self.denied_tools,
+            "allowed_secrets": self.allowed_secret_names or list(self.allowed_secrets.keys()),
             "task_description": self.task_description,
             "acceptance_criteria": self.acceptance_criteria,
             "bash_access": self.bash_access,

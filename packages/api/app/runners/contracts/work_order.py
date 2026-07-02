@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 
 class TaskType(str, Enum):
@@ -84,6 +84,93 @@ class ExpectedProgress(BaseModel):
     one_of: list[str] = Field(default_factory=list)
 
 
+def _validate_project_relative_paths(paths: list[str], *, field_name: str) -> list[str]:
+    for path in paths:
+        if path.startswith("/") or ".." in path.split("/"):
+            raise ValueError(
+                f"{field_name} entry {path!r} must be a relative path "
+                f"within the project root (no leading / or .. segments)"
+            )
+    return paths
+
+
+def _path_within_scopes(path: str, scopes: list[str]) -> bool:
+    normalized_path = path.rstrip("/")
+    for scope in scopes:
+        normalized_scope = scope.rstrip("/")
+        if normalized_path == normalized_scope or normalized_path.startswith(f"{normalized_scope}/"):
+            return True
+    return False
+
+
+class CapabilityPathScope(BaseModel):
+    """Filesystem scope intended for a runner session.
+
+    Work Order 04 starts with write paths because that is what current runners
+    already understand. Read and deny are reserved so Workstream C can wire the
+    same envelope into stricter adapter- and MCP-side enforcement later without
+    changing the top-level contract again.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    write: list[str] = Field(default_factory=list)
+    read: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+
+    @field_validator("write", "read", "deny")
+    @classmethod
+    def _paths_stay_inside_project(cls, value: list[str], info) -> list[str]:
+        return _validate_project_relative_paths(value, field_name=info.field_name)
+
+
+class CapabilityToolScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+
+
+class CapabilitySecretScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allow: list[str] = Field(default_factory=list)
+
+
+class CapabilityEnvelope(BaseModel):
+    """Declarative session scope carried with a work order.
+
+    The envelope is additive and backward-aware: the legacy compatibility fields
+    (`capabilities_required`, `allowed_paths`) remain canonical for older code,
+    while this structure gives newer adapters a single object to consume.
+
+    Important: this envelope narrows runner intent and must be intersected with
+    repo policy. It is not a filesystem sandbox and does not widen permissions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = "v1alpha1"
+    scope_rule: Literal["intersection_with_repo_policy"] = "intersection_with_repo_policy"
+    enforcement_state: Literal["declared", "partially_enforced", "enforced"] = "declared"
+    required_capabilities: list[Capability] = Field(default_factory=list)
+    paths: CapabilityPathScope = Field(default_factory=CapabilityPathScope)
+    tools: CapabilityToolScope = Field(default_factory=CapabilityToolScope)
+    secrets: CapabilitySecretScope = Field(default_factory=CapabilitySecretScope)
+
+    @classmethod
+    def from_legacy_scope(
+        cls,
+        *,
+        required_capabilities: list[Capability],
+        allowed_paths: list[str],
+    ) -> "CapabilityEnvelope":
+        return cls(
+            required_capabilities=list(required_capabilities),
+            paths=CapabilityPathScope(write=list(allowed_paths)),
+        )
+
+
 WorkOrderId = Annotated[
     str,
     StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_:.\-]+$"),
@@ -128,6 +215,9 @@ class WorkOrder(BaseModel):
     allowed_paths: list[str]
     """Paths the agent may write within (relative to project root).
     Enforced by the runner adapter, not just documented in the prompt."""
+    capability_envelope: CapabilityEnvelope | None = None
+    """Structured session-scope record for newer runners and audits.
+    Additive with the legacy compatibility fields above and below."""
 
     # Inputs / outputs
     inputs: dict[str, str] = Field(default_factory=dict)
@@ -160,13 +250,7 @@ class WorkOrder(BaseModel):
     @field_validator("allowed_paths")
     @classmethod
     def _no_escape_from_project_root(cls, paths: list[str]) -> list[str]:
-        for path in paths:
-            if path.startswith("/") or ".." in path.split("/"):
-                raise ValueError(
-                    f"allowed_paths entry {path!r} must be a relative path "
-                    f"within the project root (no leading / or .. segments)"
-                )
-        return paths
+        return _validate_project_relative_paths(paths, field_name="allowed_paths")
 
     @field_validator("runner_allowed")
     @classmethod
@@ -187,3 +271,40 @@ class WorkOrder(BaseModel):
                 "A work order with no capability requirements cannot be routed."
             )
         return value
+
+    @model_validator(mode="after")
+    def _hydrate_capability_envelope(self) -> "WorkOrder":
+        if self.capability_envelope is None:
+            self.capability_envelope = CapabilityEnvelope.from_legacy_scope(
+                required_capabilities=self.capabilities_required,
+                allowed_paths=self.allowed_paths,
+            )
+            return self
+
+        if not self.capability_envelope.required_capabilities:
+            self.capability_envelope.required_capabilities = list(self.capabilities_required)
+
+        widened_caps = set(self.capability_envelope.required_capabilities) - set(self.capabilities_required)
+        if widened_caps:
+            widened = ", ".join(sorted(cap.value for cap in widened_caps))
+            raise ValueError(
+                "capability_envelope.required_capabilities cannot widen "
+                f"capabilities_required: {widened}"
+            )
+
+        if not self.capability_envelope.paths.write:
+            self.capability_envelope.paths.write = list(self.allowed_paths)
+
+        widened_paths = [
+            path
+            for path in self.capability_envelope.paths.write
+            if not _path_within_scopes(path, self.allowed_paths)
+        ]
+        if widened_paths:
+            widened = ", ".join(sorted(widened_paths))
+            raise ValueError(
+                "capability_envelope.paths.write cannot widen allowed_paths: "
+                f"{widened}"
+            )
+
+        return self

@@ -5,6 +5,16 @@ import sys
 import types
 from pathlib import Path
 
+if "tomllib" not in sys.modules:
+    tomllib_stub = types.ModuleType("tomllib")
+
+    def _unsupported_tomllib(*_args, **_kwargs):
+        raise NotImplementedError("tomllib access is not required for these MCP tests")
+
+    tomllib_stub.load = _unsupported_tomllib
+    tomllib_stub.loads = _unsupported_tomllib
+    sys.modules["tomllib"] = tomllib_stub
+
 
 MCP_ROOT = Path(__file__).parents[1]
 RAIL_PY_ROOT = Path(__file__).parents[2] / "rail-py"
@@ -34,6 +44,23 @@ if "mcp.server.fastmcp" not in sys.modules:
     sys.modules["mcp.server.fastmcp"] = fastmcp_pkg
 
 from rail_mcp import server
+
+
+SCOPE_ENV_VARS = (
+    "KRAIL_ALLOWED_WRITE_PATHS",
+    "KRAIL_DENIED_PATHS",
+    "KRAIL_ALLOWED_TOOLS",
+    "KRAIL_DENIED_TOOLS",
+    "KRAIL_ALLOWED_SECRETS",
+    "RAIL_WORK_ORDER_PATH",
+    "RAIL_LOCAL",
+    "RAIL_PATH",
+)
+
+
+def _clear_scope_env(monkeypatch):
+    for name in SCOPE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_mcp_integrity_status_calls_project(monkeypatch):
@@ -158,6 +185,10 @@ def test_mcp_execute_workflow_defaults_to_dry_run(monkeypatch):
 
 
 def test_mcp_init_workflow_passes_template(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["write_repo"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["research_plan/workflows"]))
+
     class _Project:
         def init_workflow(self, workflow_id, *, force=False, template=None):
             return {"workflow": workflow_id, "force": force, "template": template}
@@ -246,6 +277,131 @@ def test_mcp_sources_check_calls_project(monkeypatch):
 
     payload = json.loads(result)
     assert payload == {"write": False, "changed_sources": []}
+
+
+def test_mcp_execute_python_denies_without_explicit_scope(monkeypatch):
+    _clear_scope_env(monkeypatch)
+
+    class _Project:
+        def __init__(self):
+            self.called = False
+
+        def execute(self, code, timeout=60):
+            self.called = True
+            return {"stdout": code, "timeout": timeout}
+
+    project = _Project()
+    monkeypatch.setattr(server, "_project", project)
+
+    result = server.execute_python("print('hi')")
+
+    payload = json.loads(result)
+    assert payload["status"] == "denied"
+    assert payload["error"]["tool"] == "execute_python"
+    assert project.called is False
+
+
+def test_mcp_execute_python_allows_runner_scoped_tool(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["execute_python"]))
+
+    class _Project:
+        def execute(self, code, timeout=60):
+            return {"stdout": code, "timeout": timeout}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.execute_python("print('hi')", 30)
+
+    payload = json.loads(result)
+    assert payload["stdout"] == "print('hi')"
+    assert payload["timeout"] == 30
+
+
+def test_mcp_capture_denies_path_outside_runner_scope(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["write_repo"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["artifacts"]))
+
+    class _Project:
+        def __init__(self):
+            self.called = False
+
+        def capture(self, *_args, **_kwargs):
+            self.called = True
+            return {"status": "captured"}
+
+    project = _Project()
+    monkeypatch.setattr(server, "_project", project)
+
+    result = server.capture("raw note")
+
+    payload = json.loads(result)
+    assert payload["status"] == "denied"
+    assert payload["error"]["reason"] == "path_not_allowed_by_runner_scope"
+    assert project.called is False
+
+
+def test_mcp_capture_allows_runner_scoped_write(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["write_repo"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["topics/inbox"]))
+
+    class _Project:
+        def capture(self, text, **kwargs):
+            return {"status": "captured", "text": text, "kind": kwargs["kind"]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.capture("raw note", type="note")
+
+    payload = json.loads(result)
+    assert payload["status"] == "captured"
+    assert payload["text"] == "raw note"
+
+
+def test_mcp_list_secrets_filters_to_allowed_secret_names(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["manage_secrets"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_SECRETS", json.dumps(["OPENAI_API_KEY"]))
+
+    class _Project:
+        def list_secrets(self):
+            return [
+                {"keyName": "OPENAI_API_KEY"},
+                {"keyName": "ANTHROPIC_API_KEY"},
+            ]
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.list_secrets()
+
+    payload = json.loads(result)
+    assert payload == [{"keyName": "OPENAI_API_KEY"}]
+
+
+def test_mcp_set_secret_denies_unscoped_secret_name(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["manage_secrets"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_SECRETS", json.dumps(["OPENAI_API_KEY"]))
+
+    class _Project:
+        def __init__(self):
+            self.called = False
+
+        def set_secret(self, key, value):
+            self.called = True
+            return {"key": key, "value": value}
+
+    project = _Project()
+    monkeypatch.setattr(server, "_project", project)
+
+    result = server.set_secret("ANTHROPIC_API_KEY", "secret")
+
+    payload = json.loads(result)
+    assert payload["status"] == "denied"
+    assert payload["error"]["reason"] == "secret_not_allowed_by_runner_scope"
+    assert project.called is False
 
 
 def test_mcp_integrity_assumptions_calls_project(monkeypatch):

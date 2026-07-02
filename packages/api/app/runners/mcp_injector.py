@@ -18,9 +18,11 @@ def inject_mcp_config(
     project_slug: str,
     session_id: str,
     work_order_id: str | None = None,
+    work_order_path: str | None = None,
     api_url: str | None = None,
     api_key: str | None = None,
     local_mode: bool = True,
+    extra_env: dict[str, str] | None = None,
 ) -> Path:
     """
     Generate a per-session .mcp.json in the workspace root.
@@ -35,6 +37,8 @@ def inject_mcp_config(
     }
     if work_order_id:
         env["RAIL_WORK_ORDER_ID"] = work_order_id
+    if work_order_path:
+        env["RAIL_WORK_ORDER_PATH"] = work_order_path
     if api_url:
         env["RAIL_API_URL"] = api_url
     if api_key:
@@ -42,6 +46,8 @@ def inject_mcp_config(
     if local_mode:
         env["RAIL_LOCAL"] = "1"
         env["RAIL_PATH"] = str(workspace_root)
+    if extra_env:
+        env.update({key: value for key, value in extra_env.items() if value})
 
     # Note: This assumes 'rail-mcp' is on the PATH and points to 
     # the entrypoint in packages/mcp-server/rail_mcp/server.py

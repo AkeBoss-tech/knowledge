@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -105,7 +106,7 @@ DEFAULT_PACKS: dict[str, dict[str, Any]] = {
             "Service WRITES Database",
             "Decision AFFECTS Service",
         ],
-        "workflows": ["map_codebase", "capture_architecture_decision", "dependency_review"],
+        "workflows": ["map_codebase", "sync_recent_changes", "capture_architecture_decision", "dependency_review"],
     },
     "policy-compiler": {
         "id": "policy-compiler",
@@ -502,6 +503,81 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
             },
         ],
     },
+    "map_codebase": {
+        "id": "map_codebase",
+        "description": "Build a deterministic local software map before asking an agent to synthesize architecture notes.",
+        "schedule": "",
+        "steps": [
+            {"id": "doctor", "kind": "command", "run": "krail --local doctor"},
+            {"id": "repo_snapshot", "kind": "command", "run": "krail --local repo snapshot ."},
+            {"id": "repo_inventory", "kind": "command", "run": "krail --local repo inventory ."},
+            {"id": "repo_owners", "kind": "command", "run": "krail --local repo owners ."},
+            {"id": "repo_dependencies", "kind": "command", "run": "krail --local repo dependencies ."},
+            {"id": "repo_symbols", "kind": "command", "run": "krail --local repo symbols ."},
+            {
+                "id": "map_agent",
+                "kind": "agent",
+                "role": "platform",
+                "runner": "auto",
+                "prompt": "Use the repo inventory, ownership, dependency, symbol, and snapshot artifacts under research_plan/state/ to update service, module, API, dependency, risk, and decision topics. Record explicit gaps where ownership, interfaces, or boundaries remain unclear.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "sync_recent_changes": {
+        "id": "sync_recent_changes",
+        "description": "Inspect recent repository changes and update software-map knowledge with explicit stale/gap notes.",
+        "schedule": "",
+        "steps": [
+            {"id": "repo_changed", "kind": "command", "run": "krail --local repo changed ."},
+            {"id": "repo_inventory", "kind": "command", "run": "krail --local repo inventory ."},
+            {"id": "repo_symbols", "kind": "command", "run": "krail --local repo symbols ."},
+            {
+                "id": "change_sync",
+                "kind": "agent",
+                "role": "platform",
+                "runner": "auto",
+                "prompt": "Review recent repository changes and refresh affected software topics, decisions, risks, and blockers. Prefer updating existing topics over creating loose notes, and record what is still ambiguous.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "capture_architecture_decision": {
+        "id": "capture_architecture_decision",
+        "description": "Capture an architecture decision with current repo context, dependencies, and affected modules.",
+        "schedule": "",
+        "steps": [
+            {"id": "repo_snapshot", "kind": "command", "run": "krail --local repo snapshot ."},
+            {"id": "repo_dependencies", "kind": "command", "run": "krail --local repo dependencies ."},
+            {"id": "repo_symbols", "kind": "command", "run": "krail --local repo symbols ."},
+            {
+                "id": "decision_capture",
+                "kind": "agent",
+                "role": "platform",
+                "runner": "auto",
+                "prompt": "Capture or update an architecture decision topic. Include context, affected services/modules, evidence from source files or docs, consequences, and follow-up actions.",
+            },
+            {"id": "refresh_retrieval", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "dependency_review": {
+        "id": "dependency_review",
+        "description": "Review dependency manifests, ownership, and recent changes for software risk and maintenance gaps.",
+        "schedule": "",
+        "steps": [
+            {"id": "repo_dependencies", "kind": "command", "run": "krail --local repo dependencies ."},
+            {"id": "repo_owners", "kind": "command", "run": "krail --local repo owners ."},
+            {"id": "repo_changed", "kind": "command", "run": "krail --local repo changed ."},
+            {"id": "repo_symbols", "kind": "command", "run": "krail --local repo symbols ."},
+            {
+                "id": "dependency_audit",
+                "kind": "agent",
+                "role": "doctor",
+                "runner": "auto",
+                "prompt": "Audit dependency manifests, ownership coverage, and recent changes. Record notable risks, stale dependencies, missing ownership, and follow-up tasks under software topics or research_plan/ as appropriate.",
+            },
+        ],
+    },
     "weekly_exec_brief": {
         "id": "weekly_exec_brief",
         "description": "Prepare a concise weekly executive brief from reviewed company-brain evidence.",
@@ -543,6 +619,10 @@ PACK_WORKFLOW_TEMPLATE_ALIASES: dict[str, str] = {
     "build_sota_report": "weekly_research_review",
     "register_experiment": "rag_refresh",
     "daily_refresh": "company_profile_refresh",
+    "map_codebase": "map_codebase",
+    "sync_recent_changes": "sync_recent_changes",
+    "capture_architecture_decision": "capture_architecture_decision",
+    "dependency_review": "dependency_review",
 }
 
 
@@ -572,6 +652,38 @@ _STOPWORDS = {
     "who",
     "why",
 }
+
+_REPO_LANGUAGE_BY_SUFFIX = {
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".rb": "ruby",
+    ".php": "php",
+    ".c": "c",
+    ".cc": "cpp",
+    ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".sh": "shell",
+    ".sql": "sql",
+}
+
+_JS_TS_SYMBOL_RE = re.compile(
+    r"(?m)^(?:export\s+)?(?:(async)\s+)?(function|class|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+_JS_TS_IMPORT_RE = re.compile(
+    r'(?m)^\s*import\s+(?:[^"\n]+?\s+from\s+)?["\']([^"\']+)["\'];?'
+)
 
 WIKI_RICH_ARTIFACTS: list[dict[str, Any]] = [
     {
@@ -729,6 +841,86 @@ class KnowledgeRuntime:
 
     def _permission_policy(self) -> PermissionPolicy:
         return PermissionPolicy(self.project_path)
+
+    def _permission_blocked_result(
+        self,
+        *,
+        action: str,
+        target: str,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._permission_policy().audit(action, target, "denied", reason, metadata=metadata)
+        return {
+            "status": "blocked",
+            "permission": "denied",
+            "action": action,
+            "target": target,
+            "reason": reason,
+            "message": f"{action.replace('_', ' ')} denied for {target}: {reason}",
+        }
+
+    def _authorize_write_target(
+        self,
+        rel_path: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+        action: str = "write",
+    ) -> dict[str, Any] | None:
+        policy = self._permission_policy()
+        permission_metadata = policy.metadata_for_path(rel_path, metadata)
+        allowed, reason = policy.can_write(rel_path, permission_metadata)
+        if not allowed:
+            return self._permission_blocked_result(
+                action=action,
+                target=rel_path,
+                reason=reason,
+                metadata=permission_metadata,
+            )
+        if permission_metadata.get("sensitivity"):
+            policy.audit(action, rel_path, "allowed", reason, metadata=permission_metadata)
+        return None
+
+    def _authorize_workflow_action(
+        self,
+        workflow_id: str,
+        *,
+        spec: dict[str, Any] | None = None,
+        validation_path: str | None = None,
+        action: str = "execute",
+    ) -> dict[str, Any] | None:
+        policy = self._permission_policy()
+        permission_metadata = spec.get("permissions") if isinstance(spec, dict) and isinstance(spec.get("permissions"), dict) else {}
+        if validation_path:
+            permission_metadata = policy.metadata_for_path(validation_path, permission_metadata)
+        workflow_target = str(spec.get("id") or workflow_id) if isinstance(spec, dict) else workflow_id
+        if action == "dispatch_agent":
+            allowed, reason = policy.can_dispatch_agent(workflow_target, permission_metadata)
+        else:
+            allowed, reason = policy.can_execute(workflow_target, permission_metadata)
+        if not allowed:
+            blocked = self._permission_blocked_result(
+                action=action,
+                target=workflow_target,
+                reason=reason,
+                metadata=permission_metadata,
+            )
+            blocked["workflow"] = workflow_id
+            return blocked
+        if permission_metadata.get("sensitivity"):
+            policy.audit(action, workflow_target, "allowed", reason, metadata=permission_metadata)
+        return None
+
+    def _workflow_authorization_context(self, workflow_id: str) -> tuple[dict[str, Any] | None, str | None]:
+        try:
+            shown = self.workflow_show(workflow_id, validate=False)
+        except Exception:
+            return None, None
+        workflow = shown.get("workflow")
+        if not isinstance(workflow, dict):
+            return None, None
+        path = shown.get("path")
+        return workflow, path if isinstance(path, str) else None
 
     def _iter_docs(self) -> list[Path]:
         ignored_parts = {".git", ".krail", ".rail", "__pycache__", ".pytest_cache", ".venv"}
@@ -1899,6 +2091,11 @@ class KnowledgeRuntime:
         today = _dt.date.today().isoformat()
         digest = hashlib.sha1(body.encode("utf-8")).hexdigest()[:10]
         path = self.project_path / "topics" / "inbox" / f"{today}-{digest}.md"
+        rel_path = path.relative_to(self.project_path).as_posix()
+        denied = self._authorize_write_target(rel_path)
+        if denied:
+            denied["type"] = kind
+            return denied
         path.parent.mkdir(parents=True, exist_ok=True)
         header = [
             "---",
@@ -2011,6 +2208,7 @@ class KnowledgeRuntime:
         sources: list[str] | None = None,
         entities: list[str] | None = None,
         entity_type: str | None = None,
+        _skip_authorization: bool = False,
     ) -> dict[str, Any]:
         topic_slug = self._slug(topic, fallback="topic")
         target = self.project_path / "topics" / f"{topic_slug}.md"
@@ -2020,6 +2218,12 @@ class KnowledgeRuntime:
         created = not target.exists()
         if target.exists():
             existing_metadata, existing_body = self._split_markdown_frontmatter(target.read_text(encoding="utf-8"))
+        rel_target = target.relative_to(self.project_path).as_posix()
+        if not _skip_authorization:
+            denied = self._authorize_write_target(rel_target, metadata=existing_metadata)
+            if denied:
+                denied["topic"] = topic_slug
+                return denied
 
         metadata = {
             **existing_metadata,
@@ -2092,6 +2296,23 @@ class KnowledgeRuntime:
             raise FileNotFoundError(f"capture not found: {capture_path}")
         metadata, body = self._split_markdown_frontmatter(source.read_text(encoding="utf-8"))
         rel_source = source.relative_to(self.project_path).as_posix()
+        denied = self._authorize_write_target(rel_source, metadata=metadata, action="promote")
+        if denied:
+            denied["capture"] = rel_source
+            return denied
+        topic_slug = self._slug(topic, fallback="topic")
+        target = self.project_path / "topics" / f"{topic_slug}.md"
+        target_metadata: dict[str, Any] = {}
+        if target.exists():
+            target_metadata, _ = self._split_markdown_frontmatter(target.read_text(encoding="utf-8"))
+        target_denied = self._authorize_write_target(
+            target.relative_to(self.project_path).as_posix(),
+            metadata=target_metadata,
+        )
+        if target_denied:
+            target_denied["capture"] = rel_source
+            target_denied["topic"] = topic_slug
+            return target_denied
         promoted = self.topic_upsert(
             topic,
             title=title,
@@ -2101,6 +2322,7 @@ class KnowledgeRuntime:
             sources=[metadata.get("url")] if metadata.get("url") else None,
             entities=entities or self._ensure_list_of_strings(metadata.get("entities")),
             entity_type=entity_type,
+            _skip_authorization=True,
         )
         metadata["triage_status"] = "promoted"
         metadata["promoted_to"] = promoted["path"]
@@ -3062,16 +3284,120 @@ boot();
     def sources_affected(self, *, source_ids: list[str] | None = None) -> dict[str, Any]:
         return affected_documents(self.project_path, source_ids=source_ids)
 
-    def repo_inspect(self, path_or_url: str) -> dict[str, Any]:
+    def _repo_state_file(self, filename: str) -> Path:
+        path = self.project_path / "research_plan" / "state" / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _write_repo_state_record(self, filename: str, repo_key: str, payload: dict[str, Any]) -> None:
+        path = self._repo_state_file(filename)
+        if path.exists():
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                state = {}
+        else:
+            state = {}
+        if not isinstance(state, dict):
+            state = {}
+        repos = state.get("repos")
+        if not isinstance(repos, dict):
+            repos = {}
+        repos[repo_key] = payload
+        state["repos"] = repos
+        state["updated_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+        path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+    def _resolve_repo_target(self, path_or_url: str) -> tuple[Path, str]:
         target = Path(path_or_url)
         if not target.is_absolute():
             target = self.project_path / target
+        return target.resolve(), path_or_url
+
+    def _repo_key(self, target: Path) -> str:
+        try:
+            return str(target.relative_to(self.project_path))
+        except ValueError:
+            return str(target)
+
+    def _repo_git(self, target: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], cwd=target, capture_output=True, text=True)
+
+    def _repo_walk(self, target: Path) -> list[Path]:
+        ignored_dirs = {".git", ".krail", ".rail", "__pycache__", ".pytest_cache", ".venv", "node_modules", "dist", "build"}
+        files: list[Path] = []
+        for path in target.rglob("*"):
+            if not path.is_file():
+                continue
+            if any(part in ignored_dirs for part in path.parts):
+                continue
+            files.append(path)
+        return files
+
+    def repo_snapshot(self, path_or_url: str = ".", *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
         if not target.exists():
-            return {
+            payload = {
                 "status": "remote_or_missing",
-                "target": path_or_url,
+                "target": raw_target,
                 "message": "clone/update is not implemented yet; pass a local repo path for inspection",
             }
+            return payload
+        payload: dict[str, Any] = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "exists": True,
+            "is_git": False,
+            "git_root": None,
+            "branch": None,
+            "head": None,
+            "dirty": False,
+            "tracked_changes": [],
+            "untracked_files": [],
+            "changed_files": [],
+        }
+        git_dir = self._repo_git(target, "rev-parse", "--git-dir")
+        if git_dir.returncode == 0:
+            payload["is_git"] = True
+            git_root = self._repo_git(target, "rev-parse", "--show-toplevel")
+            branch = self._repo_git(target, "rev-parse", "--abbrev-ref", "HEAD")
+            head = self._repo_git(target, "rev-parse", "HEAD")
+            status = self._repo_git(target, "status", "--porcelain=v1", "--branch", "--", ".")
+            if git_root.returncode == 0:
+                payload["git_root"] = git_root.stdout.strip() or None
+            if branch.returncode == 0:
+                payload["branch"] = branch.stdout.strip() or None
+            if head.returncode == 0:
+                payload["head"] = head.stdout.strip() or None
+            tracked_changes: list[dict[str, str]] = []
+            untracked_files: list[str] = []
+            changed_files: list[str] = []
+            if status.returncode == 0:
+                for line in status.stdout.splitlines():
+                    if line.startswith("##"):
+                        continue
+                    if len(line) < 4:
+                        continue
+                    code = line[:2]
+                    rel = line[3:]
+                    if " -> " in rel:
+                        rel = rel.split(" -> ", 1)[1]
+                    changed_files.append(rel)
+                    if code == "??":
+                        untracked_files.append(rel)
+                    else:
+                        tracked_changes.append({"path": rel, "status": code})
+            payload["tracked_changes"] = tracked_changes
+            payload["untracked_files"] = untracked_files
+            payload["changed_files"] = sorted(dict.fromkeys(changed_files))
+            payload["dirty"] = bool(changed_files)
+        if write:
+            self._write_repo_state_record("repo_snapshots.json", payload["repo_key"], payload)
+        return payload
+
+    def _repo_inspect_payload(self, target: Path) -> dict[str, Any]:
         markers = {
             "python": ["pyproject.toml", "requirements.txt", "setup.py"],
             "node": ["package.json", "pnpm-lock.yaml", "yarn.lock"],
@@ -3085,19 +3411,436 @@ boot();
         frameworks = [name for name, names in markers.items() if any(marker in files for marker in names)]
         endpoint_files = []
         if target.is_dir():
-            for path in list(target.rglob("*.py"))[:200]:
+            for path in self._repo_walk(target)[:500]:
                 try:
                     text = path.read_text(encoding="utf-8", errors="replace")
                 except Exception:
                     continue
-                if "@app." in text or "@router." in text:
-                    endpoint_files.append(str(path.relative_to(target)))
+                suffix = path.suffix.lower()
+                rel = str(path.relative_to(target))
+                if suffix == ".py" and ("@app." in text or "@router." in text or "APIRouter(" in text):
+                    endpoint_files.append(rel)
+                elif suffix in {".js", ".jsx", ".ts", ".tsx"} and ("router." in text or "app.get(" in text or "app.post(" in text or "createRouter(" in text):
+                    endpoint_files.append(rel)
         return {
-            "status": "inspected",
-            "target": str(target),
             "frameworks": frameworks,
             "manifests": sorted(files & marker_names),
             "endpoint_files": endpoint_files[:50],
+        }
+
+    def repo_inspect(self, path_or_url: str, *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            payload = {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+            return payload
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            **self._repo_inspect_payload(target),
+        }
+        if write:
+            self._write_repo_state_record("repo_inspection.json", payload["repo_key"], payload)
+        return payload
+
+    def repo_inventory(self, path_or_url: str = ".", *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        snapshot = self.repo_snapshot(path_or_url, write=False)
+        inspect = self.repo_inspect(path_or_url, write=False)
+        files = self._repo_walk(target)
+        language_counts: dict[str, int] = {}
+        top_level_paths = sorted(item.name for item in target.iterdir())[:50] if target.is_dir() else []
+        docs_dirs = sorted(
+            str(path.relative_to(target))
+            for path in target.rglob("*")
+            if path.is_dir() and path.name.lower() in {"docs", "doc", "adr", "adrs"}
+        )[:50]
+        test_dirs = sorted(
+            str(path.relative_to(target))
+            for path in target.rglob("*")
+            if path.is_dir() and path.name.lower() in {"tests", "test", "__tests__"}
+        )[:50]
+        ci_files = sorted(
+            str(path.relative_to(target))
+            for path in target.glob(".github/workflows/*")
+            if path.is_file()
+        )[:50]
+        for path in files:
+            language = _REPO_LANGUAGE_BY_SUFFIX.get(path.suffix.lower())
+            if language:
+                language_counts[language] = language_counts.get(language, 0) + 1
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "snapshot": snapshot,
+            "frameworks": inspect.get("frameworks", []),
+            "manifests": inspect.get("manifests", []),
+            "endpoint_files": inspect.get("endpoint_files", []),
+            "file_count": len(files),
+            "dir_count": sum(1 for path in target.rglob("*") if path.is_dir()),
+            "languages": dict(sorted(language_counts.items())),
+            "top_level_paths": top_level_paths,
+            "docs_dirs": docs_dirs,
+            "test_dirs": test_dirs,
+            "ci_files": ci_files,
+        }
+        if write:
+            self._write_repo_state_record("repo_inventory.json", payload["repo_key"], payload)
+        return payload
+
+    def repo_owners(self, path_or_url: str = ".", *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        owner_paths = [target / ".github" / "CODEOWNERS", target / "CODEOWNERS", target / "docs" / "CODEOWNERS"]
+        entries: list[dict[str, Any]] = []
+        found_path: str | None = None
+        for path in owner_paths:
+            if not path.exists():
+                continue
+            found_path = str(path.relative_to(target))
+            for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                entries.append({"pattern": parts[0], "owners": parts[1:], "line": line_number})
+            break
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "codeowners_path": found_path,
+            "entries": entries,
+            "owner_count": len(entries),
+        }
+        if write:
+            self._write_repo_state_record("repo_owners.json", payload["repo_key"], payload)
+        return payload
+
+    def repo_dependencies(self, path_or_url: str = ".", *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        ecosystems: list[dict[str, Any]] = []
+        pyproject = target / "pyproject.toml"
+        if pyproject.exists():
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            project_data = data.get("project") if isinstance(data.get("project"), dict) else {}
+            deps = list(project_data.get("dependencies") or [])
+            optional = project_data.get("optional-dependencies") if isinstance(project_data.get("optional-dependencies"), dict) else {}
+            optional_groups = {name: list(values) for name, values in optional.items() if isinstance(values, list)}
+            ecosystems.append({"ecosystem": "python", "path": "pyproject.toml", "dependencies": deps, "optional_groups": optional_groups})
+        requirements = []
+        for req_path in sorted(target.glob("requirements*.txt")):
+            lines = []
+            for raw_line in req_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or line.startswith("-r "):
+                    continue
+                lines.append(line)
+            requirements.append({"path": str(req_path.relative_to(target)), "dependencies": lines})
+        if requirements:
+            ecosystems.append({"ecosystem": "python_requirements", "files": requirements})
+        package_json = target / "package.json"
+        if package_json.exists():
+            data = json.loads(package_json.read_text(encoding="utf-8"))
+            node_groups = {}
+            for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]:
+                if isinstance(data.get(key), dict):
+                    node_groups[key] = data[key]
+            ecosystems.append({"ecosystem": "node", "path": "package.json", "groups": node_groups})
+        go_mod = target / "go.mod"
+        if go_mod.exists():
+            go_dependencies: list[str] = []
+            in_block = False
+            for raw_line in go_mod.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if line.startswith("require ("):
+                    in_block = True
+                    continue
+                if in_block and line == ")":
+                    in_block = False
+                    continue
+                if line.startswith("require "):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        go_dependencies.append(parts[1])
+                elif in_block and line and not line.startswith("//"):
+                    parts = line.split()
+                    if parts:
+                        go_dependencies.append(parts[0])
+            ecosystems.append({"ecosystem": "go", "path": "go.mod", "dependencies": go_dependencies})
+        cargo_toml = target / "Cargo.toml"
+        if cargo_toml.exists():
+            data = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
+            cargo_groups = {}
+            for key in ["dependencies", "dev-dependencies", "build-dependencies"]:
+                if isinstance(data.get(key), dict):
+                    cargo_groups[key] = sorted(data[key].keys())
+            ecosystems.append({"ecosystem": "rust", "path": "Cargo.toml", "groups": cargo_groups})
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "ecosystems": ecosystems,
+        }
+        if write:
+            self._write_repo_state_record("repo_dependencies.json", payload["repo_key"], payload)
+        return payload
+
+    def _python_symbols_for_file(self, path: Path, *, target: Path) -> dict[str, Any]:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(text, filename=str(path))
+        symbols: list[dict[str, Any]] = []
+        imports: list[str] = []
+        route_decorators: list[dict[str, Any]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module:
+                    imports.append(module)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                decorators = []
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute):
+                        attr = decorator.func.attr
+                        base = decorator.func.value.id if isinstance(decorator.func.value, ast.Name) else None
+                        decorators.append(f"{base}.{attr}" if base else attr)
+                        if base in {"app", "router"} and attr.lower() in {"get", "post", "put", "delete", "patch"}:
+                            route_path = None
+                            if decorator.args and isinstance(decorator.args[0], ast.Constant):
+                                route_path = decorator.args[0].value
+                            route_decorators.append(
+                                {
+                                    "name": node.name,
+                                    "method": attr.upper(),
+                                    "path": route_path,
+                                    "line": getattr(node, "lineno", None),
+                                }
+                            )
+                    elif isinstance(decorator, ast.Name):
+                        decorators.append(decorator.id)
+                symbols.append(
+                    {
+                        "name": node.name,
+                        "kind": "function",
+                        "line": getattr(node, "lineno", None),
+                        "async": isinstance(node, ast.AsyncFunctionDef),
+                        "decorators": decorators,
+                    }
+                )
+            elif isinstance(node, ast.ClassDef):
+                bases = []
+                for base in node.bases:
+                    if isinstance(base, ast.Name):
+                        bases.append(base.id)
+                    elif isinstance(base, ast.Attribute):
+                        bases.append(base.attr)
+                symbols.append(
+                    {
+                        "name": node.name,
+                        "kind": "class",
+                        "line": getattr(node, "lineno", None),
+                        "bases": bases,
+                    }
+                )
+        return {
+            "path": str(path.relative_to(target)),
+            "language": "python",
+            "symbol_count": len(symbols),
+            "symbols": symbols,
+            "imports": sorted(dict.fromkeys(imports)),
+            "routes": route_decorators,
+        }
+
+    def _js_ts_symbols_for_file(self, path: Path, *, target: Path, language: str) -> dict[str, Any]:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        symbols: list[dict[str, Any]] = []
+        for match in _JS_TS_SYMBOL_RE.finditer(text):
+            async_kw, kind, name = match.groups()
+            actual_kind = "function" if kind in {"const", "let", "var"} else kind
+            symbols.append(
+                {
+                    "name": name,
+                    "kind": actual_kind,
+                    "line": text[: match.start()].count("\n") + 1,
+                    "async": bool(async_kw),
+                }
+            )
+        imports = [match.group(1) for match in _JS_TS_IMPORT_RE.finditer(text)]
+        routes: list[dict[str, Any]] = []
+        for route_match in re.finditer(r'(?:app|router)\.(get|post|put|delete|patch)\(["\']([^"\']+)["\']', text):
+            routes.append(
+                {
+                    "method": route_match.group(1).upper(),
+                    "path": route_match.group(2),
+                    "line": text[: route_match.start()].count("\n") + 1,
+                }
+            )
+        return {
+            "path": str(path.relative_to(target)),
+            "language": language,
+            "symbol_count": len(symbols),
+            "symbols": symbols,
+            "imports": imports,
+            "routes": routes,
+        }
+
+    def repo_symbols(self, path_or_url: str = ".", *, languages: list[str] | None = None, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        selected_languages = {item.lower() for item in languages or []}
+        files = self._repo_walk(target)
+        extracted_files: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
+        total_symbols = 0
+        for path in files:
+            language = _REPO_LANGUAGE_BY_SUFFIX.get(path.suffix.lower())
+            if language not in {"python", "typescript", "javascript"}:
+                continue
+            if selected_languages and language not in selected_languages:
+                continue
+            try:
+                if language == "python":
+                    record = self._python_symbols_for_file(path, target=target)
+                else:
+                    record = self._js_ts_symbols_for_file(path, target=target, language=language)
+            except Exception:
+                continue
+            extracted_files.append(record)
+            counts[language] = counts.get(language, 0) + record["symbol_count"]
+            total_symbols += record["symbol_count"]
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "languages": sorted(selected_languages) if selected_languages else ["javascript", "python", "typescript"],
+            "files": extracted_files,
+            "counts": {"files": len(extracted_files), "symbols": total_symbols, "by_language": counts},
+        }
+        if write:
+            self._write_repo_state_record("repo_symbols.json", payload["repo_key"], payload)
+        return payload
+
+    def repo_changed(self, path_or_url: str = ".", *, base_ref: str | None = None, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        snapshot = self.repo_snapshot(path_or_url, write=False)
+        if not snapshot.get("is_git"):
+            return {
+                "status": "not_git",
+                "target": str(target),
+                "repo_key": self._repo_key(target),
+                "message": "target is not a git repository",
+                "snapshot": snapshot,
+            }
+        range_changes: list[dict[str, str]] = []
+        if base_ref:
+            diff = self._repo_git(target, "diff", "--name-status", f"{base_ref}...HEAD", "--", ".")
+            if diff.returncode != 0:
+                return {
+                    "status": "invalid_base_ref",
+                    "target": str(target),
+                    "repo_key": self._repo_key(target),
+                    "message": diff.stderr.strip() or f"could not diff against {base_ref}",
+                    "snapshot": snapshot,
+                }
+            for line in diff.stdout.splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                if not parts:
+                    continue
+                range_changes.append({"status": parts[0], "path": parts[-1]})
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
+            "base_ref": base_ref,
+            "snapshot": snapshot,
+            "working_tree": {
+                "dirty": snapshot.get("dirty", False),
+                "tracked_changes": snapshot.get("tracked_changes", []),
+                "untracked_files": snapshot.get("untracked_files", []),
+                "changed_files": snapshot.get("changed_files", []),
+            },
+            "range_changes": range_changes,
+        }
+        payload["fingerprint"] = "sha256:" + hashlib.sha256(
+            json.dumps(
+                {
+                    "head": snapshot.get("head"),
+                    "branch": snapshot.get("branch"),
+                    "base_ref": base_ref,
+                    "changed_files": payload["working_tree"]["changed_files"],
+                    "range_changes": range_changes,
+                },
+                sort_keys=True,
+            )
+            .encode("utf-8")
+        ).hexdigest()
+        if write:
+            self._write_repo_state_record("repo_changes.json", payload["repo_key"], payload)
+        return payload
+
+    def repo_inspect(self, path_or_url: str, *, write: bool = True) -> dict[str, Any]:
+        target, raw_target = self._resolve_repo_target(path_or_url)
+        if not target.exists():
+            return {
+                "status": "remote_or_missing",
+                "target": raw_target,
+                "message": "clone/update is not implemented yet; pass a local repo path for inspection",
+            }
+        payload = {
+            "status": "inspected",
+            "target": str(target),
+            "repo_key": self._repo_key(target),
+            **self._repo_inspect_payload(target),
+        }
+        if write:
+            self._write_repo_state_record("repo_inspection.json", payload["repo_key"], payload)
+        return {
+            **payload,
         }
 
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict[str, Any]:
@@ -3458,6 +4201,21 @@ krail --local graph check
         task_path, task = self._load_task(task_id)
         if runner:
             task["runner"] = runner
+        workflow_id = task.get("workflow")
+        if isinstance(workflow_id, str) and workflow_id:
+            workflow_spec, validation_path = self._workflow_authorization_context(workflow_id)
+            denied = self._authorize_workflow_action(
+                workflow_id,
+                spec=workflow_spec,
+                validation_path=validation_path,
+                action="dispatch_agent",
+            )
+            if denied:
+                task["status"] = "blocked"
+                task["blocker"] = denied["message"]
+                self._write_task(task_path, task)
+                denied["task_id"] = task["id"]
+                return denied
         work_order_result = self.create_work_order(task["id"])
         work_order = work_order_result["work_order"]
         session_id = f"session_{task['id']}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
@@ -5457,11 +6215,14 @@ krail --local graph check
         validation = self._validate_workflow_spec(spec, path=validation_path)
         if not validation["ok"]:
             return {"status": "invalid", "workflow": workflow_id, "validation": validation}
-        permission_metadata = spec.get("permissions") if isinstance(spec.get("permissions"), dict) else {}
-        allowed, reason = self._permission_policy().can_execute(str(spec.get("id") or workflow_id), permission_metadata)
-        if not allowed:
-            self._permission_policy().audit("execute", str(spec.get("id") or workflow_id), "denied", reason, metadata=permission_metadata)
-            return {"status": "blocked", "workflow": workflow_id, "reason": reason, "permission": "denied"}
+        denied = self._authorize_workflow_action(
+            workflow_id,
+            spec=spec,
+            validation_path=validation_path,
+            action="execute",
+        )
+        if denied:
+            return denied
         steps = spec.get("steps") or []
         if not isinstance(steps, list) or not steps:
             raise ValueError(f"Workflow {workflow_id!r} must define a non-empty steps list")
@@ -5591,9 +6352,19 @@ krail --local graph check
         if not isinstance(spec, dict):
             raise ValueError("workflow snapshot must be a mapping")
         workflow_name = str(spec.get("id") or state.get("workflow") or run_id)
-        validation = self._validate_workflow_spec(spec, path=str((run_dir / "workflow.yaml").relative_to(self.project_path)))
+        validation_path = str((run_dir / "workflow.yaml").relative_to(self.project_path))
+        validation = self._validate_workflow_spec(spec, path=validation_path)
         if not validation["ok"]:
             return {"status": "invalid", "run_id": run_id, "validation": validation}
+        denied = self._authorize_workflow_action(
+            workflow_name,
+            spec=spec,
+            validation_path=validation_path,
+            action="execute",
+        )
+        if denied:
+            denied["run_id"] = run_id
+            return denied
         result_path = run_dir / "result.json"
         previous_payload = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
         previous_results = previous_payload.get("steps") if isinstance(previous_payload.get("steps"), list) else []
@@ -5685,7 +6456,21 @@ krail --local graph check
             "Inspect current captures, sources, and integrity records; then create or update repo-backed outputs. "
             "If the workflow cannot be completed, record blockers and missing evidence."
         )
-        task = self.create_task(title, description=description, runner=runner, workflow=workflow_id, role="research")["task"]
+        created = self.create_task(title, description=description, runner=runner, workflow=workflow_id, role="research")
+        task = created["task"]
+        workflow_spec, validation_path = self._workflow_authorization_context(workflow_id)
+        denied = self._authorize_workflow_action(
+            workflow_id,
+            spec=workflow_spec,
+            validation_path=validation_path,
+            action="dispatch_agent",
+        )
+        if denied:
+            task["status"] = "blocked"
+            task["blocker"] = denied["message"]
+            self._write_task(self.project_path / str(created["path"]), task)
+            denied["task_id"] = task["id"]
+            return denied
         if dry_run:
             return {"status": "created", "task": task, "dry_run": True}
         dispatch = self.dispatch_task(task["id"], runner=runner)

@@ -14,6 +14,13 @@ from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import KnowledgeRuntime
 
 
+def _set_permissions_rules(root: Path, rules: list[dict]) -> None:
+    manifest_path = root / "rail.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    manifest["permissions"] = {"rules": rules}
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+
 def test_krail_agent_scaffold_and_prompt(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)
@@ -46,6 +53,82 @@ def test_workflow_init_show_and_dry_run(tmp_path: Path):
     assert len(dry_run["steps"]) == 4
     assert dry_run["duration_seconds"] >= 0
     assert (root / dry_run["path"] / "result.json").exists()
+
+
+def test_software_workflow_templates_are_materialized_with_repo_steps(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Software Project", slug="software-project", knowledge_mode="software")
+    runtime = KnowledgeRuntime(root)
+
+    initialized = runtime.workflow_init("map_codebase", force=True)
+    shown = runtime.workflow_show("map_codebase")
+    listed = runtime.workflow_list()
+
+    commands = [step.get("run") for step in shown["workflow"]["steps"] if step.get("kind") == "command"]
+
+    assert initialized["template"] == "map_codebase"
+    assert shown["workflow"]["id"] == "map_codebase"
+    assert "krail --local repo snapshot ." in commands
+    assert "krail --local repo inventory ." in commands
+    assert "krail --local repo symbols ." in commands
+    assert "sync_recent_changes" in listed["mode_workflows"]
+
+
+def test_capture_denial_is_blocked_and_audited(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    _set_permissions_rules(root, [{"path": "topics/inbox/*.md", "allowed_roles": ["triager"]}])
+
+    result = KnowledgeRuntime(root).capture(text="restricted note")
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["action"] == "write"
+    assert result["reason"] == "allowlist_not_matched"
+    assert result["target"].startswith("topics/inbox/")
+    assert not (root / "topics" / "inbox").exists()
+    audit = [json.loads(line) for line in (root / "research_plan" / "audit" / "access.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert audit[-1]["action"] == "write"
+    assert audit[-1]["decision"] == "denied"
+    assert audit[-1]["target"] == result["target"]
+
+
+def test_topic_upsert_denial_is_blocked_and_preserves_existing_file(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    topic_path = root / "topics" / "restricted.md"
+    topic_path.write_text(
+        "---\n"
+        "allowed_roles:\n"
+        "  - reviewer\n"
+        "---\n\n"
+        "# Restricted\n\nOriginal content.\n",
+        encoding="utf-8",
+    )
+
+    result = KnowledgeRuntime(root).topic_upsert("restricted", content="new content")
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["target"] == "topics/restricted.md"
+    assert "new content" not in topic_path.read_text(encoding="utf-8")
+    audit = [json.loads(line) for line in (root / "research_plan" / "audit" / "access.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert audit[-1]["action"] == "write"
+    assert audit[-1]["target"] == "topics/restricted.md"
+
+
+def test_inbox_promote_denial_blocks_target_write_without_partial_updates(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    _set_permissions_rules(root, [{"path": "topics/restricted-topic.md", "allowed_roles": ["reviewer"]}])
+    capture = root / "topics" / "inbox" / "capture.md"
+    capture.parent.mkdir(parents=True, exist_ok=True)
+    capture.write_text("---\ntitle: Capture\n---\n\nCaptured body.\n", encoding="utf-8")
+
+    result = KnowledgeRuntime(root).inbox_promote("topics/inbox/capture.md", topic="restricted-topic")
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["target"] == "topics/restricted-topic.md"
+    promoted_capture = capture.read_text(encoding="utf-8")
+    assert "triage_status" not in promoted_capture
+    assert not (root / "topics" / "restricted-topic.md").exists()
 
 
 def test_workflow_validate_rejects_bad_specs(tmp_path: Path):
@@ -100,6 +183,91 @@ def test_workflow_execute_command_steps(tmp_path: Path):
     assert runs["runs"][0]["run_id"] == result["run_id"]
     status = runtime.workflow_status(result["run_id"])
     assert status["status"] == "done"
+
+
+def test_workflow_execute_dry_run_denial_is_blocked_and_audited(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "restricted.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "restricted",
+                "permissions": {"allowed_roles": ["reviewer"]},
+                "steps": [{"id": "noop", "kind": "command", "run": "true"}],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_execute("restricted", dry_run=True)
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["action"] == "execute"
+    assert result["workflow"] == "restricted"
+    audit = [json.loads(line) for line in (root / "research_plan" / "audit" / "access.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert audit[-1]["action"] == "execute"
+    assert audit[-1]["decision"] == "denied"
+    assert audit[-1]["target"] == "restricted"
+
+
+def test_dispatch_task_denial_blocks_workflow_agent_launch(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "restricted.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "restricted",
+                "permissions": {"allowed_roles": ["reviewer"]},
+                "steps": [{"id": "noop", "kind": "command", "run": "true"}],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    created = runtime.create_task("Restricted Workflow", workflow="restricted")
+    result = runtime.dispatch_task(created["task"]["id"], dry_run=True)
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["action"] == "dispatch_agent"
+    assert result["workflow"] == "restricted"
+    task = json.loads((root / created["path"]).read_text(encoding="utf-8"))
+    assert task["status"] == "blocked"
+    assert "dispatch agent denied" in task["blocker"]
+
+
+def test_dispatch_task_honors_dispatch_specific_denials(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "dispatch-locked.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "dispatch_locked",
+                "permissions": {"deny_actions": ["dispatch_agent"]},
+                "steps": [{"id": "noop", "kind": "command", "run": "true"}],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    created = runtime.create_task("Dispatch Locked Workflow", workflow="dispatch-locked")
+    result = runtime.dispatch_task(created["task"]["id"], dry_run=True)
+
+    assert result["status"] == "blocked"
+    assert result["permission"] == "denied"
+    assert result["action"] == "dispatch_agent"
+    assert result["workflow"] == "dispatch-locked"
+    assert result["reason"] == "action_denied:dispatch_agent"
 
 
 def test_workflow_execute_continue_failure_policy(tmp_path: Path):
@@ -399,6 +567,44 @@ def test_workflow_approval_rejection_fails_on_resume(tmp_path: Path, monkeypatch
     assert resumed["status"] == "failed"
     assert resumed["failed_step"] == "approval"
     assert resumed["steps"][1]["decision"] == "rejected"
+
+
+def test_workflow_resume_rechecks_permissions(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("KRAIL_ROLES", "reviewer")
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "restricted-resume.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "restricted_resume",
+                "permissions": {"allowed_roles": ["reviewer"]},
+                "steps": [
+                    {"id": "prepare", "kind": "command", "run": "true"},
+                    {
+                        "id": "approval",
+                        "kind": "approval",
+                        "prevent_self_approval": False,
+                        "subject": {"step": "prepare"},
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    paused = runtime.workflow_execute("restricted-resume")
+    monkeypatch.delenv("KRAIL_ROLES", raising=False)
+    blocked = runtime.workflow_resume(paused["run_id"])
+
+    assert paused["status"] == "awaiting_approval"
+    assert blocked["status"] == "blocked"
+    assert blocked["permission"] == "denied"
+    assert blocked["action"] == "execute"
+    assert blocked["workflow"] == "restricted_resume"
+    assert blocked["run_id"] == paused["run_id"]
 
 
 def test_workflow_step_runs_child_and_exposes_outputs(tmp_path: Path):

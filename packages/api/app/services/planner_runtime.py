@@ -721,6 +721,7 @@ async def _execute_planner_tool_inner(project: dict[str, Any], name: str, args: 
             work_order_id=f"wo-{task['_id']}",
             required_capabilities=tmp_wo.capabilities_required,
             task_type=tmp_wo.task_type,
+            capability_envelope=tmp_wo.capability_envelope,
             explicit_runner=args.get("runner") or task.get("runner"),
             project=project,
         )

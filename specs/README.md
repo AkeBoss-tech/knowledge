@@ -16,3 +16,8 @@ The first new implemented spec is the local brain UX skeleton:
 - `agent`: lists and launches local CLI agents as workers
 - `task`: creates repo-backed task and work-order records
 - `workflow`: turns active-pack workflow IDs into auditable tasks
+
+Current implementation planning specs:
+
+- `permissions-implementation-plan.md`
+- `permission-work-orders/`

@@ -43,7 +43,7 @@ from app.services.decision_service import raise_decision_event
 from app.services import hydration_registry_service, project_artifacts_service
 from app.services.integrity_service import evaluate_integrity_gate, summarize_agent_workflow_health
 from app.services.repo_contract_service import infer_github_repo
-from app.services.role_runtime_service import load_role_runtime_config
+from app.services.role_runtime_service import load_role_runtime_config, resolve_role_runtime_scope
 from app.services.safe_publish_service import (
     is_repo_publish_path_allowed,
     publish_repo_files,
@@ -2682,10 +2682,25 @@ async def create_runner_session(
                     f"{active_role} session {active_session['_id']} is still active"
                 )
             raise RuntimeError(str(lane_state.get("reason") or "Execution lane blocked."))
+    explicit_allowed_paths = list(allowed_paths or [])
+    explicit_denied_paths: list[str] = []
+    explicit_allowed_tools: list[str] = []
+    explicit_denied_tools: list[str] = []
+    explicit_allowed_secret_names: list[str] = []
+
     if project:
         role_config = None
         try:
             role_config = load_role_runtime_config(project, role)
+            runner_scope = resolve_role_runtime_scope(
+                role_config,
+                requested_write_paths=allowed_paths,
+            )
+            explicit_allowed_paths = runner_scope.allowed_paths
+            explicit_denied_paths = runner_scope.denied_paths
+            explicit_allowed_tools = runner_scope.allowed_tools
+            explicit_denied_tools = runner_scope.denied_tools
+            explicit_allowed_secret_names = runner_scope.allowed_secrets
             integrity_gate = evaluate_integrity_gate(
                 role_config.project_root,
                 role_config.manifest,
@@ -2694,7 +2709,7 @@ async def create_runner_session(
             decision = evaluate_autonomy_policy(
                 role_config.manifest,
                 action=activity_key_for_role(role_config.role),
-                write_capable=bool(allowed_paths or role_config.policy.paths.write),
+                write_capable=bool(explicit_allowed_paths or role_config.policy.paths.write),
                 integrity_blocked=integrity_gate["blocked"],
             )
         except ValueError as exc:
@@ -2837,8 +2852,12 @@ async def create_runner_session(
         branch=branch,
         local_repo_path=str(workspace_root),
         task_description=task_description,
-        allowed_paths=allowed_paths or [],
+        allowed_paths=explicit_allowed_paths,
+        denied_paths=explicit_denied_paths,
+        allowed_tools=explicit_allowed_tools,
+        denied_tools=explicit_denied_tools,
         allowed_secrets=allowed_secrets,
+        allowed_secret_names=explicit_allowed_secret_names or list(allowed_secrets.keys()),
         acceptance_criteria=acceptance_criteria or [],
         project_context=project_context,
         session_root=str(session_root),
@@ -2894,7 +2913,11 @@ async def create_runner_session(
                 "local_repo_path": task_payload.local_repo_path,
                 "task_description": task_payload.task_description,
                 "allowed_paths": task_payload.allowed_paths,
+                "denied_paths": task_payload.denied_paths,
+                "allowed_tools": task_payload.allowed_tools,
+                "denied_tools": task_payload.denied_tools,
                 "allowed_secrets": task_payload.allowed_secrets,
+                "allowed_secret_names": task_payload.allowed_secret_names,
                 "acceptance_criteria": task_payload.acceptance_criteria,
                 "project_context": task_payload.project_context,
                 "session_root": task_payload.session_root,

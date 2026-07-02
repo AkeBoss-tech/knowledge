@@ -7,7 +7,7 @@ from typing import Any
 
 from rail.manifest import load_manifest
 
-from app.services.policy_resolver import RuntimePolicy, resolve_role_policy
+from app.services.policy_resolver import RunnerScope, RuntimePolicy, resolve_role_policy, resolve_runner_scope
 from app.services.yaml_service import load_agent_prompts, parse
 
 
@@ -186,6 +186,9 @@ def summarize_role_config(config: RoleRuntimeConfig) -> dict[str, Any]:
             "allow": config.policy.tools.allow,
             "deny": config.policy.tools.deny,
         },
+        "secrets": {
+            "allow": config.policy.secrets.allow,
+        },
         "skills": {
             "allow_use": config.policy.skills.allow_use,
         },
@@ -197,6 +200,19 @@ def summarize_role_config(config: RoleRuntimeConfig) -> dict[str, Any]:
             "checklist": str(config.raw_config.get("prompts", {}).get("checklist") or ""),
         },
     }
+
+
+def resolve_role_runtime_scope(
+    config: RoleRuntimeConfig,
+    *,
+    requested_write_paths: list[str] | None = None,
+    requested_tools: list[str] | None = None,
+) -> RunnerScope:
+    return resolve_runner_scope(
+        config.policy,
+        requested_write_paths=requested_write_paths,
+        requested_tools=requested_tools,
+    )
 
 
 def read_project_skills(project: dict[str, Any]) -> list[dict[str, str]]:

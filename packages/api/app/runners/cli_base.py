@@ -359,16 +359,35 @@ class LocalCLIRunner(BaseRunner):
         from pathlib import Path
         
         workspace_root = Path(task_payload.local_repo_path) if task_payload.local_repo_path else Path(task_payload.session_root)
+        scope_env: dict[str, str] = {
+            "KRAIL_AGENT": task_payload.role,
+            "KRAIL_ROLES": task_payload.role,
+            "KRAIL_ACTOR": f"runner:{task_payload.role}",
+        }
+        if task_payload.allowed_paths:
+            scope_env["KRAIL_ALLOWED_WRITE_PATHS"] = json.dumps(task_payload.allowed_paths)
+        if task_payload.denied_paths:
+            scope_env["KRAIL_DENIED_PATHS"] = json.dumps(task_payload.denied_paths)
+        if task_payload.allowed_tools:
+            scope_env["KRAIL_ALLOWED_TOOLS"] = json.dumps(task_payload.allowed_tools)
+        if task_payload.denied_tools:
+            scope_env["KRAIL_DENIED_TOOLS"] = json.dumps(task_payload.denied_tools)
+        allowed_secret_names = task_payload.allowed_secret_names or list(task_payload.allowed_secrets.keys())
+        if allowed_secret_names:
+            scope_env["KRAIL_ALLOWED_SECRETS"] = json.dumps(allowed_secret_names)
         
         inject_mcp_config(
             workspace_root,
             project_slug=task_payload.project_slug,
             session_id=session_id,
             work_order_id=task_payload.work_order_id,
+            work_order_path=task_payload.work_order_path,
             local_mode=True, # default to local mode for CLI runners
+            extra_env=scope_env,
         )
 
         env = dict(task_payload.allowed_secrets)
+        env.update(scope_env)
         env["RAIL_PROJECT"] = task_payload.project_slug
         env["RAIL_SESSION_ID"] = session_id
         if task_payload.work_order_id:

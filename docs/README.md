@@ -18,3 +18,14 @@ Start here:
 - [Blog Post Draft](blog-post.md)
 - [GBrain Synthesis](gbrain-synthesis.md)
 - [Generated Project Hygiene](generated-project-hygiene.md)
+
+Implementation specs:
+
+- `../specs/permissions-implementation-plan.md`
+- `../specs/permission-work-orders/`
+
+Examples:
+
+- `examples/minimal-project/`
+- `examples/company-brain/`
+- `examples/software-map/`

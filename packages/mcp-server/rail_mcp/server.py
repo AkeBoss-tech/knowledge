@@ -12,11 +12,13 @@ Configuration via environment variables:
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 import rail
+from rail.permissions import PermissionPolicy
 
 mcp = FastMCP("KRAIL")
 
@@ -55,6 +57,246 @@ def _json(data: Any) -> str:
     if hasattr(data, "to_dict"):
         return json.dumps(data.to_dict(orient="records"), indent=2)
     return json.dumps(data, indent=2, default=str)
+
+
+_WRITE_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "capture": ("write_repo",),
+    "topic_upsert": ("write_repo",),
+    "inbox_promote": ("write_repo",),
+    "graph_build": ("write_repo",),
+    "vector_build": ("write_repo",),
+    "sources_check": ("write_repo",),
+    "ci_init": ("write_repo",),
+    "scaffold_krail_agents": ("write_repo",),
+    "create_task": ("create_task", "write_repo"),
+    "init_workflow": ("write_repo",),
+    "dispatch_task": ("dispatch_agent",),
+    "run_workflow": ("dispatch_agent",),
+    "execute_workflow": ("dispatch_agent",),
+    "listener_init": ("write_repo",),
+    "listener_poll": ("dispatch_agent",),
+    "event_replay": ("dispatch_agent",),
+}
+_SECRET_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "list_secrets": ("manage_secrets",),
+    "set_secret": ("manage_secrets",),
+}
+
+
+def _normalize_path(value: str) -> str:
+    normalized = str(value or "").strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized.strip("/")
+
+
+def _load_scope_list(env_name: str) -> list[str]:
+    raw = (os.environ.get(env_name) or "").strip()
+    if not raw:
+        return []
+    try:
+        loaded = json.loads(raw)
+        if isinstance(loaded, list):
+            items = loaded
+        else:
+            items = [loaded]
+    except Exception:
+        items = [item.strip() for item in raw.split(",")]
+    normalized: list[str] = []
+    for item in items:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        normalized.append(value)
+    return normalized
+
+
+def _runner_scope() -> dict[str, list[str]]:
+    scope = {
+        "allowed_paths": [_normalize_path(item) for item in _load_scope_list("KRAIL_ALLOWED_WRITE_PATHS") if _normalize_path(item)],
+        "denied_paths": [_normalize_path(item) for item in _load_scope_list("KRAIL_DENIED_PATHS") if _normalize_path(item)],
+        "allowed_tools": _load_scope_list("KRAIL_ALLOWED_TOOLS"),
+        "denied_tools": _load_scope_list("KRAIL_DENIED_TOOLS"),
+        "allowed_secrets": _load_scope_list("KRAIL_ALLOWED_SECRETS"),
+    }
+    if scope["allowed_paths"]:
+        return scope
+
+    work_order_path = (os.environ.get("RAIL_WORK_ORDER_PATH") or "").strip()
+    project_path = _local_project_path()
+    if not work_order_path or project_path is None:
+        return scope
+    work_order_file = Path(work_order_path)
+    if not work_order_file.is_absolute():
+        work_order_file = project_path / work_order_file
+    try:
+        payload = json.loads(work_order_file.read_text(encoding="utf-8"))
+    except Exception:
+        return scope
+    if isinstance(payload, dict):
+        scope["allowed_paths"] = [
+            _normalize_path(item)
+            for item in (payload.get("allowed_paths") or [])
+            if _normalize_path(str(item or ""))
+        ]
+    return scope
+
+
+def _scope_is_explicit(scope: dict[str, list[str]]) -> bool:
+    return any(scope.values())
+
+
+def _path_matches(path: str, scope_path: str) -> bool:
+    return path == scope_path or path.startswith(f"{scope_path}/")
+
+
+def _tool_aliases(tool_name: str, extra: tuple[str, ...] = ()) -> tuple[str, ...]:
+    aliases = [tool_name, *extra]
+    deduped: list[str] = []
+    for item in aliases:
+        if item and item not in deduped:
+            deduped.append(item)
+    return tuple(deduped)
+
+
+def _authorization_failure(tool_name: str, action: str, reason: str, *, target: str = "") -> str:
+    payload = {
+        "ok": False,
+        "status": "denied",
+        "error": {
+            "code": "permission_denied",
+            "tool": tool_name,
+            "action": action,
+            "reason": reason,
+        },
+    }
+    if target:
+        payload["error"]["target"] = target
+    return _json(payload)
+
+
+def _local_project_path() -> Path | None:
+    if os.environ.get("RAIL_LOCAL", "") == "1":
+        return Path(os.environ.get("RAIL_PATH", ".")).resolve()
+    return None
+
+
+def _permission_policy() -> PermissionPolicy | None:
+    project_path = _local_project_path()
+    if project_path is None:
+        return None
+    return PermissionPolicy(project_path)
+
+
+def _authorize_tool_scope(tool_name: str, aliases: tuple[str, ...]) -> str | None:
+    scope = _runner_scope()
+    if not scope["allowed_tools"] and not scope["denied_tools"]:
+        return None
+    if any(alias in scope["denied_tools"] for alias in aliases):
+        return _authorization_failure(tool_name, "use_tool", "tool_denied_by_runner_scope")
+    if scope["allowed_tools"] and not any(alias in scope["allowed_tools"] for alias in aliases):
+        return _authorization_failure(tool_name, "use_tool", "tool_not_allowed_by_runner_scope")
+    return None
+
+
+def _authorize_write(tool_name: str, target_path: str) -> str | None:
+    target = _normalize_path(target_path)
+    aliases = _tool_aliases(tool_name, _WRITE_TOOL_ALIASES.get(tool_name, ()))
+    denied = _authorize_tool_scope(tool_name, aliases)
+    if denied:
+        return denied
+
+    scope = _runner_scope()
+    if scope["denied_paths"] and any(_path_matches(target, item) for item in scope["denied_paths"]):
+        return _authorization_failure(tool_name, "write", "path_denied_by_runner_scope", target=target)
+    if scope["allowed_paths"]:
+        if not any(_path_matches(target, item) for item in scope["allowed_paths"]):
+            return _authorization_failure(tool_name, "write", "path_not_allowed_by_runner_scope", target=target)
+        return None
+
+    policy = _permission_policy()
+    if policy is None:
+        return _authorization_failure(tool_name, "write", "repo_policy_unavailable", target=target)
+    metadata = policy.metadata_for_path(target)
+    allowed, reason = policy.can_write(target, metadata)
+    if not allowed:
+        policy.audit("write", target, "denied", reason, metadata=metadata)
+        return _authorization_failure(tool_name, "write", reason, target=target)
+    return None
+
+
+def _authorize_execute(
+    tool_name: str,
+    target: str,
+    *,
+    private_by_default: bool = True,
+    require_explicit_tool_scope: bool = False,
+) -> str | None:
+    aliases = _tool_aliases(tool_name)
+    denied = _authorize_tool_scope(tool_name, aliases)
+    if denied:
+        return denied
+
+    scope = _runner_scope()
+    if require_explicit_tool_scope:
+        if not scope["allowed_tools"] or not any(alias in scope["allowed_tools"] for alias in aliases):
+            return _authorization_failure(tool_name, "execute", "tool_not_allowed_by_runner_scope", target=target)
+        return None
+
+    if _scope_is_explicit(scope):
+        return None
+
+    policy = _permission_policy()
+    if policy is None:
+        return _authorization_failure(tool_name, "execute", "repo_policy_unavailable", target=target)
+    metadata = {"visibility": "private"} if private_by_default else {}
+    resolved_metadata = policy.metadata_for_path(target, metadata)
+    allowed, reason = policy.can_execute(target, resolved_metadata)
+    if not allowed:
+        policy.audit("execute", target, "denied", reason, metadata=resolved_metadata)
+        return _authorization_failure(tool_name, "execute", reason, target=target)
+    return None
+
+
+def _authorize_secret(tool_name: str, *, key: str = "") -> str | None:
+    aliases = _tool_aliases(tool_name, _SECRET_TOOL_ALIASES.get(tool_name, ()))
+    denied = _authorize_tool_scope(tool_name, aliases)
+    if denied:
+        return denied
+
+    scope = _runner_scope()
+    allowed_secret_names = scope["allowed_secrets"]
+    if allowed_secret_names:
+        if key and "*" not in allowed_secret_names and key not in allowed_secret_names:
+            return _authorization_failure(tool_name, "read_secret" if tool_name == "list_secrets" else "set_secret", "secret_not_allowed_by_runner_scope", target=key)
+        return None
+
+    policy = _permission_policy()
+    target = f".krail/secrets/{key or '*'}"
+    if policy is None:
+        return _authorization_failure(tool_name, "read_secret" if tool_name == "list_secrets" else "set_secret", "secret_scope_required", target=target)
+    metadata = policy.metadata_for_path(target, {"visibility": "private"})
+    check = policy.can_read if tool_name == "list_secrets" else policy.can_write
+    allowed, reason = check(target, metadata)
+    if not allowed:
+        policy.audit("read_secret" if tool_name == "list_secrets" else "set_secret", target, "denied", reason, metadata=metadata)
+        return _authorization_failure(tool_name, "read_secret" if tool_name == "list_secrets" else "set_secret", reason, target=target)
+    return None
+
+
+def _topic_target_path(topic: str) -> str:
+    slug = []
+    previous_dash = False
+    for char in str(topic or "").strip().lower():
+        if char.isalnum():
+            slug.append(char)
+            previous_dash = False
+            continue
+        if not previous_dash:
+            slug.append("-")
+            previous_dash = True
+    normalized = "".join(slug).strip("-") or "topic"
+    return f"topics/{normalized}.md"
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +458,9 @@ def capture(text: str = "", file_path: str = "", url: str = "", type: str = "not
     This is local-write only. Remote deployments should expose a narrower
     propose/candidate flow before allowing writes.
     """
+    denied = _authorize_write("capture", "topics/inbox")
+    if denied:
+        return denied
     return _json(
         _get_project().capture(
             text,
@@ -262,6 +507,9 @@ def topic_upsert(
     JSON-encoded list arguments are used for sources and entities to stay
     compatible with MCP scalar tool inputs.
     """
+    denied = _authorize_write("topic_upsert", _topic_target_path(topic))
+    if denied:
+        return denied
     return _json(
         _get_project().topic_upsert(
             topic,
@@ -292,6 +540,9 @@ def inbox_promote(
     entity_type: str = "",
 ) -> str:
     """Promote an inbox capture into a stable topic page and mark the capture handled."""
+    denied = _authorize_write("inbox_promote", _topic_target_path(topic))
+    if denied:
+        return denied
     return _json(
         _get_project().inbox_promote(
             capture_path,
@@ -318,6 +569,10 @@ def graph_build(write: bool = True) -> str:
     Args:
         write: If True, write graph artifacts such as research_plan/graph/graph.json.
     """
+    if write:
+        denied = _authorize_write("graph_build", "research_plan/graph")
+        if denied:
+            return denied
     return _json(_get_project().graph_build(write=write))
 
 
@@ -407,6 +662,9 @@ def vector_build(provider: str = "", model: str = "") -> str:
         provider: Optional embedding provider: local_hash, openai, or sentence_transformers.
         model: Optional embedding model name for the selected provider.
     """
+    denied = _authorize_write("vector_build", ".krail/vector.sqlite")
+    if denied:
+        return denied
     return _json(_get_project().vector_build(provider=provider or None, model=model or None))
 
 
@@ -437,6 +695,10 @@ def sources_list() -> str:
 @mcp.tool()
 def sources_check(write: bool = True) -> str:
     """Snapshot dependency sources and detect changed source hashes."""
+    if write:
+        denied = _authorize_write("sources_check", "research_plan/state")
+        if denied:
+            return denied
     return _json(_get_project().sources_check(write=write))
 
 
@@ -456,6 +718,9 @@ def sources_affected(source_ids_json: str = "") -> str:
 @mcp.tool()
 def ci_init(path: str = ".github/workflows/krail-local-preview.yml") -> str:
     """Write a GitHub Actions workflow that runs KRAIL local-preview checks."""
+    denied = _authorize_write("ci_init", path)
+    if denied:
+        return denied
     return _json(_get_project().ci_init(path=path))
 
 
@@ -474,6 +739,9 @@ def list_agents() -> str:
 @mcp.tool()
 def scaffold_krail_agents(force: bool = False) -> str:
     """Write KRAIL doctor/platform prompts, checklists, role configs, and skill docs."""
+    denied = _authorize_write("scaffold_krail_agents", "agents")
+    if denied:
+        return denied
     return _json(_get_project().scaffold_krail_agents(force=force))
 
 
@@ -494,6 +762,9 @@ def create_task(title: str, description: str = "", runner: str = "codex_cli", ro
         runner: Preferred local runner, e.g. codex_cli or claude_code.
         role: Worker role label.
     """
+    denied = _authorize_write("create_task", "research_plan/tasks")
+    if denied:
+        return denied
     return _json(_get_project().create_task(title, description=description, runner=runner, role=role))
 
 
@@ -511,6 +782,10 @@ def dispatch_task(task_id: str, runner: str = "", dry_run: bool = True) -> str:
     Defaults to dry_run=True so agents can inspect the exact command and work
     order before launching another agent process.
     """
+    if not dry_run:
+        denied = _authorize_execute("dispatch_task", f"task:{task_id}", private_by_default=False)
+        if denied:
+            return denied
     return _json(_get_project().dispatch_task(task_id, runner=runner or None, dry_run=dry_run))
 
 
@@ -529,6 +804,9 @@ def workflow_templates() -> str:
 @mcp.tool()
 def init_workflow(workflow_id: str, force: bool = False, template: str = "") -> str:
     """Create a local workflow spec under research_plan/workflows."""
+    denied = _authorize_write("init_workflow", f"research_plan/workflows/{_normalize_path(workflow_id)}.yaml")
+    if denied:
+        return denied
     return _json(_get_project().init_workflow(workflow_id, force=force, template=template or None))
 
 
@@ -551,6 +829,10 @@ def run_workflow(workflow_id: str, runner: str = "codex_cli", dry_run: bool = Tr
 
     Defaults to dry_run=True for safety when called by agents.
     """
+    if not dry_run:
+        denied = _authorize_execute("run_workflow", f"workflow:{workflow_id}", private_by_default=False)
+        if denied:
+            return denied
     return _json(_get_project().run_workflow(workflow_id, runner=runner, dry_run=dry_run))
 
 
@@ -561,6 +843,10 @@ def execute_workflow(workflow_id: str, dry_run: bool = True, force: bool = False
 
     Defaults to dry_run=True for safety when called by agents.
     """
+    if not dry_run:
+        denied = _authorize_execute("execute_workflow", f"workflow:{workflow_id}", private_by_default=False)
+        if denied:
+            return denied
     return _json(_get_project().execute_workflow(workflow_id, dry_run=dry_run, force=force))
 
 
@@ -585,6 +871,9 @@ def listener_templates() -> str:
 @mcp.tool()
 def listener_init(template: str, listener_id: str = "", force: bool = False) -> str:
     """Create a listener spec from a built-in template or listener type."""
+    denied = _authorize_write("listener_init", f"research_plan/listeners/{_normalize_path(listener_id or template)}.yaml")
+    if denied:
+        return denied
     return _json(_get_project().listener_init(template, listener_id=listener_id or None, force=force))
 
 
@@ -607,6 +896,10 @@ def listener_poll(listener_id: str = "", dry_run: bool = True, execute: bool = F
 
     Defaults to dry_run=True and execute=False for agent safety.
     """
+    if execute and not dry_run:
+        denied = _authorize_execute("listener_poll", f"listener:{listener_id or '*'}", private_by_default=False)
+        if denied:
+            return denied
     return _json(_get_project().listener_poll(listener_id or None, dry_run=dry_run, execute=execute))
 
 
@@ -625,6 +918,10 @@ def event_show(event_id: str) -> str:
 @mcp.tool()
 def event_replay(event_id: str, dry_run: bool = True) -> str:
     """Replay an event's workflow trigger. Defaults to dry_run=True."""
+    if not dry_run:
+        denied = _authorize_execute("event_replay", f"listener_event:{event_id}", private_by_default=False)
+        if denied:
+            return denied
     return _json(_get_project().event_replay(event_id, dry_run=dry_run))
 
 
@@ -721,6 +1018,16 @@ def execute_python(code: str, timeout: int = 60) -> str:
         code: Python source code to execute.
         timeout: Max seconds before the sandbox kills the process (default 60).
     """
+    denied = _authorize_execute("execute_python", ".krail/tools/execute_python")
+    if denied:
+        return denied
+    denied = _authorize_execute(
+        "execute_python",
+        "execute_python",
+        require_explicit_tool_scope=True,
+    )
+    if denied:
+        return denied
     result = _get_project().execute(code, timeout=timeout)
     return _json(result)
 
@@ -1023,7 +1330,17 @@ def ask(question: str, session_id: str = "") -> str:
 @mcp.tool()
 def list_secrets() -> str:
     """List secret key names configured for this project (values are never returned)."""
-    return _json(_get_project().list_secrets())
+    denied = _authorize_secret("list_secrets")
+    if denied:
+        return denied
+    result = _get_project().list_secrets()
+    allowed_secret_names = _runner_scope()["allowed_secrets"]
+    if allowed_secret_names and "*" not in allowed_secret_names and isinstance(result, list):
+        result = [
+            item for item in result
+            if str((item or {}).get("keyName") or (item or {}).get("key") or "") in allowed_secret_names
+        ]
+    return _json(result)
 
 
 @mcp.tool()
@@ -1035,6 +1352,9 @@ def set_secret(key: str, value: str) -> str:
         key: Secret name, e.g. "FRED_API_KEY".
         value: Plaintext secret value.
     """
+    denied = _authorize_secret("set_secret", key=key)
+    if denied:
+        return denied
     return _json(_get_project().set_secret(key, value))
 
 

@@ -36,6 +36,10 @@ from app.runners.contracts.session_result import (
 )
 from app.runners.contracts.work_order import (
     Capability,
+    CapabilityEnvelope,
+    CapabilityPathScope,
+    CapabilitySecretScope,
+    CapabilityToolScope,
     ExpectedProgress,
     FailurePolicy,
     TaskType,
@@ -46,6 +50,10 @@ from app.runners.contracts.work_order import (
 __all__ = [
     # work_order
     "Capability",
+    "CapabilityEnvelope",
+    "CapabilityPathScope",
+    "CapabilitySecretScope",
+    "CapabilityToolScope",
     "ExpectedProgress",
     "FailurePolicy",
     "TaskType",

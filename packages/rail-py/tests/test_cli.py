@@ -124,6 +124,67 @@ def test_cmd_permissions_doctor_prints_project_result(capsys):
     assert payload["public_by_default"] is True
 
 
+def test_cmd_capture_prints_blocked_permission_result(capsys):
+    class _Project:
+        def capture(self, *args, **kwargs):
+            return {
+                "status": "blocked",
+                "permission": "denied",
+                "action": "write",
+                "target": "topics/inbox/blocked.md",
+                "reason": "allowlist_not_matched",
+                "message": "write denied for topics/inbox/blocked.md: allowlist_not_matched",
+            }
+
+    args = argparse.Namespace(
+        text="blocked",
+        stdin=False,
+        file=None,
+        url=None,
+        type="note",
+        workflow=None,
+        title=None,
+        topic=None,
+        entity=None,
+        entity_type=None,
+    )
+
+    rail_cli.cmd_capture(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert payload["permission"] == "denied"
+    assert payload["action"] == "write"
+
+
+def test_cmd_workflow_execute_prints_blocked_permission_result(capsys):
+    class _Project:
+        def execute_workflow(self, workflow_id, *, dry_run=False, force=False, inputs=None):
+            return {
+                "status": "blocked",
+                "permission": "denied",
+                "action": "execute",
+                "workflow": workflow_id,
+                "reason": "allowlist_not_matched",
+                "message": f"execute denied for {workflow_id}: allowlist_not_matched",
+            }
+
+    args = argparse.Namespace(
+        workflow_command="execute",
+        workflow_id="restricted",
+        dry_run=True,
+        force=False,
+        input=[],
+    )
+
+    rail_cli.cmd_workflow(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert payload["permission"] == "denied"
+    assert payload["workflow"] == "restricted"
+
+
 def test_project_hydrate_uses_cloud_project_pipeline_route():
     class _Backend:
         def __init__(self):
@@ -262,6 +323,32 @@ def test_cmd_ci_init_prints_written_path(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "written"
     assert payload["path"] == ".github/workflows/krail.yml"
+
+
+def test_cmd_repo_changed_passes_base_ref(capsys):
+    class _Project:
+        def repo_changed(self, path_or_url=".", *, base_ref=None):
+            return {"path": path_or_url, "base_ref": base_ref}
+
+    args = argparse.Namespace(repo_command="changed", path_or_url="demo-repo", base_ref="origin/main")
+
+    rail_cli.cmd_repo(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"path": "demo-repo", "base_ref": "origin/main"}
+
+
+def test_cmd_repo_symbols_passes_language_filters(capsys):
+    class _Project:
+        def repo_symbols(self, path_or_url=".", *, languages=None):
+            return {"path": path_or_url, "languages": languages}
+
+    args = argparse.Namespace(repo_command="symbols", path_or_url="demo-repo", language=["python", "typescript"])
+
+    rail_cli.cmd_repo(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"path": "demo-repo", "languages": ["python", "typescript"]}
 
 
 def test_cmd_query_classes_uses_query_subcommand(capsys):
