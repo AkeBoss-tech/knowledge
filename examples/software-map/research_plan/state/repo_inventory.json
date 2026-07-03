@@ -1,0 +1,64 @@
+{
+  "repos": {
+    "sources/sample-service": {
+      "status": "inspected",
+      "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+      "repo_key": "sources/sample-service",
+      "generated_at": "2026-07-01T02:53:07.320546+00:00",
+      "snapshot": {
+        "status": "inspected",
+        "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+        "repo_key": "sources/sample-service",
+        "generated_at": "2026-07-01T02:53:07.234837+00:00",
+        "exists": true,
+        "is_git": true,
+        "git_root": "/Users/akashdubey/Documents/CodingProjects/knowledge",
+        "branch": "future",
+        "head": "c04f320bef740d91783e0d996a7f4f67a8efc5bd",
+        "dirty": true,
+        "tracked_changes": [],
+        "untracked_files": [
+          "examples/software-map/sources/sample-service/"
+        ],
+        "changed_files": [
+          "examples/software-map/sources/sample-service/"
+        ]
+      },
+      "frameworks": [
+        "python",
+        "node"
+      ],
+      "manifests": [
+        "package.json",
+        "pyproject.toml"
+      ],
+      "endpoint_files": [
+        "app/routes/health.py"
+      ],
+      "file_count": 9,
+      "dir_count": 7,
+      "languages": {
+        "python": 4
+      },
+      "top_level_paths": [
+        ".github",
+        "app",
+        "docs",
+        "package.json",
+        "pyproject.toml",
+        "tests"
+      ],
+      "docs_dirs": [
+        "docs",
+        "docs/adr"
+      ],
+      "test_dirs": [
+        "tests"
+      ],
+      "ci_files": [
+        ".github/workflows/ci.yml"
+      ]
+    }
+  },
+  "updated_at": "2026-07-01T02:53:07.321023+00:00"
+}

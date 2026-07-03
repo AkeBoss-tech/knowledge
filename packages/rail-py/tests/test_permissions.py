@@ -87,6 +87,38 @@ def test_allowed_roles_restrict_even_without_visibility_flag(tmp_path: Path, mon
     assert allowed["hits"][0]["path"] == "topics/role-note.md"
 
 
+def test_grep_and_files_read_respect_permissions(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Permission Project", slug="permission-project")
+    (root / "topics" / "public-note.md").write_text("# Public\n\nsharedcodename is visible.\n", encoding="utf-8")
+    (root / "topics" / "private-note.md").write_text(
+        "---\n"
+        "visibility: private\n"
+        "allowed_roles:\n"
+        "  - reviewer\n"
+        "---\n\n"
+        "# Private\n\nhidden codename is restricted.\n",
+        encoding="utf-8",
+    )
+
+    runtime = KnowledgeRuntime(root)
+    denied_grep = runtime.grep("codename")
+    denied_read = runtime.files_read("topics/private-note.md")
+    listing = runtime.files_list(paths=["topics"], recursive=True)
+
+    assert [match["path"] for match in denied_grep["matches"]] == ["topics/public-note.md"]
+    assert denied_grep["summary"]["denied_files"] == 1
+    assert denied_read["status"] == "blocked"
+    assert {item["path"] for item in listing["items"]} == {"topics", "topics/brief.md", "topics/public-note.md"}
+
+    monkeypatch.setenv("KRAIL_ROLES", "reviewer")
+    allowed_runtime = KnowledgeRuntime(root)
+    allowed_grep = allowed_runtime.grep("codename")
+    allowed_read = allowed_runtime.files_read("topics/private-note.md", start_line=1, lines=10)
+
+    assert {match["path"] for match in allowed_grep["matches"]} == {"topics/public-note.md", "topics/private-note.md"}
+    assert "hidden codename is restricted." in allowed_read["content"]
+
+
 def test_authorize_returns_typed_public_by_default_decision(tmp_path: Path):
     policy = PermissionPolicy(tmp_path, actor=PermissionActor(id="alice", roles=("reader",)))
 

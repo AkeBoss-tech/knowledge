@@ -111,6 +111,52 @@ def test_cmd_find_prints_human_typed_results(capsys):
     assert "topics/repo-intake.md" in output
 
 
+def test_cmd_search_uses_federated_search_when_requested(capsys):
+    class _Project:
+        class _Backend:
+            pass
+
+        _backend = _Backend()
+
+        def federated_search(self, q, **kwargs):
+            assert q == "robotics"
+            assert kwargs["mounts"] == ["child"]
+            return {"query": q, "hits": [{"path": "child:topics/note.md"}]}
+
+    args = argparse.Namespace(query="robotics", limit=10, explain=False, rag=False, federated=True, mount=["child"])
+
+    rail_cli.cmd_search(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hits"][0]["path"] == "child:topics/note.md"
+
+
+def test_cmd_think_uses_federated_think_when_requested(capsys):
+    class _Project:
+        def federated_think(self, q, **kwargs):
+            assert q == "robotics"
+            assert kwargs["mounts"] == ["child"]
+            return {"query": q, "consulted_mounts": ["local", "child"]}
+
+    args = argparse.Namespace(
+        query="robotics",
+        limit=5,
+        mode="deterministic",
+        runner="auto",
+        dry_run=False,
+        output=None,
+        register_integrity=False,
+        title=None,
+        federated=True,
+        mount=["child"],
+    )
+
+    rail_cli.cmd_think(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "child" in payload["consulted_mounts"]
+
+
 def test_cmd_permissions_doctor_prints_project_result(capsys):
     class _Project:
         def permissions_doctor(self):
@@ -122,6 +168,78 @@ def test_cmd_permissions_doctor_prints_project_result(capsys):
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["public_by_default"] is True
+
+
+def test_cmd_mount_list_prints_project_result(capsys):
+    class _Project:
+        def mount_list(self):
+            return {"mounts": [{"id": "child", "ok": True}], "summary": {"healthy": 1}}
+
+    args = argparse.Namespace(mount_command="list")
+
+    rail_cli.cmd_mount(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["healthy"] == 1
+
+
+def test_cmd_graph_summary_uses_federated_graph_summary(capsys):
+    class _Project:
+        def federated_graph_summary(self, *, mounts=None):
+            assert mounts == ["child"]
+            return {"summaries": [{"mount": "child"}]}
+
+    args = argparse.Namespace(graph_command="summary", federated=True, mount=["child"])
+
+    rail_cli.cmd_graph(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summaries"][0]["mount"] == "child"
+
+
+def test_cmd_grep_prints_rg_style_matches(capsys):
+    class _Project:
+        def grep(self, pattern, **kwargs):
+            assert pattern == "codename"
+            assert kwargs["ignore_case"] is True
+            return {
+                "matches": [
+                    {"path": "topics/public.md", "line_number": 4, "line": "codename is visible."},
+                ],
+                "summary": {"returned": 1, "readable_files": 1, "denied_files": 2},
+            }
+
+    args = argparse.Namespace(
+        pattern="codename",
+        path=None,
+        glob=None,
+        ignore_case=True,
+        fixed_strings=False,
+        word_regexp=False,
+        max_count=None,
+        json=False,
+    )
+
+    rail_cli.cmd_grep(_Project(), args)
+
+    output = capsys.readouterr().out
+    assert "topics/public.md:4:codename is visible." in output
+    assert "1 match(es) across 1 readable file(s), 2 denied" in output
+
+
+def test_cmd_files_read_prints_content(capsys):
+    class _Project:
+        def files_read(self, path, *, start_line=1, lines=None):
+            assert path == "topics/public.md"
+            assert start_line == 2
+            assert lines == 3
+            return {"content": "line a\nline b\n"}
+
+    args = argparse.Namespace(files_command="read", path="topics/public.md", start_line=2, lines=3, json=False)
+
+    rail_cli.cmd_files(_Project(), args)
+
+    assert capsys.readouterr().out == "line a\nline b\n"
 
 
 def test_cmd_capture_prints_blocked_permission_result(capsys):

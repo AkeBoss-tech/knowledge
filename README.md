@@ -51,6 +51,8 @@ integrity = decide what is ready to trust, verify, or promote
   reads and workflow execution
 - listener/event triggers for files, websites, RSS, GitHub polling, schedules,
   and custom command adapters
+- deterministic repo snapshot, inventory, ownership, dependency, and change
+  inspection for software-map workflows
 - repo-backed inventory queues with batch reservation, checkpointing, and retry
   surfaces for ingestion workers
 - markdown graph inspection for frontmatter-rich topic collections
@@ -96,6 +98,17 @@ krail --local graph entities --type Package
 krail --local graph edges --entity PDDLStream
 ```
 
+Inspect a local codebase when using `knowledge_mode: software`:
+
+```bash
+krail --local repo snapshot .
+krail --local repo inventory .
+krail --local repo symbols .
+krail --local repo owners .
+krail --local repo dependencies .
+krail --local repo changed . --base-ref origin/main
+```
+
 Create auditable work before launching another agent:
 
 ```bash
@@ -125,7 +138,7 @@ project instead of scattered notes and ad hoc prompts.
 ### Software knowledge bases
 
 Give coding agents a repo-backed memory layer with notes, decisions, prompts,
-tasks, and workflow history.
+tasks, workflow history, and deterministic repo inventory.
 
 ### Private company or document brains
 
@@ -148,6 +161,8 @@ Working well now:
 - repo-backed tasks, work orders, and session records
 - public-by-default permissions doctor and restricted-read audit log
 - listener templates, event logs, workflow triggers, and event replay
+- software-map repo inspection commands and a bundled `examples/software-map`
+  fixture
 - queue-based ingestion, workflow dashboards, parameterized workflow inputs,
   and lightweight typed workflow outputs
 - dependency-aware workflow DAGs with `needs`, parallel fan-out, retry policies,

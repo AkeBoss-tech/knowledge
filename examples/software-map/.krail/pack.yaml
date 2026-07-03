@@ -1,0 +1,22 @@
+id: software-architecture
+name: Software Architecture
+entities:
+- Service
+- Module
+- API
+- Database
+- Queue
+- Dependency
+- Decision
+- Risk
+- Claim
+link_types:
+- Service EXPOSES API
+- Module DEPENDS_ON Module
+- Service WRITES Database
+- Decision AFFECTS Service
+workflows:
+- map_codebase
+- sync_recent_changes
+- capture_architecture_decision
+- dependency_review

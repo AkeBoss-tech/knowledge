@@ -111,6 +111,30 @@ Supported GitHub event families in this first polling adapter:
 - `pull_request.opened`
 - `check_suite.completed`
 
+## Git Repository Listener
+
+Use the built-in `git` listener when the watched codebase is a real Git
+repository and you want workflow triggers based on changes to HEAD or the
+working tree.
+
+```yaml
+id: repo_watch
+type: git
+repo_path: sources/sample-service
+base_ref: origin/main
+interval: 10m
+on_change:
+  workflow: sync_recent_changes
+  dry_run_first: true
+```
+
+This listener uses the local `repo changed` primitive, so the event payload
+includes branch, head SHA, dirty files, and optional diff-range changes.
+
+In software-map workflows, it is often paired with `repo inventory` and
+`repo symbols` so change-triggered refreshes can update both structural and
+symbol-level notes.
+
 ## Filesystem Listener
 
 ```yaml

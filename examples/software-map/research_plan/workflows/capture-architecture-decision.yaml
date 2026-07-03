@@ -1,0 +1,24 @@
+id: capture_architecture_decision
+description: Capture an architecture decision with current repo context, dependencies,
+  and affected modules.
+schedule: ''
+steps:
+- id: repo_snapshot
+  kind: command
+  run: krail --local repo snapshot sources/sample-service
+- id: repo_dependencies
+  kind: command
+  run: krail --local repo dependencies sources/sample-service
+- id: repo_symbols
+  kind: command
+  run: krail --local repo symbols sources/sample-service
+- id: decision_capture
+  kind: agent
+  role: platform
+  runner: auto
+  prompt: Capture or update an architecture decision topic. Include context, affected
+    services/modules, evidence from source files or docs, consequences, and follow-up
+    actions.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build

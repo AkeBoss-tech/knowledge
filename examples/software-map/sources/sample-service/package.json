@@ -1,0 +1,10 @@
+{
+  "name": "sample-service-ui",
+  "private": true,
+  "dependencies": {
+    "react": "^18.3.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

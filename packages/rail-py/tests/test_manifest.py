@@ -146,6 +146,29 @@ def test_manifest_defaults_new_contract_sections():
     assert manifest.agents.runner_policy.think_preferred == []
     assert "hydrated" in manifest.lifecycle.phases
     assert "ontology_healthy" in manifest.lifecycle.phases
+    assert manifest.mounts == []
+
+
+def test_manifest_parses_mounts():
+    content = MINIMAL_RAIL_YAML + textwrap.dedent(
+        """\
+
+        mounts:
+          - id: robotics
+            name: Robotics KB
+            path: ../robotics-kb
+            access_mode: delegated
+            search_weight: 1.2
+            tags:
+              - research
+        """
+    )
+
+    manifest = parse_manifest_content(content)
+
+    assert manifest.mounts[0].id == "robotics"
+    assert manifest.mounts[0].path == "../robotics-kb"
+    assert manifest.mounts[0].access_mode == "delegated"
 
 
 def test_manifest_parses_explicit_think_runner_preferences():

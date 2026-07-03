@@ -1,0 +1,34 @@
+id: map_codebase
+description: Build a deterministic local software map before asking an agent to synthesize
+  architecture notes.
+schedule: ''
+steps:
+- id: doctor
+  kind: command
+  run: krail --local doctor
+- id: repo_snapshot
+  kind: command
+  run: krail --local repo snapshot sources/sample-service
+- id: repo_inventory
+  kind: command
+  run: krail --local repo inventory sources/sample-service
+- id: repo_owners
+  kind: command
+  run: krail --local repo owners sources/sample-service
+- id: repo_dependencies
+  kind: command
+  run: krail --local repo dependencies sources/sample-service
+- id: repo_symbols
+  kind: command
+  run: krail --local repo symbols sources/sample-service
+- id: map_agent
+  kind: agent
+  role: platform
+  runner: auto
+  prompt: Use the repo inventory, ownership, dependency, and snapshot artifacts under
+    research_plan/state/ to update service, module, API, dependency, risk, and decision
+    topics. Use symbol and route extraction to ground interface notes. Record explicit
+    gaps where ownership, interfaces, or boundaries remain unclear.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build

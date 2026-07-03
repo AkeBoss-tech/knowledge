@@ -1,0 +1,36 @@
+{
+  "repos": {
+    "sources/sample-service": {
+      "status": "inspected",
+      "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+      "repo_key": "sources/sample-service",
+      "generated_at": "2026-07-01T02:51:55.793077+00:00",
+      "codeowners_path": ".github/CODEOWNERS",
+      "entries": [
+        {
+          "pattern": "*",
+          "owners": [
+            "@platform-team"
+          ],
+          "line": 1
+        },
+        {
+          "pattern": "/app/routes/",
+          "owners": [
+            "@backend-team"
+          ],
+          "line": 2
+        },
+        {
+          "pattern": "/docs/adr/",
+          "owners": [
+            "@architecture-team"
+          ],
+          "line": 3
+        }
+      ],
+      "owner_count": 3
+    }
+  },
+  "updated_at": "2026-07-01T02:51:55.793278+00:00"
+}

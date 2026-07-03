@@ -85,7 +85,7 @@ DEFAULT_MODES: dict[str, dict[str, Any]] = {
             "decision": ["context", "decision", "consequences", "evidence", "follow_up"],
             "topic": ["summary", "key_facts", "dependencies", "decisions", "notes"],
         },
-        "workflows": ["triage_inbox", "rich_wiki_generation", "map_codebase", "capture_architecture_decision", "dependency_review"],
+        "workflows": ["triage_inbox", "rich_wiki_generation", "map_codebase", "sync_recent_changes", "capture_architecture_decision", "dependency_review"],
         "integrity": {
             "require_sources_for_claims": True,
             "stale_sources_block_promotion": True,

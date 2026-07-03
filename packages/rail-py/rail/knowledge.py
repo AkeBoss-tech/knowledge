@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as _dt
 import ast
 import copy
+import fnmatch
 import hashlib
 import html
 import json
@@ -32,6 +33,8 @@ from rail.markdown_graph import (
     validate_markdown_graph,
 )
 from rail.listeners import ListenerEngine
+from rail.manifest import load_manifest
+from rail.mounts import MountRegistry
 from rail.permissions import PermissionPolicy
 from rail.queues import QueueEngine
 from rail.source_dependencies import (
@@ -842,6 +845,39 @@ class KnowledgeRuntime:
     def _permission_policy(self) -> PermissionPolicy:
         return PermissionPolicy(self.project_path)
 
+    def _mount_registry(self) -> MountRegistry:
+        try:
+            manifest = load_manifest(self.project_path)
+        except Exception:
+            return MountRegistry(self.project_path, [])
+        return MountRegistry(self.project_path, manifest.mounts)
+
+    def _resolve_mount_project(self, mount_id: str):
+        if not mount_id or mount_id == "local":
+            import rail
+
+            return None, rail.local(str(self.project_path))
+        registry = self._mount_registry()
+        status_map = {item["id"]: item for item in registry.list_mounts().get("mounts", [])}
+        status = status_map.get(mount_id)
+        if not status:
+            raise ValueError(f"Unknown mount: {mount_id}")
+        if not status.get("ok"):
+            raise RuntimeError(f"Mount unavailable: {mount_id}: {status.get('error') or 'unavailable'}")
+        resolved = registry.resolve_projects([mount_id])
+        if not resolved:
+            raise RuntimeError(f"Mount unavailable: {mount_id}")
+        return resolved[0]
+
+    @staticmethod
+    def _mount_proxy_result(result: dict[str, Any], *, mount: str | None, project_slug: str | None) -> dict[str, Any]:
+        if not mount:
+            return result
+        payload = dict(result)
+        payload["mount"] = mount
+        payload["project"] = project_slug
+        return payload
+
     def _permission_blocked_result(
         self,
         *,
@@ -947,6 +983,71 @@ class KnowledgeRuntime:
             if path.suffix.lower() in suffixes:
                 docs.append(path)
         return sorted(docs)
+
+    def _resolve_repo_path(self, raw_path: str | Path) -> Path:
+        candidate = Path(raw_path)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            resolved = (self.project_path / candidate).resolve()
+        try:
+            resolved.relative_to(self.project_path)
+        except ValueError as exc:
+            raise ValueError(f"path escapes project root: {raw_path}") from exc
+        return resolved
+
+    def _path_metadata(self, path: Path) -> tuple[str, dict[str, Any]]:
+        rel = path.relative_to(self.project_path).as_posix()
+        metadata: dict[str, Any] = {}
+        if path.suffix.lower() == ".md":
+            try:
+                metadata, _body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8"))
+            except Exception:
+                metadata = {}
+        permission_metadata = self._permission_policy().metadata_for_path(rel, metadata)
+        return rel, permission_metadata
+
+    def _authorize_repo_path(self, path: Path) -> tuple[bool, str, str, dict[str, Any]]:
+        rel, metadata = self._path_metadata(path)
+        allowed, reason = self._permission_policy().can_read(rel, metadata)
+        if allowed:
+            if metadata.get("sensitivity"):
+                self._permission_policy().audit("read", rel, "allowed", reason, metadata=metadata)
+        else:
+            self._permission_policy().audit("read", rel, "denied", reason, metadata=metadata)
+        return allowed, reason, rel, metadata
+
+    def _iter_repo_files(
+        self,
+        roots: list[str] | None = None,
+        *,
+        recursive: bool = True,
+        globs: list[str] | None = None,
+        include_hidden: bool = False,
+        text_only: bool = False,
+    ) -> list[Path]:
+        suffixes = {".md", ".txt", ".yaml", ".yml", ".json", ".csv"}
+        raw_roots = roots or ["."]
+        collected: dict[str, Path] = {}
+        for raw_root in raw_roots:
+            root = self._resolve_repo_path(raw_root)
+            if root.is_file():
+                candidates = [root]
+            elif root.exists():
+                iterator = root.rglob("*") if recursive else root.glob("*")
+                candidates = [path for path in iterator if path.is_file()]
+            else:
+                continue
+            for path in candidates:
+                rel = path.relative_to(self.project_path).as_posix()
+                if not include_hidden and any(part.startswith(".") for part in Path(rel).parts):
+                    continue
+                if text_only and path.suffix.lower() not in suffixes:
+                    continue
+                if globs and not any(fnmatch.fnmatch(rel, pattern) for pattern in globs):
+                    continue
+                collected[rel] = path
+        return [collected[key] for key in sorted(collected)]
 
     @staticmethod
     def _terms(query: str) -> list[str]:
@@ -1073,6 +1174,90 @@ class KnowledgeRuntime:
                 "mode": "local_hybrid" if rag else "local_keyword_graph",
                 "signals": ["term_frequency", "title_match", "path_match", "typed_wikilink_count", "markdown_graph_context", "local_vector_cosine" if rag else "vector_optional"],
                 "note": "RAG mode uses a local SQLite vector store with deterministic hashed embeddings. Model-backed embeddings can replace this later.",
+            }
+        return result
+
+    @staticmethod
+    def _federated_hit(hit: dict[str, Any], *, mount: str, project: str, search_weight: float) -> dict[str, Any]:
+        child_path = str(hit.get("path") or hit.get("id") or "")
+        mounted_path = f"{mount}:{child_path}" if child_path else mount
+        score = float(hit.get("score") or 0) * float(search_weight or 1.0)
+        enriched = dict(hit)
+        enriched["mount"] = mount
+        enriched["project"] = project
+        enriched["child_path"] = child_path or None
+        enriched["path"] = mounted_path
+        enriched["score"] = round(score, 3)
+        return enriched
+
+    @staticmethod
+    def _mount_access_result(item: dict[str, Any], access_mode: str) -> dict[str, Any]:
+        if access_mode in {"delegated", "full", "chunks_with_citations"}:
+            return item
+        if access_mode in {"metadata_only", "summary_only"}:
+            stripped = dict(item)
+            for key in ("snippet", "line", "content", "record", "graph_context", "vector_hits"):
+                stripped.pop(key, None)
+            return stripped
+        return item
+
+    def mount_list(self) -> dict[str, Any]:
+        return self._mount_registry().list_mounts()
+
+    def federated_search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        mounts: list[str] | None = None,
+        explain: bool = False,
+        rag: bool = False,
+    ) -> dict[str, Any]:
+        registry = self._mount_registry()
+        consulted: list[str] = ["local"]
+        warnings: list[dict[str, Any]] = []
+        local_hits = [
+            self._federated_hit(hit, mount="local", project=self.project_path.name, search_weight=1.0)
+            for hit in self.search(query, limit=limit, explain=False, rag=rag).get("hits", [])
+        ]
+        hits = list(local_hits)
+        mount_status = {item["id"]: item for item in registry.list_mounts().get("mounts", [])}
+        for mount, project in registry.resolve_projects(mounts):
+            if mount.access_mode == "none":
+                continue
+            consulted.append(mount.id)
+            child_result = project._backend.knowledge.search(query, limit=limit, explain=False, rag=rag)
+            for hit in child_result.get("hits", []):
+                mounted = self._federated_hit(
+                    hit,
+                    mount=mount.id,
+                    project=project.slug,
+                    search_weight=mount.search_weight,
+                )
+                hits.append(self._mount_access_result(mounted, mount.access_mode))
+        if mounts:
+            requested = set(mounts)
+            for mount_id in sorted(requested):
+                if mount_id == "local":
+                    continue
+                status = mount_status.get(mount_id)
+                if not status:
+                    warnings.append({"mount": mount_id, "error": "unknown_mount"})
+                elif not status.get("ok"):
+                    warnings.append({"mount": mount_id, "error": status.get("error") or "mount_unavailable"})
+        hits = sorted(hits, key=lambda item: (-float(item.get("score") or 0), item.get("path") or ""))[:limit]
+        result: dict[str, Any] = {
+            "query": query,
+            "hits": hits,
+            "summary": {"returned": len(hits), "consulted_mounts": consulted},
+        }
+        if warnings:
+            result["warnings"] = warnings
+        if explain:
+            result["explain"] = {
+                "mode": "federated_search",
+                "consulted_mounts": consulted,
+                "ranking": ["child_search_score", "mount_search_weight"],
             }
         return result
 
@@ -1216,6 +1401,262 @@ class KnowledgeRuntime:
                 "underlying_search": search_result.get("explain"),
             }
         return envelope
+
+    def federated_find(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        mounts: list[str] | None = None,
+        types: list[str] | None = None,
+        topic: str | None = None,
+        entity: str | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        explain: bool = False,
+        rag: bool = True,
+    ) -> dict[str, Any]:
+        registry = self._mount_registry()
+        results: list[dict[str, Any]] = []
+        consulted: list[str] = ["local"]
+        warnings: list[dict[str, Any]] = []
+        local_result = self.find(
+            query,
+            limit=limit,
+            types=types,
+            topic=topic,
+            entity=entity,
+            status=status,
+            freshness=freshness,
+            workflow=workflow,
+            explain=False,
+            rag=rag,
+        )
+        for item in local_result.get("results", []):
+            results.append(self._federated_hit(item, mount="local", project=self.project_path.name, search_weight=1.0))
+        mount_status = {item["id"]: item for item in registry.list_mounts().get("mounts", [])}
+        for mount, project in registry.resolve_projects(mounts):
+            if mount.access_mode == "none":
+                continue
+            consulted.append(mount.id)
+            child_result = project._backend.knowledge.find(
+                query,
+                limit=limit,
+                types=types,
+                topic=topic,
+                entity=entity,
+                status=status,
+                freshness=freshness,
+                workflow=workflow,
+                explain=False,
+                rag=rag,
+            )
+            for item in child_result.get("results", []):
+                mounted = self._federated_hit(
+                    item,
+                    mount=mount.id,
+                    project=project.slug,
+                    search_weight=mount.search_weight,
+                )
+                results.append(self._mount_access_result(mounted, mount.access_mode))
+        if mounts:
+            requested = set(mounts)
+            for mount_id in sorted(requested):
+                if mount_id == "local":
+                    continue
+                status_info = mount_status.get(mount_id)
+                if not status_info:
+                    warnings.append({"mount": mount_id, "error": "unknown_mount"})
+                elif not status_info.get("ok"):
+                    warnings.append({"mount": mount_id, "error": status_info.get("error") or "mount_unavailable"})
+        results = sorted(results, key=lambda item: (-float(item.get("score") or 0), item.get("path") or ""))[:limit]
+        by_type: dict[str, int] = {}
+        for item in results:
+            item_type = str(item.get("type") or "unknown")
+            by_type[item_type] = by_type.get(item_type, 0) + 1
+        envelope: dict[str, Any] = {
+            "query": query,
+            "results": results,
+            "summary": {"total": len(results), "returned": len(results), "by_type": by_type, "consulted_mounts": consulted},
+            "facets": {"types": types or [], "topic": topic, "entity": entity, "status": status, "freshness": freshness, "workflow": workflow},
+            "suggested_actions": [],
+        }
+        if warnings:
+            envelope["warnings"] = warnings
+        if explain:
+            envelope["explain"] = {
+                "mode": "federated_find",
+                "consulted_mounts": consulted,
+                "ranking": ["child_find_score", "mount_search_weight"],
+            }
+        return envelope
+
+    def grep(
+        self,
+        pattern: str,
+        *,
+        paths: list[str] | None = None,
+        glob: list[str] | None = None,
+        ignore_case: bool = False,
+        fixed_strings: bool = False,
+        word_regexp: bool = False,
+        max_count: int | None = None,
+    ) -> dict[str, Any]:
+        flags = re.IGNORECASE if ignore_case else 0
+        expression = re.escape(pattern) if fixed_strings else pattern
+        if word_regexp:
+            expression = rf"\b(?:{expression})\b"
+        matcher = re.compile(expression, flags)
+        matches: list[dict[str, Any]] = []
+        searched_files = 0
+        readable_files = 0
+        denied_files = 0
+        for path in self._iter_repo_files(paths, recursive=True, globs=glob, include_hidden=False, text_only=True):
+            searched_files += 1
+            allowed, _reason, rel, _metadata = self._authorize_repo_path(path)
+            if not allowed:
+                denied_files += 1
+                continue
+            readable_files += 1
+            try:
+                lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except Exception:
+                continue
+            for line_number, line in enumerate(lines, start=1):
+                line_matches = list(matcher.finditer(line))
+                if not line_matches:
+                    continue
+                matches.append(
+                    {
+                        "path": rel,
+                        "line_number": line_number,
+                        "line": line,
+                        "match_count": len(line_matches),
+                    }
+                )
+                if max_count is not None and len(matches) >= max_count:
+                    return {
+                        "pattern": pattern,
+                        "matches": matches,
+                        "summary": {
+                            "searched_files": searched_files,
+                            "readable_files": readable_files,
+                            "denied_files": denied_files,
+                            "returned": len(matches),
+                            "truncated": True,
+                        },
+                    }
+        return {
+            "pattern": pattern,
+            "matches": matches,
+            "summary": {
+                "searched_files": searched_files,
+                "readable_files": readable_files,
+                "denied_files": denied_files,
+                "returned": len(matches),
+                "truncated": False,
+            },
+        }
+
+    def files_list(
+        self,
+        *,
+        paths: list[str] | None = None,
+        glob: list[str] | None = None,
+        recursive: bool = False,
+        include_hidden: bool = False,
+    ) -> dict[str, Any]:
+        raw_roots = paths or ["."]
+        items: list[dict[str, Any]] = []
+        denied = 0
+        seen: set[str] = set()
+        for raw_root in raw_roots:
+            root = self._resolve_repo_path(raw_root)
+            candidates: list[Path]
+            if root.is_file():
+                candidates = [root]
+            elif root.exists():
+                iterator = root.rglob("*") if recursive else root.glob("*")
+                candidates = ([root] if root != self.project_path else []) + sorted(iterator)
+            else:
+                continue
+            for path in candidates:
+                rel = path.relative_to(self.project_path).as_posix()
+                if rel in seen:
+                    continue
+                seen.add(rel)
+                if not include_hidden and any(part.startswith(".") for part in Path(rel).parts):
+                    continue
+                if glob and not any(fnmatch.fnmatch(rel, pattern) for pattern in glob):
+                    continue
+                allowed, _reason, rel, metadata = self._authorize_repo_path(path)
+                if not allowed:
+                    denied += 1
+                    continue
+                items.append(
+                    {
+                        "path": rel,
+                        "type": "directory" if path.is_dir() else "file",
+                        "size": path.stat().st_size if path.is_file() else None,
+                        "visibility": metadata.get("visibility") or "public",
+                    }
+                )
+        items.sort(key=lambda item: (item["type"] != "directory", item["path"]))
+        return {"items": items, "summary": {"returned": len(items), "denied": denied}}
+
+    def files_read(self, path: str, *, start_line: int = 1, lines: int | None = None) -> dict[str, Any]:
+        target = self._resolve_repo_path(path)
+        if not target.exists() or not target.is_file():
+            raise FileNotFoundError(f"file not found: {path}")
+        allowed, reason, rel, metadata = self._authorize_repo_path(target)
+        if not allowed:
+            return {
+                "status": "blocked",
+                "permission": "denied",
+                "action": "read",
+                "target": rel,
+                "reason": reason,
+                "message": f"read denied for {rel}: {reason}",
+            }
+        text = target.read_text(encoding="utf-8", errors="ignore")
+        all_lines = text.splitlines()
+        start = max(start_line, 1)
+        end = len(all_lines) if lines is None else min(len(all_lines), start + max(lines, 0) - 1)
+        selected = all_lines[start - 1 : end]
+        return {
+            "path": rel,
+            "content": "\n".join(selected) + ("\n" if selected else ""),
+            "start_line": start,
+            "end_line": end if selected else start - 1,
+            "total_lines": len(all_lines),
+            "truncated": end < len(all_lines),
+            "visibility": metadata.get("visibility") or "public",
+        }
+
+    def files_stat(self, path: str) -> dict[str, Any]:
+        target = self._resolve_repo_path(path)
+        if not target.exists():
+            raise FileNotFoundError(f"path not found: {path}")
+        allowed, reason, rel, metadata = self._authorize_repo_path(target)
+        if not allowed:
+            return {
+                "status": "blocked",
+                "permission": "denied",
+                "action": "read",
+                "target": rel,
+                "reason": reason,
+                "message": f"read denied for {rel}: {reason}",
+            }
+        stat = target.stat()
+        return {
+            "path": rel,
+            "type": "directory" if target.is_dir() else "file",
+            "size": stat.st_size if target.is_file() else None,
+            "modified_at": _dt.datetime.fromtimestamp(stat.st_mtime, _dt.UTC).isoformat(),
+            "visibility": metadata.get("visibility") or "public",
+            "sensitivity": self._ensure_list_of_strings(metadata.get("sensitivity")),
+        }
 
     def _find_integrity_records(self, terms: list[str]) -> list[dict[str, Any]]:
         loaders = [
@@ -1525,6 +1966,17 @@ class KnowledgeRuntime:
         runner: str = "auto",
     ) -> ThinkRequest:
         search = self.search(query, limit=limit, explain=True, rag=True)
+        return self._build_think_request_from_search(query, search=search, limit=limit, mode=mode, runner=runner)
+
+    def _build_think_request_from_search(
+        self,
+        query: str,
+        *,
+        search: dict[str, Any],
+        limit: int,
+        mode: str,
+        runner: str,
+    ) -> ThinkRequest:
         hits = search["hits"]
         evidence = [
             {"path": hit["path"], "title": hit["title"], "snippet": hit["snippet"], "score": hit["score"]}
@@ -1911,6 +2363,32 @@ class KnowledgeRuntime:
             result["answer"] = request.retrieval["deterministic_answer"]
             result["confidence"] = "low"
         return result
+
+    def federated_think(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        mounts: list[str] | None = None,
+        mode: str = "deterministic",
+        runner: str = "auto",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        if mode not in {"deterministic", "runner", "hybrid"}:
+            raise ValueError(f"Unknown think mode: {mode}")
+        search = self.federated_search(query, limit=limit, mounts=mounts, explain=True, rag=True)
+        request = self._build_think_request_from_search(query, search=search, limit=limit, mode=mode, runner=runner)
+        consulted = search.get("summary", {}).get("consulted_mounts", [])
+        if mode == "deterministic":
+            payload = self._deterministic_think_result(request).to_dict()
+        else:
+            payload = self._runner_think_result(request, runner=runner, dry_run=dry_run)
+            if mode == "hybrid" and payload.get("status") in {"blocked", "failed"}:
+                payload["answer"] = request.retrieval["deterministic_answer"]
+                payload["confidence"] = "low"
+        payload["federated"] = True
+        payload["consulted_mounts"] = consulted
+        return payload
 
     def register_think_result(
         self,
@@ -3198,6 +3676,23 @@ boot();
             "exports": graph.get("written", []),
         }
 
+    def federated_graph_summary(self, *, mounts: list[str] | None = None) -> dict[str, Any]:
+        summaries: list[dict[str, Any]] = []
+        local = self.graph_summary()
+        summaries.append({"mount": "local", "project": self.project_path.name, **local})
+        for mount, project in self._mount_registry().resolve_projects(mounts):
+            child = project.graph_summary()
+            summaries.append({"mount": mount.id, "project": project.slug, **child})
+        return {
+            "summaries": summaries,
+            "summary": {
+                "mounts": len(summaries),
+                "documents": sum(int((item.get("counts") or {}).get("documents", 0)) for item in summaries),
+                "entities": sum(int((item.get("counts") or {}).get("entities", 0)) for item in summaries),
+                "edges": sum(int((item.get("counts") or {}).get("edges", 0)) for item in summaries),
+            },
+        }
+
     def graph_diff(self) -> dict[str, Any]:
         previous_path = self.project_path / "research_plan" / "graph" / "graph.json"
         previous: dict[str, Any] = {}
@@ -4103,6 +4598,20 @@ krail --local graph check
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return {"status": "created", "task": payload, "path": str(path.relative_to(self.project_path))}
 
+    def mount_create_task(
+        self,
+        mount_id: str,
+        title: str,
+        *,
+        description: str = "",
+        runner: str = "auto",
+        workflow: str | None = None,
+        role: str = "research",
+    ) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        result = project.create_task(title, description=description, runner=runner, workflow=workflow, role=role)
+        return self._mount_proxy_result(result, mount=mount.id if mount else None, project_slug=project.slug)
+
     def list_tasks(self) -> dict[str, Any]:
         tasks = []
         for path in sorted(self.tasks_dir.glob("*.json")):
@@ -4111,6 +4620,10 @@ krail --local graph check
             except Exception:
                 continue
         return {"tasks": tasks}
+
+    def mount_list_tasks(self, mount_id: str) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        return self._mount_proxy_result(project.list_tasks(), mount=mount.id if mount else None, project_slug=project.slug)
 
     def _task_path(self, task_id: str) -> Path:
         path = self.tasks_dir / f"{task_id}.json"
@@ -4305,6 +4818,11 @@ krail --local graph check
             "task": task,
             "session_path": str(session_dir.relative_to(self.project_path)),
         }
+
+    def mount_dispatch_task(self, mount_id: str, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        result = project.dispatch_task(task_id, runner=runner, dry_run=dry_run)
+        return self._mount_proxy_result(result, mount=mount.id if mount else None, project_slug=project.slug)
 
     def workflow_templates(self) -> dict[str, Any]:
         return {"templates": sorted(WORKFLOW_TEMPLATES.keys())}
@@ -5146,6 +5664,10 @@ krail --local graph check
             result["warnings"] = ["active pack has non-string workflow entries; move workflow settings out of the workflows list"]
         return result
 
+    def mount_workflow_list(self, mount_id: str) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        return self._mount_proxy_result(project.list_workflows(), mount=mount.id if mount else None, project_slug=project.slug)
+
     def workflow_init(self, workflow_id: str, *, force: bool = False, template: str | None = None) -> dict[str, Any]:
         rel = Path("research_plan") / "workflows" / f"{self._slug(workflow_id)}.yaml"
         path = self.project_path / rel
@@ -5233,6 +5755,10 @@ krail --local graph check
         if validate:
             result["validation"] = self._validate_workflow_spec(spec, path=result["path"])
         return result
+
+    def mount_workflow_show(self, mount_id: str, workflow_id: str) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        return self._mount_proxy_result(project.show_workflow(workflow_id), mount=mount.id if mount else None, project_slug=project.slug)
 
     def _workflow_lock_path(self, workflow_id: str) -> Path:
         return self.locks_dir / f"workflow-{self._slug(workflow_id)}.lock"
@@ -6340,6 +6866,19 @@ krail --local graph check
             inputs=inputs,
         )
 
+    def mount_workflow_execute(
+        self,
+        mount_id: str,
+        workflow_id: str,
+        *,
+        dry_run: bool = False,
+        force: bool = False,
+        inputs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        result = project.execute_workflow(workflow_id, dry_run=dry_run, force=force, inputs=inputs)
+        return self._mount_proxy_result(result, mount=mount.id if mount else None, project_slug=project.slug)
+
     def workflow_resume(self, run_id: str, *, force: bool = False) -> dict[str, Any]:
         run_dir = self._workflow_run_dir(run_id)
         state_path = run_dir / "state.json"
@@ -6475,6 +7014,11 @@ krail --local graph check
             return {"status": "created", "task": task, "dry_run": True}
         dispatch = self.dispatch_task(task["id"], runner=runner)
         return {"status": "dispatched", "task": task, "dispatch": dispatch}
+
+    def mount_workflow_run(self, mount_id: str, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict[str, Any]:
+        mount, project = self._resolve_mount_project(mount_id)
+        result = project.run_workflow(workflow_id, runner=runner, dry_run=dry_run)
+        return self._mount_proxy_result(result, mount=mount.id if mount else None, project_slug=project.slug)
 
 
 def shutil_which(executable: str) -> str | None:

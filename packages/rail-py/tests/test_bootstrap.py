@@ -161,6 +161,32 @@ def test_cli_init_materializes_pack_workflows_by_default(tmp_path):
     assert (target / "research_plan" / "workflows" / "company-profile-refresh.yaml").exists()
 
 
+def test_cli_init_software_mode_materializes_repo_workflows(tmp_path):
+    target = tmp_path / "software-project"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "init",
+            str(target),
+            "--knowledge-mode",
+            "software",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert "sync_recent_changes" in payload["materialized_workflows"]
+    assert (target / "research_plan" / "workflows" / "sync-recent-changes.yaml").exists()
+
+
 def test_cli_init_can_skip_pack_workflow_materialization(tmp_path):
     target = tmp_path / "company-brain-project"
 

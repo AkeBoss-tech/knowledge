@@ -17,6 +17,8 @@ CheckpointMode = Literal["git-ref", "none"]
 AutonomyMode = Literal["assisted", "supervised_autopilot", "autopilot"]
 ProjectMode = Literal["ontology_first", "research_first"]
 KnowledgeMode = Literal["research", "company", "personal", "software", "project"]
+MountType = Literal["krail_project"]
+MountAccessMode = Literal["none", "metadata_only", "summary_only", "chunks_with_citations", "delegated", "full"]
 SourceOfTruth = Literal["git"]
 QuestionClassification = Literal[
     "answerable_now",
@@ -33,6 +35,12 @@ def _validate_repo_relative_path(value: str) -> str:
         raise ValueError("paths must be repository-relative, not absolute")
     if any(part == ".." for part in path.parts):
         raise ValueError("paths may not traverse outside the repository")
+    return value
+
+
+def _validate_mount_path(value: str) -> str:
+    if not str(value or "").strip():
+        raise ValueError("mount path is required")
     return value
 
 
@@ -347,6 +355,24 @@ class LifecycleSection(BaseModel):
     slices: dict[str, ResearchSlice] = Field(default_factory=dict)
 
 
+class MountSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    path: str
+    type: MountType = "krail_project"
+    visibility: str = "private"
+    access_mode: MountAccessMode = "delegated"
+    search_weight: float = Field(default=1.0, gt=0)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("path")
+    @classmethod
+    def _validate_path(cls, value: str) -> str:
+        return _validate_mount_path(value)
+
+
 class RailManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -367,6 +393,7 @@ class RailManifest(BaseModel):
     secrets: SecretsSection = Field(default_factory=SecretsSection)
     lifecycle: LifecycleSection = Field(default_factory=LifecycleSection)
     workspaces: WorkspacesSection = Field(default_factory=WorkspacesSection)
+    mounts: list[MountSection] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_hydration_inside_ontology_root(self) -> "RailManifest":

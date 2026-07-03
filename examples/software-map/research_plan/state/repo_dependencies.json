@@ -1,0 +1,39 @@
+{
+  "repos": {
+    "sources/sample-service": {
+      "status": "inspected",
+      "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+      "repo_key": "sources/sample-service",
+      "generated_at": "2026-07-01T02:51:55.808479+00:00",
+      "ecosystems": [
+        {
+          "ecosystem": "python",
+          "path": "pyproject.toml",
+          "dependencies": [
+            "fastapi>=0.110",
+            "pydantic>=2"
+          ],
+          "optional_groups": {
+            "dev": [
+              "pytest>=8",
+              "ruff>=0.5"
+            ]
+          }
+        },
+        {
+          "ecosystem": "node",
+          "path": "package.json",
+          "groups": {
+            "dependencies": {
+              "react": "^18.3.0"
+            },
+            "devDependencies": {
+              "vite": "^5.0.0"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-07-01T02:51:55.808676+00:00"
+}

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## v0.2.3-local-preview
+
+Third local-preview release focused on permission-aware local tooling,
+federated mounted knowledge bases, and software-map repo inspection.
+
+### Added
+
+- Permission-aware local file tooling with `krail grep`, `krail files list`,
+  `krail files read`, and `krail files stat`.
+- Mounted child KRAIL projects via `mounts:` in `rail.yaml`, plus `krail mount
+  list` for health inspection.
+- Federated `search`, `find`, `think`, and graph summary across the local
+  project and selected mounted child projects.
+- Mount-targeted task and workflow proxy operations so the root project can
+  create, inspect, and dispatch work inside child knowledge bases without
+  flattening their state.
+- MCP tools for mount listing, federated retrieval, federated think, and
+  federated graph summaries.
+- Deterministic repo snapshot, inventory, owner, dependency, symbol, and change
+  inspection commands for software-map workflows.
+- Git repository listener support and a built-in `git_change_monitor` template.
+- Software knowledge mode workflow materialization for `sync_recent_changes`.
+- Bundled `examples/software-map` project fixture and related bootstrap/tests.
+
+### Fixed
+
+- Permission filters are now reused by local file inspection commands instead of
+  only by search/find surfaces.
+- Federated read results preserve mount provenance in returned paths and
+  citations.
+- Listener polling can now detect local Git working-tree changes and trigger
+  dry-run workflows deterministically.
+
 ### Added
 
 - Deterministic `think` now returns citations, source freshness, affected documents, and source-refresh next actions.

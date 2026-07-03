@@ -1,0 +1,54 @@
+documents:
+  - path: topics/brief.md
+    depends_on:
+      - id: local:research-question
+        type: local_file
+        path: specs/research_question.yaml
+        role: project_spec
+        refresh: manual
+      - id: local:sample-service-pyproject
+        type: local_file
+        path: sources/sample-service/pyproject.toml
+        role: code_manifest
+        refresh: manual
+      - id: local:sample-service-package-json
+        type: local_file
+        path: sources/sample-service/package.json
+        role: ui_manifest
+        refresh: manual
+      - id: local:sample-service-codeowners
+        type: local_file
+        path: sources/sample-service/.github/CODEOWNERS
+        role: ownership_map
+        refresh: manual
+  - path: topics/api-service.md
+    depends_on:
+      - id: local:sample-service-route
+        type: local_file
+        path: sources/sample-service/app/routes/health.py
+        role: endpoint_source
+        refresh: manual
+      - id: local:sample-service-adr
+        type: local_file
+        path: sources/sample-service/docs/adr/0001-http-surface.md
+        role: decision_record
+        refresh: manual
+  - path: topics/health-endpoint.md
+    depends_on:
+      - id: local:sample-service-route
+        type: local_file
+        path: sources/sample-service/app/routes/health.py
+        role: endpoint_source
+        refresh: manual
+  - path: topics/dependency-review.md
+    depends_on:
+      - id: local:sample-service-pyproject
+        type: local_file
+        path: sources/sample-service/pyproject.toml
+        role: backend_dependencies
+        refresh: manual
+      - id: local:sample-service-package-json
+        type: local_file
+        path: sources/sample-service/package.json
+        role: frontend_dependencies
+        refresh: manual

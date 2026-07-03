@@ -68,24 +68,41 @@ def cmd_init(args: argparse.Namespace):
     _print_json(payload)
 
 def cmd_search(project: rail.Project, args: argparse.Namespace):
-    if hasattr(project._backend, "knowledge"):
+    if getattr(args, "federated", False):
+        _print_json(project.federated_search(args.query, limit=args.limit, mounts=args.mount, explain=args.explain, rag=args.rag))
+    elif hasattr(project._backend, "knowledge"):
         _print_json(project._backend.knowledge.search(args.query, limit=args.limit, explain=args.explain, rag=args.rag))
     else:
         _print_json(project.search(args.query))
 
 def cmd_find(project: rail.Project, args: argparse.Namespace):
-    result = project.find(
-        args.query,
-        limit=args.limit,
-        types=args.type,
-        topic=args.topic,
-        entity=args.entity,
-        status=args.status,
-        freshness=args.freshness,
-        workflow=args.workflow,
-        explain=args.explain,
-        rag=not args.no_rag,
-    )
+    if getattr(args, "federated", False):
+        result = project.federated_find(
+            args.query,
+            limit=args.limit,
+            mounts=args.mount,
+            types=args.type,
+            topic=args.topic,
+            entity=args.entity,
+            status=args.status,
+            freshness=args.freshness,
+            workflow=args.workflow,
+            explain=args.explain,
+            rag=not args.no_rag,
+        )
+    else:
+        result = project.find(
+            args.query,
+            limit=args.limit,
+            types=args.type,
+            topic=args.topic,
+            entity=args.entity,
+            status=args.status,
+            freshness=args.freshness,
+            workflow=args.workflow,
+            explain=args.explain,
+            rag=not args.no_rag,
+        )
     if args.paths:
         for item in result.get("results", []):
             path = item.get("path")
@@ -117,7 +134,17 @@ def cmd_find(project: rail.Project, args: argparse.Namespace):
             print(f"- {action}")
 
 def cmd_think(project: rail.Project, args: argparse.Namespace):
-    result = project.think(args.query, limit=args.limit, mode=args.mode, runner=args.runner, dry_run=args.dry_run)
+    if getattr(args, "federated", False):
+        result = project.federated_think(
+            args.query,
+            limit=args.limit,
+            mounts=args.mount,
+            mode=args.mode,
+            runner=args.runner,
+            dry_run=args.dry_run,
+        )
+    else:
+        result = project.think(args.query, limit=args.limit, mode=args.mode, runner=args.runner, dry_run=args.dry_run)
     if args.output and not args.dry_run:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +258,60 @@ def cmd_permissions(project: rail.Project, args: argparse.Namespace):
     if args.permissions_command == "doctor":
         _print_json(project.permissions_doctor())
 
+def cmd_mount(project: rail.Project, args: argparse.Namespace):
+    if args.mount_command == "list":
+        _print_json(project.mount_list())
+
+def cmd_grep(project: rail.Project, args: argparse.Namespace):
+    result = project.grep(
+        args.pattern,
+        paths=args.path,
+        glob=args.glob,
+        ignore_case=args.ignore_case,
+        fixed_strings=args.fixed_strings,
+        word_regexp=args.word_regexp,
+        max_count=args.max_count,
+    )
+    if args.json:
+        _print_json(result)
+        return
+    for match in result.get("matches", []):
+        print(f"{match['path']}:{match['line_number']}:{match['line']}")
+    summary = result.get("summary", {})
+    print(
+        f"\n{summary.get('returned', 0)} match(es) across {summary.get('readable_files', 0)} readable file(s)"
+        + (f", {summary.get('denied_files', 0)} denied" if summary.get("denied_files") else "")
+    )
+
+def cmd_files(project: rail.Project, args: argparse.Namespace):
+    if args.files_command == "list":
+        result = project.files_list(
+            paths=args.path,
+            glob=args.glob,
+            recursive=args.recursive,
+            include_hidden=args.hidden,
+        )
+        if args.json:
+            _print_json(result)
+            return
+        for item in result.get("items", []):
+            suffix = "/" if item.get("type") == "directory" else ""
+            print(f"{item['path']}{suffix}")
+        summary = result.get("summary", {})
+        if summary.get("denied"):
+            print(f"\n{summary['denied']} path(s) hidden by permissions")
+    elif args.files_command == "read":
+        result = project.files_read(args.path, start_line=args.start_line, lines=args.lines)
+        if args.json:
+            _print_json(result)
+            return
+        if result.get("status") == "blocked":
+            _print_json(result)
+            return
+        sys.stdout.write(result.get("content", ""))
+    elif args.files_command == "stat":
+        _print_json(project.files_stat(args.path))
+
 def cmd_agent(project: rail.Project, args: argparse.Namespace):
     if args.agent_command == "list":
         _print_json(project.agents())
@@ -258,40 +339,70 @@ def cmd_agent(project: rail.Project, args: argparse.Namespace):
 
 def cmd_task(project: rail.Project, args: argparse.Namespace):
     if args.task_command == "list":
-        _print_json(project.list_tasks())
+        if getattr(args, "mount", None):
+            _print_json(project.mount_list_tasks(args.mount))
+        else:
+            _print_json(project.list_tasks())
     elif args.task_command == "create":
-        _print_json(
-            project.create_task(
-                args.title,
-                description=args.description or args.title,
-                runner=args.runner,
-                workflow=args.workflow,
-                role=args.role,
+        if getattr(args, "mount", None):
+            _print_json(
+                project.mount_create_task(
+                    args.mount,
+                    args.title,
+                    description=args.description or args.title,
+                    runner=args.runner,
+                    workflow=args.workflow,
+                    role=args.role,
+                )
             )
-        )
+        else:
+            _print_json(
+                project.create_task(
+                    args.title,
+                    description=args.description or args.title,
+                    runner=args.runner,
+                    workflow=args.workflow,
+                    role=args.role,
+                )
+            )
     elif args.task_command == "work-order":
         _print_json(project.create_work_order(args.task_id))
     elif args.task_command == "dispatch":
-        _print_json(project.dispatch_task(args.task_id, runner=args.runner, dry_run=args.dry_run))
+        if getattr(args, "mount", None):
+            _print_json(project.mount_dispatch_task(args.mount, args.task_id, runner=args.runner, dry_run=args.dry_run))
+        else:
+            _print_json(project.dispatch_task(args.task_id, runner=args.runner, dry_run=args.dry_run))
 
 def cmd_workflow(project: rail.Project, args: argparse.Namespace):
     if args.workflow_command == "list":
-        _print_json(project.list_workflows())
+        if getattr(args, "mount", None):
+            _print_json(project.mount_list_workflows(args.mount))
+        else:
+            _print_json(project.list_workflows())
     elif args.workflow_command == "templates":
         _print_json(project.workflow_templates())
     elif args.workflow_command == "init":
         _print_json(project.init_workflow(args.workflow_id, force=args.force, template=args.template))
     elif args.workflow_command == "show":
-        _print_json(project.show_workflow(args.workflow_id))
+        if getattr(args, "mount", None):
+            _print_json(project.mount_show_workflow(args.mount, args.workflow_id))
+        else:
+            _print_json(project.show_workflow(args.workflow_id))
     elif args.workflow_command == "validate":
         result = project.validate_workflow(args.workflow_id)
         _print_json(result)
         if not result.get("ok", False):
             sys.exit(1)
     elif args.workflow_command == "run":
-        _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
+        if getattr(args, "mount", None):
+            _print_json(project.mount_run_workflow(args.mount, args.workflow_id, runner=args.runner, dry_run=args.dry_run))
+        else:
+            _print_json(project.run_workflow(args.workflow_id, runner=args.runner, dry_run=args.dry_run))
     elif args.workflow_command == "execute":
-        _print_json(project.execute_workflow(args.workflow_id, dry_run=args.dry_run, force=args.force, inputs=_parse_inputs(args.input)))
+        if getattr(args, "mount", None):
+            _print_json(project.mount_execute_workflow(args.mount, args.workflow_id, dry_run=args.dry_run, force=args.force, inputs=_parse_inputs(args.input)))
+        else:
+            _print_json(project.execute_workflow(args.workflow_id, dry_run=args.dry_run, force=args.force, inputs=_parse_inputs(args.input)))
     elif args.workflow_command == "runs":
         _print_json(project.workflow_runs(limit=args.limit))
     elif args.workflow_command == "dashboard":
@@ -388,7 +499,10 @@ def cmd_graph(project: rail.Project, args: argparse.Namespace):
         else:
             _print_json({"counts": result.get("counts", {}), "warnings": result.get("warnings", []), "written": result.get("written", [])})
     elif args.graph_command == "summary":
-        _print_json(project.graph_summary())
+        if getattr(args, "federated", False):
+            _print_json(project.federated_graph_summary(mounts=args.mount))
+        else:
+            _print_json(project.graph_summary())
     elif args.graph_command == "diff":
         _print_json(project.graph_diff())
     elif args.graph_command == "validate":
@@ -634,6 +748,8 @@ def main():
     s_parser.add_argument("--limit", type=int, default=10)
     s_parser.add_argument("--explain", action="store_true", help="Explain local ranking signals")
     s_parser.add_argument("--rag", action="store_true", help="Use the local SQLite vector index for RAG-style retrieval")
+    s_parser.add_argument("--federated", action="store_true", help="Search the local project and configured mounted child projects")
+    s_parser.add_argument("--mount", action="append", help="Limit federated search to a specific mount id; repeatable")
 
     find_parser = subparsers.add_parser("find", help="Find typed knowledge records across docs, graph, integrity, sessions, queues, and artifacts")
     find_parser.add_argument("query", help="Find query")
@@ -648,10 +764,42 @@ def main():
     find_parser.add_argument("--explain", action="store_true", help="Explain searched surfaces and ranking signals")
     find_parser.add_argument("--json", action="store_true", help="Print the full JSON envelope")
     find_parser.add_argument("--paths", action="store_true", help="Print matching paths only")
+    find_parser.add_argument("--federated", action="store_true", help="Search the local project and configured mounted child projects")
+    find_parser.add_argument("--mount", action="append", help="Limit federated find to a specific mount id; repeatable")
 
     perm_parser = subparsers.add_parser("permissions", help="Inspect local permission metadata and access policy")
     perm_subs = perm_parser.add_subparsers(dest="permissions_command")
     perm_subs.add_parser("doctor", help="Check permission metadata and audit configuration")
+
+    mount_parser = subparsers.add_parser("mount", help="Inspect configured mounted child projects")
+    mount_subs = mount_parser.add_subparsers(dest="mount_command")
+    mount_subs.add_parser("list", help="List configured mounts and their health")
+
+    grep_parser = subparsers.add_parser("grep", help="Permission-aware grep across readable project files")
+    grep_parser.add_argument("pattern", help="Regex pattern to search")
+    grep_parser.add_argument("path", nargs="*", help="Optional repo-relative file or directory roots")
+    grep_parser.add_argument("--glob", action="append", help="Limit searched files to glob patterns")
+    grep_parser.add_argument("--ignore-case", action="store_true", help="Ignore case distinctions")
+    grep_parser.add_argument("--fixed-strings", action="store_true", help="Treat pattern as a literal string")
+    grep_parser.add_argument("--word-regexp", action="store_true", help="Match whole words only")
+    grep_parser.add_argument("--max-count", type=int, help="Stop after this many matching lines")
+    grep_parser.add_argument("--json", action="store_true", help="Print the full JSON envelope")
+
+    files_parser = subparsers.add_parser("files", help="Permission-aware file inspection tools")
+    files_subs = files_parser.add_subparsers(dest="files_command")
+    files_list = files_subs.add_parser("list", help="List readable files and directories")
+    files_list.add_argument("path", nargs="*", help="Optional repo-relative file or directory roots")
+    files_list.add_argument("--glob", action="append", help="Filter returned paths by glob")
+    files_list.add_argument("--recursive", action="store_true", help="Walk directories recursively")
+    files_list.add_argument("--hidden", action="store_true", help="Include hidden dot-paths")
+    files_list.add_argument("--json", action="store_true", help="Print the full JSON envelope")
+    files_read = files_subs.add_parser("read", help="Read a permitted file")
+    files_read.add_argument("path", help="Repo-relative file path")
+    files_read.add_argument("--start-line", type=int, default=1, help="1-based starting line")
+    files_read.add_argument("--lines", type=int, help="Maximum number of lines to print")
+    files_read.add_argument("--json", action="store_true", help="Print the full JSON envelope")
+    files_stat = files_subs.add_parser("stat", help="Show metadata for a permitted path")
+    files_stat.add_argument("path", help="Repo-relative file or directory path")
 
     # Think
     t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
@@ -663,6 +811,8 @@ def main():
     t_parser.add_argument("--output", help="Write the think result envelope to a JSON file")
     t_parser.add_argument("--register-integrity", action="store_true", help="Register the written think output as an integrity artifact with claim candidates")
     t_parser.add_argument("--title", help="Optional artifact title when registering a think result")
+    t_parser.add_argument("--federated", action="store_true", help="Use the local project plus configured mounted child projects for retrieval")
+    t_parser.add_argument("--mount", action="append", help="Limit federated think to a specific mount id; repeatable")
 
     ts_parser = subparsers.add_parser("think-session", help="Inspect runner-backed think sessions")
     ts_subs = ts_parser.add_subparsers(dest="think_session_command")
@@ -779,24 +929,28 @@ def main():
     # Tasks
     task_parser = subparsers.add_parser("task", help="Manage repo-backed tasks and work orders")
     task_subs = task_parser.add_subparsers(dest="task_command")
-    task_subs.add_parser("list", help="List local tasks")
+    tl = task_subs.add_parser("list", help="List local tasks")
+    tl.add_argument("--mount", help="Target a mounted child project instead of the local project")
     tc = task_subs.add_parser("create", help="Create a local task")
     tc.add_argument("title")
     tc.add_argument("--description", default="")
     tc.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     tc.add_argument("--workflow")
     tc.add_argument("--role", default="research")
+    tc.add_argument("--mount", help="Create the task inside a mounted child project")
     two = task_subs.add_parser("work-order", help="Create a work order for a task")
     two.add_argument("task_id")
     td = task_subs.add_parser("dispatch", help="Dispatch a task to a local CLI runner")
     td.add_argument("task_id")
     td.add_argument("--runner", choices=RUNNER_CHOICES)
     td.add_argument("--dry-run", action="store_true")
+    td.add_argument("--mount", help="Dispatch a task inside a mounted child project")
 
     # Workflows
     wf_parser = subparsers.add_parser("workflow", help="Run pack-defined workflow stubs")
     wf_subs = wf_parser.add_subparsers(dest="workflow_command")
-    wf_subs.add_parser("list", help="List workflows from active pack")
+    wl = wf_subs.add_parser("list", help="List workflows from active pack")
+    wl.add_argument("--mount", help="List workflows from a mounted child project")
     wf_subs.add_parser("templates", help="List built-in workflow templates")
     wi = wf_subs.add_parser("init", help="Create a local workflow spec under research_plan/workflows")
     wi.add_argument("workflow_id")
@@ -804,17 +958,20 @@ def main():
     wi.add_argument("--force", action="store_true")
     ws = wf_subs.add_parser("show", help="Show a local workflow spec")
     ws.add_argument("workflow_id")
+    ws.add_argument("--mount", help="Show the workflow from a mounted child project")
     wv = wf_subs.add_parser("validate", help="Validate a local workflow spec")
     wv.add_argument("workflow_id")
     wr = wf_subs.add_parser("run", help="Create and dispatch a workflow task")
     wr.add_argument("workflow_id")
     wr.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     wr.add_argument("--dry-run", action="store_true")
+    wr.add_argument("--mount", help="Run the workflow in a mounted child project")
     wx = wf_subs.add_parser("execute", help="Execute a local workflow spec")
     wx.add_argument("workflow_id")
     wx.add_argument("--dry-run", action="store_true")
     wx.add_argument("--force", action="store_true", help="Bypass workflow lock")
     wx.add_argument("--input", action="append", help="Workflow input as key=value; JSON values are accepted")
+    wx.add_argument("--mount", help="Execute the workflow in a mounted child project")
     wrl = wf_subs.add_parser("runs", help="List local workflow runs")
     wrl.add_argument("--limit", type=int, default=20)
     wdash = wf_subs.add_parser("dashboard", help="Summarize workflow and agent session status")
@@ -927,7 +1084,9 @@ def main():
     gb.add_argument("--quiet", action="store_true", help="Build without printing the graph JSON")
     gb.add_argument("--summary", action="store_true", help="Print only counts, warnings, and written paths")
     gb.add_argument("--json", action="store_true", help="Print the full graph JSON")
-    graph_subs.add_parser("summary", help="Print graph counts and warnings without dumping graph JSON")
+    gsummary = graph_subs.add_parser("summary", help="Print graph counts and warnings without dumping graph JSON")
+    gsummary.add_argument("--federated", action="store_true", help="Include configured mounted child projects")
+    gsummary.add_argument("--mount", action="append", help="Limit federated graph summary to a specific mount id; repeatable")
     graph_subs.add_parser("diff", help="Compare current markdown graph to the saved graph artifact")
     graph_subs.add_parser("validate", help="Validate markdown graph frontmatter")
     graph_subs.add_parser("check", help="Fail-style check for stale graph artifacts")
@@ -1167,6 +1326,12 @@ def main():
         cmd_pack(project, args)
     elif args.command == "permissions":
         cmd_permissions(project, args)
+    elif args.command == "mount":
+        cmd_mount(project, args)
+    elif args.command == "grep":
+        cmd_grep(project, args)
+    elif args.command == "files":
+        cmd_files(project, args)
     elif args.command == "agent":
         cmd_agent(project, args)
     elif args.command == "task":

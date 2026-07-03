@@ -165,6 +165,7 @@ def test_listener_init_validate_and_templates(tmp_path: Path):
     validation = runtime.listener_validate("docs_watch")
 
     assert "website_change_monitor" in templates["templates"]
+    assert "git_change_monitor" in templates["templates"]
     assert "github" in templates["types"]
     assert created["path"] == "research_plan/listeners/docs-watch.yaml"
     assert validation["ok"] is True
@@ -268,6 +269,47 @@ def test_github_listener_polls_issues(monkeypatch, tmp_path: Path):
     event = result["results"][0]["events"][0]
     assert event["source"] == "github.issue.opened"
     assert event["payload"]["payload"]["number"] == 7
+
+
+def test_git_listener_detects_working_tree_change(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Listener Project", slug="listener-project")
+    runtime = KnowledgeRuntime(root)
+    _write_workflow(root)
+
+    repo = root / "tracked-repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+
+    listener_dir = root / "research_plan" / "listeners"
+    listener_dir.mkdir(parents=True, exist_ok=True)
+    (listener_dir / "git-watch.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "git_watch",
+                "type": "git",
+                "repo_path": "tracked-repo",
+                "on_change": {"workflow": "refresh_notes", "dry_run_first": True},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    first = runtime.listener_poll("git_watch")
+    assert first["results"][0]["events"] == []
+
+    (repo / "app.py").write_text("print('changed')\n", encoding="utf-8")
+    second = runtime.listener_poll("git_watch")
+
+    event = second["results"][0]["events"][0]
+    assert event["source"] == "git.repo.changed"
+    assert event["workflow_result"]["status"] == "dry_run"
+    assert event["payload"]["payload"]["working_tree"]["dirty"] is True
 
 
 def test_listener_doctor_reports_missing_workflow(tmp_path: Path):

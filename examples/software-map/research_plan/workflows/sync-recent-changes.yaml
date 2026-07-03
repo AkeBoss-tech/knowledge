@@ -1,0 +1,24 @@
+id: sync_recent_changes
+description: Inspect recent repository changes and update software-map knowledge with
+  explicit stale/gap notes.
+schedule: ''
+steps:
+- id: repo_changed
+  kind: command
+  run: krail --local repo changed sources/sample-service
+- id: repo_inventory
+  kind: command
+  run: krail --local repo inventory sources/sample-service
+- id: repo_symbols
+  kind: command
+  run: krail --local repo symbols sources/sample-service
+- id: change_sync
+  kind: agent
+  role: platform
+  runner: auto
+  prompt: Review recent repository changes and refresh affected software topics, decisions,
+    risks, and blockers. Prefer updating existing topics over creating loose notes,
+    and record what is still ambiguous.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build

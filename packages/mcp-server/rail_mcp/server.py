@@ -336,7 +336,7 @@ def search_entities(query: str) -> str:
 
 
 @mcp.tool()
-def search(query: str, limit: int = 10, explain: bool = False) -> str:
+def search(query: str, limit: int = 10, explain: bool = False, federated: bool = False, mounts_json: str = "") -> str:
     """
     Search local project evidence. Returns ranked records, not synthesis.
 
@@ -344,8 +344,20 @@ def search(query: str, limit: int = 10, explain: bool = False) -> str:
         query: Search query.
         limit: Maximum number of hits.
         explain: Include ranking-signal notes when available.
+        federated: Include configured mounted child projects.
+        mounts_json: Optional JSON list of mount ids to consult, e.g. ["robotics"].
     """
     project = _get_project()
+    mounts: list[str] | None = None
+    if mounts_json.strip():
+        try:
+            loaded = json.loads(mounts_json)
+            if isinstance(loaded, list):
+                mounts = [str(item) for item in loaded]
+        except Exception:
+            mounts = [item.strip() for item in mounts_json.split(",") if item.strip()]
+    if federated:
+        return _json(project.federated_search(query, limit=limit, mounts=mounts, explain=explain))
     if hasattr(project._backend, "knowledge"):
         return _json(project._backend.knowledge.search(query, limit=limit, explain=explain))
     return _json({"query": query, "hits": project.search(query)[:limit]})
@@ -363,6 +375,8 @@ def find(
     workflow: str = "",
     explain: bool = False,
     rag: bool = True,
+    federated: bool = False,
+    mounts_json: str = "",
 ) -> str:
     """
     Find typed knowledge records across docs, graph, integrity state, sessions, queues, and artifacts.
@@ -378,8 +392,11 @@ def find(
         workflow: Optional workflow filter.
         explain: Include searched surfaces and ranking notes.
         rag: Include local vector retrieval when available.
+        federated: Include configured mounted child projects.
+        mounts_json: Optional JSON list of mount ids to consult, e.g. ["robotics"].
     """
     types: list[str] | None = None
+    mounts: list[str] | None = None
     if types_json.strip():
         try:
             loaded = json.loads(types_json)
@@ -387,7 +404,30 @@ def find(
                 types = [str(item) for item in loaded]
         except Exception:
             types = [item.strip() for item in types_json.split(",") if item.strip()]
+    if mounts_json.strip():
+        try:
+            loaded = json.loads(mounts_json)
+            if isinstance(loaded, list):
+                mounts = [str(item) for item in loaded]
+        except Exception:
+            mounts = [item.strip() for item in mounts_json.split(",") if item.strip()]
     project = _get_project()
+    if federated:
+        return _json(
+            project.federated_find(
+                query,
+                limit=limit,
+                mounts=mounts,
+                types=types,
+                topic=topic or None,
+                entity=entity or None,
+                status=status or None,
+                freshness=freshness or None,
+                workflow=workflow or None,
+                explain=explain,
+                rag=rag,
+            )
+        )
     return _json(
         project.find(
             query,
@@ -411,7 +451,13 @@ def permissions_doctor() -> str:
 
 
 @mcp.tool()
-def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str = "auto", dry_run: bool = False) -> str:
+def mount_list() -> str:
+    """List configured mounted child projects and their current health."""
+    return _json(_get_project().mount_list())
+
+
+@mcp.tool()
+def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str = "auto", dry_run: bool = False, federated: bool = False, mounts_json: str = "") -> str:
     """
     Synthesize from retrieved project evidence with explicit gaps and conflicts.
 
@@ -422,6 +468,16 @@ def think(query: str, limit: int = 5, mode: str = "deterministic", runner: str =
         runner: Preferred local runner when using runner-backed synthesis.
         dry_run: If True, materialize the synthesis session without launching a runner.
     """
+    mounts: list[str] | None = None
+    if mounts_json.strip():
+        try:
+            loaded = json.loads(mounts_json)
+            if isinstance(loaded, list):
+                mounts = [str(item) for item in loaded]
+        except Exception:
+            mounts = [item.strip() for item in mounts_json.split(",") if item.strip()]
+    if federated:
+        return _json(_get_project().federated_think(query, limit=limit, mounts=mounts, mode=mode, runner=runner, dry_run=dry_run))
     return _json(_get_project().think(query, limit=limit, mode=mode, runner=runner, dry_run=dry_run))
 
 
@@ -942,6 +998,20 @@ def queue_claim(queue_id: str, limit: int = 10, where_json: str = "", owner: str
 def graph_summary() -> str:
     """Return graph counts and warnings without dumping full graph JSON."""
     return _json(_get_project().graph_summary())
+
+
+@mcp.tool()
+def federated_graph_summary(mounts_json: str = "") -> str:
+    """Return graph summaries for the local project and configured mounted child projects."""
+    mounts: list[str] | None = None
+    if mounts_json.strip():
+        try:
+            loaded = json.loads(mounts_json)
+            if isinstance(loaded, list):
+                mounts = [str(item) for item in loaded]
+        except Exception:
+            mounts = [item.strip() for item in mounts_json.split(",") if item.strip()]
+    return _json(_get_project().federated_graph_summary(mounts=mounts))
 
 
 @mcp.tool()

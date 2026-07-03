@@ -1,0 +1,117 @@
+{
+  "repos": {
+    "sources/sample-service": {
+      "status": "inspected",
+      "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+      "repo_key": "sources/sample-service",
+      "generated_at": "2026-07-01T03:15:22.443174+00:00",
+      "languages": [
+        "javascript",
+        "python",
+        "typescript"
+      ],
+      "files": [
+        {
+          "path": "app/__init__.py",
+          "language": "python",
+          "symbol_count": 0,
+          "symbols": [],
+          "imports": [],
+          "routes": []
+        },
+        {
+          "path": "app/main.py",
+          "language": "python",
+          "symbol_count": 0,
+          "symbols": [],
+          "imports": [
+            "app.routes.health",
+            "fastapi"
+          ],
+          "routes": []
+        },
+        {
+          "path": "web/ui.ts",
+          "language": "typescript",
+          "symbol_count": 2,
+          "symbols": [
+            {
+              "name": "router",
+              "kind": "function",
+              "line": 3,
+              "async": false
+            },
+            {
+              "name": "renderHome",
+              "kind": "function",
+              "line": 5,
+              "async": false
+            }
+          ],
+          "imports": [
+            "express"
+          ],
+          "routes": [
+            {
+              "method": "GET",
+              "path": "/ui-health",
+              "line": 9
+            }
+          ]
+        },
+        {
+          "path": "tests/test_health.py",
+          "language": "python",
+          "symbol_count": 1,
+          "symbols": [
+            {
+              "name": "test_health_contract",
+              "kind": "function",
+              "line": 1,
+              "async": false,
+              "decorators": []
+            }
+          ],
+          "imports": [],
+          "routes": []
+        },
+        {
+          "path": "app/routes/health.py",
+          "language": "python",
+          "symbol_count": 1,
+          "symbols": [
+            {
+              "name": "health",
+              "kind": "function",
+              "line": 7,
+              "async": false,
+              "decorators": [
+                "router.get"
+              ]
+            }
+          ],
+          "imports": [
+            "fastapi"
+          ],
+          "routes": [
+            {
+              "name": "health",
+              "method": "GET",
+              "path": "/health",
+              "line": 7
+            }
+          ]
+        }
+      ],
+      "counts": {
+        "files": 5,
+        "symbols": 4,
+        "by_language": {
+          "python": 2,
+          "typescript": 2
+        }
+      }
+    }
+  },
+  "updated_at": "2026-07-01T03:15:22.443373+00:00"
+}

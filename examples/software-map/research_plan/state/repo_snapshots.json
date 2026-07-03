@@ -1,0 +1,24 @@
+{
+  "repos": {
+    "sources/sample-service": {
+      "status": "inspected",
+      "target": "/Users/akashdubey/Documents/CodingProjects/knowledge/examples/software-map/sources/sample-service",
+      "repo_key": "sources/sample-service",
+      "generated_at": "2026-07-01T02:52:39.467821+00:00",
+      "exists": true,
+      "is_git": true,
+      "git_root": "/Users/akashdubey/Documents/CodingProjects/knowledge",
+      "branch": "future",
+      "head": "c04f320bef740d91783e0d996a7f4f67a8efc5bd",
+      "dirty": true,
+      "tracked_changes": [],
+      "untracked_files": [
+        "examples/software-map/sources/sample-service/"
+      ],
+      "changed_files": [
+        "examples/software-map/sources/sample-service/"
+      ]
+    }
+  },
+  "updated_at": "2026-07-01T02:52:39.550198+00:00"
+}

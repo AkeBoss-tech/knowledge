@@ -1,0 +1,22 @@
+{
+  "dedupe": {},
+  "listeners": {
+    "sample_repo_tree": {
+      "checked_at": "2026-07-01T02:52:44.543093+00:00",
+      "failure_count": 0,
+      "hashes": {
+        "sources/sample-service/.github/CODEOWNERS": "sha256:f341de6afc83c1522fc0d713d940aaa0f5613b1077093b824fd0fda6d3f8ca2d",
+        "sources/sample-service/.github/workflows/ci.yml": "sha256:1bd3bf2a4bda248386097b86362aecce1ad8b29516f73bdca9e9a3bb3f6c6a09",
+        "sources/sample-service/app/__init__.py": "sha256:833775bd00f258cb5d08c60d97dba3f007fed9d1abcb66110604d5e094c4883f",
+        "sources/sample-service/app/main.py": "sha256:9ebf44132b99ea7d5817a89c3292019b4c91c467f75c07db70114d2008dfc6e2",
+        "sources/sample-service/app/routes/health.py": "sha256:40c76edd56f6b698c9004501f86131475ddf618e82f7e8992cdd454054312305",
+        "sources/sample-service/docs/adr/0001-http-surface.md": "sha256:30b7d61bb7262b5205c3d2109cf60eb5d3cc41b0da895c7e17bc4e02796250fe",
+        "sources/sample-service/package.json": "sha256:d97bdb693a502355acf45ae485b2529cd14016b96d6b5f2e423fe37d80638322",
+        "sources/sample-service/pyproject.toml": "sha256:adddcb7fe2a011cb17871fdaaa24e85e229fcabd9e3a43dc6e34f545b690db67",
+        "sources/sample-service/tests/test_health.py": "sha256:8c745dedc30809ca608dfc1bb7e02da531abc1772b9316ceba9210a7785a8114"
+      },
+      "last_success_at": "2026-07-01T02:52:44.543105+00:00",
+      "status": "ok"
+    }
+  }
+}

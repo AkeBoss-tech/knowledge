@@ -1,0 +1,6 @@
+id: sample_repo_tree
+type: file
+glob: sources/sample-service/**/*
+on_change:
+  workflow: sync_recent_changes
+  dry_run_first: true

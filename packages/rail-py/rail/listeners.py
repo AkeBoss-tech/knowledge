@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-SUPPORTED_LISTENER_TYPES = {"file", "http", "rss", "schedule", "command", "github"}
+SUPPORTED_LISTENER_TYPES = {"file", "http", "rss", "schedule", "command", "github", "git"}
 
 LISTENER_TEMPLATES: dict[str, dict[str, Any]] = {
     "website_change_monitor": {
@@ -60,6 +60,13 @@ LISTENER_TEMPLATES: dict[str, dict[str, Any]] = {
         "type": "schedule",
         "interval": "7d",
         "on_change": {"workflow": "weekly_review", "dry_run_first": True},
+    },
+    "git_change_monitor": {
+        "id": "git_change_monitor",
+        "type": "git",
+        "repo_path": ".",
+        "interval": "10m",
+        "on_change": {"workflow": "sync_recent_changes", "dry_run_first": True},
     },
 }
 
@@ -205,6 +212,8 @@ class ListenerEngine:
             errors.append("command listener requires run")
         if kind == "github" and not spec.get("repo"):
             errors.append("github listener requires repo")
+        if kind == "git" and not spec.get("repo_path"):
+            errors.append("git listener requires repo_path")
         trigger = self._trigger(spec)
         workflow = trigger.get("workflow")
         if workflow:
@@ -400,6 +409,8 @@ class ListenerEngine:
             return self._observe_command(spec, listener_state)
         if kind == "github":
             return self._observe_github(spec, listener_state)
+        if kind == "git":
+            return self._observe_git(spec, listener_state)
         raise ValueError(f"Unsupported listener type: {kind}")
 
     def _observe_file(self, spec: dict[str, Any], listener_state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -565,6 +576,25 @@ class ListenerEngine:
                 next_seen.append(digest)
                 observations.append({"source": "github.check_suite.completed", "target": str(suite.get("html_url") or key), "changed": digest not in seen and (bool(seen) or bool(spec.get("emit_initial", False))), "new_hash": digest, "payload": suite})
         return observations, {"seen": list(dict.fromkeys([*next_seen, *list(seen)]))[:1000], "checked_at": _now().isoformat()}
+
+    def _observe_git(self, spec: dict[str, Any], listener_state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        repo_path = str(spec.get("repo_path") or "").strip()
+        if not repo_path:
+            raise ValueError("git listener requires repo_path")
+        report = self.runtime.repo_changed(repo_path, base_ref=spec.get("base_ref"), write=False)
+        if report.get("status") != "inspected":
+            raise RuntimeError(report.get("message") or f"git listener could not inspect {repo_path}")
+        fingerprint = str(report.get("fingerprint") or _digest(json.dumps(report, sort_keys=True, default=str)))
+        previous = str(listener_state.get("fingerprint") or "")
+        changed = (bool(previous) and previous != fingerprint) or (not previous and bool(spec.get("emit_initial", False)))
+        observation = {
+            "source": "git.repo.changed",
+            "target": str(report.get("target") or repo_path),
+            "changed": changed,
+            "new_hash": fingerprint,
+            "payload": report,
+        }
+        return [observation], {"fingerprint": fingerprint, "checked_at": _now().isoformat()}
 
     def _event_from_observation(self, spec: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
         occurred_at = _now()

@@ -88,6 +88,132 @@ class Project:
             raise RuntimeError("permissions doctor requires local mode")
         return self._backend.knowledge.permissions_doctor()
 
+    def mount_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("mount commands require local mode")
+        return self._backend.knowledge.mount_list()
+
+    def federated_search(
+        self,
+        q: str,
+        *,
+        limit: int = 10,
+        mounts: list[str] | None = None,
+        explain: bool = False,
+        rag: bool = False,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("federated search requires local mode")
+        return self._backend.knowledge.federated_search(
+            q,
+            limit=limit,
+            mounts=mounts,
+            explain=explain,
+            rag=rag,
+        )
+
+    def federated_find(
+        self,
+        q: str,
+        *,
+        limit: int = 10,
+        mounts: list[str] | None = None,
+        types: list[str] | None = None,
+        topic: str | None = None,
+        entity: str | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        explain: bool = False,
+        rag: bool = True,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("federated find requires local mode")
+        return self._backend.knowledge.federated_find(
+            q,
+            limit=limit,
+            mounts=mounts,
+            types=types,
+            topic=topic,
+            entity=entity,
+            status=status,
+            freshness=freshness,
+            workflow=workflow,
+            explain=explain,
+            rag=rag,
+        )
+
+    def federated_think(
+        self,
+        q: str,
+        *,
+        limit: int = 5,
+        mounts: list[str] | None = None,
+        mode: str = "deterministic",
+        runner: str = "auto",
+        dry_run: bool = False,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("federated think requires local mode")
+        return self._backend.knowledge.federated_think(
+            q,
+            limit=limit,
+            mounts=mounts,
+            mode=mode,
+            runner=runner,
+            dry_run=dry_run,
+        )
+
+    def grep(
+        self,
+        pattern: str,
+        *,
+        paths: list[str] | None = None,
+        glob: list[str] | None = None,
+        ignore_case: bool = False,
+        fixed_strings: bool = False,
+        word_regexp: bool = False,
+        max_count: int | None = None,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("grep requires local mode")
+        return self._backend.knowledge.grep(
+            pattern,
+            paths=paths,
+            glob=glob,
+            ignore_case=ignore_case,
+            fixed_strings=fixed_strings,
+            word_regexp=word_regexp,
+            max_count=max_count,
+        )
+
+    def files_list(
+        self,
+        *,
+        paths: list[str] | None = None,
+        glob: list[str] | None = None,
+        recursive: bool = False,
+        include_hidden: bool = False,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("files commands require local mode")
+        return self._backend.knowledge.files_list(
+            paths=paths,
+            glob=glob,
+            recursive=recursive,
+            include_hidden=include_hidden,
+        )
+
+    def files_read(self, path: str, *, start_line: int = 1, lines: int | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("files commands require local mode")
+        return self._backend.knowledge.files_read(path, start_line=start_line, lines=lines)
+
+    def files_stat(self, path: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("files commands require local mode")
+        return self._backend.knowledge.files_stat(path)
+
     def think(
         self,
         q: str,
@@ -328,15 +454,46 @@ class Project:
             role=role,
         )
 
+    def mount_create_task(
+        self,
+        mount_id: str,
+        title: str,
+        *,
+        description: str = "",
+        runner: str = "auto",
+        workflow: str | None = None,
+        role: str = "research",
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task commands require local mode")
+        return self._backend.knowledge.mount_create_task(
+            mount_id,
+            title,
+            description=description,
+            runner=runner,
+            workflow=workflow,
+            role=role,
+        )
+
     def list_tasks(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("task commands require local mode")
         return self._backend.knowledge.list_tasks()
 
+    def mount_list_tasks(self, mount_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task commands require local mode")
+        return self._backend.knowledge.mount_list_tasks(mount_id)
+
     def dispatch_task(self, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("task dispatch requires local mode")
         return self._backend.knowledge.dispatch_task(task_id, runner=runner, dry_run=dry_run)
+
+    def mount_dispatch_task(self, mount_id: str, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("task dispatch requires local mode")
+        return self._backend.knowledge.mount_dispatch_task(mount_id, task_id, runner=runner, dry_run=dry_run)
 
     def create_work_order(self, task_id: str) -> dict:
         if not hasattr(self._backend, "knowledge"):
@@ -348,6 +505,11 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_list()
 
+    def mount_list_workflows(self, mount_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.mount_workflow_list(mount_id)
+
     def init_workflow(self, workflow_id: str, *, force: bool = False, template: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
@@ -357,6 +519,11 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_show(workflow_id)
+
+    def mount_show_workflow(self, mount_id: str, workflow_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.mount_workflow_show(mount_id, workflow_id)
 
     def validate_workflow(self, workflow_id: str) -> dict:
         if not hasattr(self._backend, "knowledge"):
@@ -393,10 +560,20 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_run(workflow_id, runner=runner, dry_run=dry_run)
 
+    def mount_run_workflow(self, mount_id: str, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.mount_workflow_run(mount_id, workflow_id, runner=runner, dry_run=dry_run)
+
     def execute_workflow(self, workflow_id: str, *, dry_run: bool = False, force: bool = False, inputs: dict | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_execute(workflow_id, dry_run=dry_run, force=force, inputs=inputs)
+
+    def mount_execute_workflow(self, mount_id: str, workflow_id: str, *, dry_run: bool = False, force: bool = False, inputs: dict | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.mount_workflow_execute(mount_id, workflow_id, dry_run=dry_run, force=force, inputs=inputs)
 
     def approval_list(self, *, status: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
@@ -528,6 +705,11 @@ class Project:
             raise RuntimeError("graph commands require local mode")
         return self._backend.knowledge.graph_summary()
 
+    def federated_graph_summary(self, *, mounts: list[str] | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("graph commands require local mode")
+        return self._backend.knowledge.federated_graph_summary(mounts=mounts)
+
     def graph_diff(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("graph commands require local mode")
@@ -616,6 +798,36 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("repo commands require local mode")
         return self._backend.knowledge.repo_inspect(path_or_url)
+
+    def repo_snapshot(self, path_or_url: str = ".") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_snapshot(path_or_url)
+
+    def repo_inventory(self, path_or_url: str = ".") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_inventory(path_or_url)
+
+    def repo_owners(self, path_or_url: str = ".") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_owners(path_or_url)
+
+    def repo_dependencies(self, path_or_url: str = ".") -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_dependencies(path_or_url)
+
+    def repo_symbols(self, path_or_url: str = ".", *, languages: list[str] | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_symbols(path_or_url, languages=languages)
+
+    def repo_changed(self, path_or_url: str = ".", *, base_ref: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("repo commands require local mode")
+        return self._backend.knowledge.repo_changed(path_or_url, base_ref=base_ref)
 
     def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict:
         if not hasattr(self._backend, "knowledge"):

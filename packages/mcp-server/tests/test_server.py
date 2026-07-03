@@ -114,6 +114,58 @@ def test_mcp_vector_search_calls_project(monkeypatch):
     assert payload["limit"] == 3
 
 
+def test_mcp_mount_list_calls_project(monkeypatch):
+    class _Project:
+        def mount_list(self):
+            return {"mounts": [{"id": "child", "ok": True}], "summary": {"healthy": 1}}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.mount_list()
+
+    payload = json.loads(result)
+    assert payload["summary"]["healthy"] == 1
+
+
+def test_mcp_search_can_call_federated_project_search(monkeypatch):
+    class _Project:
+        def federated_search(self, query, *, limit=10, mounts=None, explain=False):
+            return {"query": query, "hits": [{"path": "child:topics/public.md"}], "mounts": mounts, "limit": limit}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.search("robotics", limit=5, federated=True, mounts_json='["child"]')
+
+    payload = json.loads(result)
+    assert payload["hits"][0]["path"] == "child:topics/public.md"
+
+
+def test_mcp_think_can_call_federated_project_think(monkeypatch):
+    class _Project:
+        def federated_think(self, query, *, limit=5, mounts=None, mode="deterministic", runner="auto", dry_run=False):
+            return {"query": query, "consulted_mounts": mounts, "limit": limit}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.think("robotics", limit=4, federated=True, mounts_json='["child"]')
+
+    payload = json.loads(result)
+    assert payload["consulted_mounts"] == ["child"]
+
+
+def test_mcp_federated_graph_summary_calls_project(monkeypatch):
+    class _Project:
+        def federated_graph_summary(self, *, mounts=None):
+            return {"summaries": [{"mount": "child"}], "requested": mounts}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.federated_graph_summary('["child"]')
+
+    payload = json.loads(result)
+    assert payload["summaries"][0]["mount"] == "child"
+
+
 def test_mcp_think_sessions_calls_project(monkeypatch):
     class _Project:
         def think_sessions(self, *, limit=20):
