@@ -10,8 +10,8 @@ diffs noisy and couples engine changes to one-off agent work.
 ## Policy
 
 1. Platform code and project state should be committed separately.
-2. Pilot projects should live outside the runtime repo, or under `pilots/` /
-   `generated_projects/` which are ignored by default.
+2. Customer or generated projects should live outside the runtime repo, or
+   under `pilots/` / `generated_projects/` which are ignored by default.
 3. Public examples should be small, synthetic, and curated under `examples/`.
 4. Routine runner outputs should stay untracked:
    - `.rail/workspaces/`
@@ -24,7 +24,7 @@ diffs noisy and couples engine changes to one-off agent work.
 ## Operational Rules
 
 - Use narrow `git add` commands for platform fixes.
-- Do not sweep pilot projects into platform commits.
+- Do not sweep generated or customer projects into platform commits.
 - Promote only the minimal stable files needed for examples or fixtures.
 - Prefer summaries in `docs/` over committing broad project directories.
 

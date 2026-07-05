@@ -2175,9 +2175,7 @@ def test_local_project_exposes_integrity_detail_views(tmp_path):
     assert report_entry["verification_commands"] == ["scripts/run-verification.sh"]
 
 
-def test_local_project_integrity_status_matches_richer_summary_shape(tmp_path):
-    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
-    repo = ResearchIntegrityRepo(root)
+def _seed_ready_integrity_records(repo: ResearchIntegrityRepo) -> None:
     repo.write_sources(
         [
             {
@@ -2198,6 +2196,7 @@ def test_local_project_integrity_status_matches_richer_summary_shape(tmp_path):
                 "claim_text": "Unemployment fell after 2021.",
                 "artifact_path": "artifacts/report.md",
                 "source_keys": ["bls-laus"],
+                "evidence_paths": ["topics/evidence.md"],
                 "status": "supported",
                 "evidence_kind": "direct",
             }
@@ -2230,13 +2229,162 @@ def test_local_project_integrity_status_matches_richer_summary_shape(tmp_path):
         ]
     )
 
+
+def test_local_project_integrity_status_reports_ready_readiness(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    repo = ResearchIntegrityRepo(root)
+    _seed_ready_integrity_records(repo)
+
     project = rail.local(str(root))
     status = project.integrity_status()
 
     assert status["mode"] == "local"
+    assert status["summary"]["status"] == "ready"
+    assert status["summary"]["headline"] == "Trusted now: 1 source(s), 1 claim(s), and 1 artifact(s)."
+    assert status["summary"]["readyForPromotion"] is True
+    assert status["summary"]["readyForRelease"] is True
     assert status["summary"]["sourceCount"] == 1
     assert status["summary"]["promotionStateCounts"]["verified"] == 1
+    assert status["trusted"]["artifacts"][0]["key"] == "artifacts/report.md"
+    assert status["trusted"]["claims"][0]["key"] == "claim-001"
+    assert status["attention"]["stale"] == []
+    assert status["nextCommand"] is None
+    assert status["detailCommands"]["verificationRuns"] == "krail --local integrity verification-runs"
     assert status["agentWorkflow"]["health"]["status"] == "ready"
+
+
+def test_local_project_integrity_status_reports_stale_readiness(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    repo = ResearchIntegrityRepo(root)
+    _seed_ready_integrity_records(repo)
+    repo.write_sources(
+        [
+            {
+                "source_key": "bls-laus",
+                "source_type": "dataset",
+                "title": "BLS LAUS",
+                "url_or_path": "https://example.com/bls.csv",
+                "freshness_status": "stale",
+                "quality_status": "validated",
+                "provenance": {"text": "BLS extract."},
+            }
+        ]
+    )
+
+    project = rail.local(str(root))
+    status = project.integrity_status()
+
+    assert status["summary"]["status"] == "stale"
+    assert status["summary"]["readyForPromotion"] is False
+    assert status["summary"]["staleCount"] >= 1
+    assert status["attention"]["stale"][0]["entityType"] == "source"
+    assert status["attention"]["stale"][0]["key"] == "bls-laus"
+    assert status["nextCommand"]["command"] == "krail --local integrity source bls-laus"
+
+
+def test_local_project_integrity_status_reports_missing_evidence_readiness(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    repo = ResearchIntegrityRepo(root)
+    repo.write_sources(
+        [
+            {
+                "source_key": "bls-laus",
+                "source_type": "dataset",
+                "title": "BLS LAUS",
+                "url_or_path": "https://example.com/bls.csv",
+                "freshness_status": "fresh",
+                "quality_status": "validated",
+                "provenance": {"text": "BLS extract."},
+            }
+        ]
+    )
+    repo.write_claims(
+        [
+            {
+                "claim_key": "claim-001",
+                "claim_text": "Unemployment fell after 2021.",
+                "artifact_path": "artifacts/report.md",
+                "source_keys": ["bls-laus"],
+                "status": "needs_evidence",
+                "evidence_kind": "direct",
+            }
+        ]
+    )
+    repo.write_artifact_lineage(
+        [
+            {
+                "artifact_path": "artifacts/report.md",
+                "artifact_type": "report",
+                "title": "Report",
+                "promotion_state": "needs_evidence",
+                "sources": ["research_plan/state/sources.json#bls-laus"],
+                "claims": ["research_plan/state/claims.json#claim-001"],
+            }
+        ]
+    )
+
+    project = rail.local(str(root))
+    status = project.integrity_status()
+
+    assert status["summary"]["status"] == "missing_evidence"
+    assert status["summary"]["missingEvidenceCount"] >= 1
+    assert status["attention"]["missingEvidence"][0]["entityType"] == "claim"
+    assert status["attention"]["missingEvidence"][0]["key"] == "claim-001"
+    assert status["nextCommand"]["command"] == "krail --local integrity claim claim-001"
+
+
+def test_local_project_integrity_status_reports_conflict_readiness(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    repo = ResearchIntegrityRepo(root)
+    repo.write_sources(
+        [
+            {
+                "source_key": "bls-laus",
+                "source_type": "dataset",
+                "title": "BLS LAUS",
+                "url_or_path": "https://example.com/bls.csv",
+                "freshness_status": "fresh",
+                "quality_status": "validated",
+                "provenance": {"text": "BLS extract."},
+            }
+        ]
+    )
+    repo.write_claims(
+        [
+            {
+                "claim_key": "claim-a",
+                "claim_text": "Unemployment fell after 2021.",
+                "artifact_path": "artifacts/report.md",
+                "source_keys": ["bls-laus"],
+                "evidence_paths": ["topics/a.md"],
+                "status": "supported",
+                "evidence_kind": "direct",
+                "contradicts_claim_keys": ["claim-b"],
+            },
+            {
+                "claim_key": "claim-b",
+                "claim_text": "Unemployment rose after 2021.",
+                "artifact_path": "artifacts/report.md",
+                "source_keys": ["bls-laus"],
+                "evidence_paths": ["topics/b.md"],
+                "status": "supported",
+                "evidence_kind": "direct",
+                "contradicts_claim_keys": ["claim-a"],
+            },
+        ]
+    )
+    repo.reconcile_claim_conflicts()
+    repo.rebuild_conflicts()
+
+    project = rail.local(str(root))
+    status = project.integrity_status()
+
+    assert status["summary"]["status"] == "conflict"
+    assert status["summary"]["conflictCount"] == 1
+    assert status["attention"]["conflicts"][0]["key"] == "claim-conflict:claim-a::claim-b"
+    assert status["nextCommand"]["command"] == (
+        "krail --local integrity resolve-conflict claim-conflict:claim-a::claim-b --status resolved"
+    )
 
 
 def test_local_project_exposes_artifact_detail(tmp_path):

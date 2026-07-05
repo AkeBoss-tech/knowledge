@@ -55,6 +55,28 @@ Use this README when you need the package install path and day-one workflows.
 Use DeepWiki when you want to navigate the implementation, trace a feature to
 the source files, or understand the broader monorepo architecture.
 
+## V1 Contract
+
+KRAIL v1 is the local-runtime contract, not a promise that every experimental
+surface is finished.
+
+The v1 contract covers:
+
+- local project scaffolding with `krail init`
+- `rail.yaml`-backed local projects
+- capture inbox triage and durable topic promotion
+- deterministic `search`, typed `find`, and optional local vector retrieval
+- deterministic `think` envelopes with citations, freshness, gaps, conflicts,
+  and next actions
+- repo-backed tasks, workflow records, dry-run dispatch, and materialized
+  workflow execution
+- integrity status and related local trust/readiness views
+- MCP access to the stable local project subset
+
+The v1 contract does not promise hosted platform behavior, OS-level sandboxing,
+default model-backed synthesis, mature external pack registries, or perfect
+semantic retrieval.
+
 ## Why KRAIL?
 
 Most retrieval tools stop at "here are the matching documents." KRAIL is built
@@ -197,13 +219,31 @@ The `think` command returns an answer envelope that can include citations,
 supporting evidence, gaps, conflicts, source freshness, affected documents, graph
 context, vector hits, and suggested next actions.
 
+The stable v1 contract is `krail.think.v1`:
+
+- `deterministic` returns an honest evidence envelope and does not pretend a
+  model synthesized new claims.
+- `runner` prepares or executes a local CLI synthesis session and writes prompt,
+  evidence packet, result envelope, and any failure state under
+  `research_plan/sessions/think_*`.
+- `hybrid` uses the same session traces as `runner`, but keeps
+  `answer_source: deterministic_evidence_envelope` whenever runner synthesis is
+  unavailable or invalid.
+
+Review a runner-backed session without launching a model:
+
+```bash
+krail --local think "What changed in task and motion planning?" --mode runner --runner codex_cli --dry-run
+krail --local think-session status think_<session_id>
+```
+
 ## Local Project Layout
 
 A KRAIL project is just a directory with repo-backed knowledge files. Typical
 projects contain:
 
 ```text
-krail.yaml or rail.yaml
+rail.yaml
 .ontology/
 topics/
 topics/inbox/
@@ -274,7 +314,7 @@ krail init <directory>
 krail --local doctor
 krail --local capture "note"
 krail --local inbox list
-krail --local topic upsert <topic>
+krail --local topic upsert <topic> --content "<reviewed update>"
 krail --local search "query" --explain
 krail --local think "question"
 krail --local graph build
@@ -295,6 +335,7 @@ krail --local task list
 krail --local task dispatch <task_id> --dry-run
 krail --local workflow list
 krail --local workflow run weekly_literature_refresh --dry-run
+krail --local workflow execute source_refresh --dry-run
 ```
 
 Prefer dry runs when dispatching agents or workflows. Dry runs write the work
@@ -476,6 +517,11 @@ and next actions.
 krail --local think "what changed in onboarding this week?"
 ```
 
+`think` results always declare `contract_version`, `status`, and
+`answer_source` so you can tell whether you are looking at a deterministic
+evidence envelope, a completed runner synthesis, or a deterministic fallback
+from hybrid/failed runner execution.
+
 Do not promote generated statements into trusted project state until they are
 registered as claims with evidence and pass the project integrity checks.
 
@@ -597,28 +643,42 @@ These commands help separate raw notes from trusted project state. The intended
 workflow is to capture freely, promote carefully, and keep claims tied to
 evidence.
 
+Use `integrity status` as the pre-promotion and pre-release gate. The status
+payload is the concise readiness answer: what can be trusted now, what is
+stale, what still lacks evidence, and the next KRAIL command to run. Drill into
+the exact record with the detail commands:
+
+```bash
+krail --local integrity source <source_key>
+krail --local integrity claim <claim_key>
+krail --local integrity artifact <artifact_path>
+krail --local integrity stale-graph
+krail --local integrity verification-runs
+```
+
 ## Current Status
 
-KRAIL is suitable for pilot projects, local knowledge bases, agent workflow
-experiments, and research/company/project memory prototypes.
+KRAIL's current stable promise is the local-runtime loop documented above.
 
-Ready now:
+Covered by the current CLI tests, MCP tests, or fixture smoke commands:
 
 - local project scaffolding
 - capture inbox and topic promotion
 - deterministic local search
+- typed `find`
 - markdown-frontmatter graph build/query/export
-- local SQLite vector database
+- local SQLite vector database with deterministic local-hash embeddings by default
 - deterministic `think` evidence envelopes
 - project health checks
 - source dependency checks
 - repo-backed tasks, work orders, workflows, and session state
 - local CLI runner discovery and dry-run dispatch
+- local workflow template listing and materialized workflow execution
 - Python client for local and API-backed projects
 
-Still maturing:
+Explicitly outside the v1 promise for now:
 
-- model-backed synthesis and reranking
+- model-backed synthesis and reranking as the default path
 - external pack installation
 - production-grade sandbox enforcement
 - remote permission scopes

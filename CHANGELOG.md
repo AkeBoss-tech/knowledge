@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- Clarified the KRAIL v1 product contract as a local-runtime release rather
+  than a hosted platform promise.
+- Documented the stable local loop across the root README, package README, docs
+  index, and release checklist.
+- Made the current boundaries explicit around `rail.yaml`, deterministic
+  retrieval, deterministic `think`, workflow/task records, integrity views, and
+  MCP access to the stable subset.
+- Labeled model-backed synthesis, mature pack registries, host-level
+  sandboxing, and perfect semantic retrieval as future work rather than current
+  guarantees.
+
 ## v0.2.3-local-preview
 
 Third local-preview release focused on permission-aware local tooling,

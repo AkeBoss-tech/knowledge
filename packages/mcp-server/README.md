@@ -67,6 +67,7 @@ surfaces.
 The server expects a local KRAIL project with:
 
 - `krail.yaml` or `rail.yaml`
+- `rail.yaml`
 - `.ontology/`
 - `state/`
 - `artifacts/`

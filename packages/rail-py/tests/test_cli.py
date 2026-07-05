@@ -170,6 +170,34 @@ def test_cmd_permissions_doctor_prints_project_result(capsys):
     assert payload["public_by_default"] is True
 
 
+def test_cmd_integrity_status_prints_readiness_shape(capsys):
+    class _Project:
+        def integrity_status(self):
+            return {
+                "summary": {
+                    "status": "stale",
+                    "headline": "1 stale integrity item(s) need refresh before promotion or release.",
+                },
+                "trusted": {"sources": [], "claims": [], "artifacts": []},
+                "attention": {
+                    "conflicts": [],
+                    "blocked": [],
+                    "stale": [{"entityType": "source", "key": "bls-laus"}],
+                    "missingEvidence": [],
+                },
+                "nextCommand": {"command": "krail --local integrity source bls-laus"},
+            }
+
+    args = argparse.Namespace(integrity_command="status")
+
+    rail_cli.cmd_integrity(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["status"] == "stale"
+    assert payload["attention"]["stale"][0]["key"] == "bls-laus"
+    assert payload["nextCommand"]["command"] == "krail --local integrity source bls-laus"
+
+
 def test_cmd_mount_list_prints_project_result(capsys):
     class _Project:
         def mount_list(self):

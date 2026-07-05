@@ -228,6 +228,9 @@ class Project:
         if hasattr(self._backend, "think"):
             return self._backend.think(self.slug, q, limit=limit)
         return {
+            "contract_version": "krail.think.v1",
+            "status": "blocked",
+            "answer_source": "deterministic_evidence_envelope",
             "query": q,
             "mode": mode,
             "requested_runner": runner,
@@ -240,6 +243,7 @@ class Project:
             "conflicts": [],
             "suggested_next_actions": [],
             "verification": {"ok": False, "checks": []},
+            "message": "API-backed think is not wired yet.",
         }
 
     def register_think_result(self, result: dict, *, artifact_path: str, title: str | None = None) -> dict:

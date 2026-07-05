@@ -802,19 +802,19 @@ def main():
     files_stat.add_argument("path", help="Repo-relative file or directory path")
 
     # Think
-    t_parser = subparsers.add_parser("think", help="Synthesize from local evidence with gaps/conflicts")
+    t_parser = subparsers.add_parser("think", help="Return the KRAIL think v1 evidence envelope or prepare runner-backed synthesis traces")
     t_parser.add_argument("query", help="Question to answer")
     t_parser.add_argument("--limit", type=int, default=5)
     t_parser.add_argument("--mode", choices=["deterministic", "runner", "hybrid"], default="deterministic")
     t_parser.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
-    t_parser.add_argument("--dry-run", action="store_true", help="Prepare runner-backed think session files without launching a local runner")
+    t_parser.add_argument("--dry-run", action="store_true", help="Prepare prompt/evidence/result session traces without launching a local runner")
     t_parser.add_argument("--output", help="Write the think result envelope to a JSON file")
     t_parser.add_argument("--register-integrity", action="store_true", help="Register the written think output as an integrity artifact with claim candidates")
     t_parser.add_argument("--title", help="Optional artifact title when registering a think result")
     t_parser.add_argument("--federated", action="store_true", help="Use the local project plus configured mounted child projects for retrieval")
     t_parser.add_argument("--mount", action="append", help="Limit federated think to a specific mount id; repeatable")
 
-    ts_parser = subparsers.add_parser("think-session", help="Inspect runner-backed think sessions")
+    ts_parser = subparsers.add_parser("think-session", help="Inspect runner-backed think session traces")
     ts_subs = ts_parser.add_subparsers(dest="think_session_command")
     tsl = ts_subs.add_parser("list", help="List think sessions")
     tsl.add_argument("--limit", type=int, default=20)

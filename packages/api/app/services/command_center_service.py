@@ -13,11 +13,19 @@ from app.services.auditor_service import build_auditor_statuses
 from app.services import goal_service
 from app.services.integrity_service import load_integrity_indexes, summarize_agent_workflow_health
 from app.services.reconciliation_service import project_reality_status
-from rail.integrity import build_artifact_trust_summary, build_source_state
+from rail.integrity import build_artifact_trust_summary, build_claim_state, build_source_state
 
 
 TEXT_PREVIEW_LIMIT = 80_000
 TABLE_PREVIEW_ROWS = 25
+INTEGRITY_STATUS_SAMPLE_LIMIT = 3
+INTEGRITY_DETAIL_COMMANDS = {
+    "sources": "krail --local integrity sources",
+    "claims": "krail --local integrity claims",
+    "artifacts": "krail --local integrity artifacts",
+    "staleGraph": "krail --local integrity stale-graph",
+    "verificationRuns": "krail --local integrity verification-runs",
+}
 
 
 WORKFLOW_PRESETS: dict[str, dict[str, Any]] = {
@@ -577,6 +585,337 @@ def _artifact_trust_state(lineage: Any, verification_status: str) -> dict[str, A
     )
 
 
+def _compact_integrity_item(
+    *,
+    entity_type: str,
+    key: str,
+    label: str,
+    state: str,
+    reason: str,
+    detail_command: str,
+    repair_command: str | None = None,
+) -> dict[str, Any]:
+    item = {
+        "entityType": entity_type,
+        "key": key,
+        "label": label,
+        "state": state,
+        "reason": reason,
+        "detailCommand": detail_command,
+    }
+    if repair_command:
+        item["repairCommand"] = repair_command
+    return item
+
+
+def _sample_integrity_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return items[:INTEGRITY_STATUS_SAMPLE_LIMIT]
+
+
+def _choose_integrity_next_command(
+    *,
+    conflicts: list[dict[str, Any]],
+    blocked: list[dict[str, Any]],
+    stale: list[dict[str, Any]],
+    missing_evidence: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for bucket in (conflicts, blocked, stale, missing_evidence):
+        if not bucket:
+            continue
+        item = bucket[0]
+        return {
+            "command": item.get("repairCommand") or item["detailCommand"],
+            "reason": item["reason"],
+            "focus": {
+                "entityType": item["entityType"],
+                "key": item["key"],
+            },
+        }
+    return None
+
+
+def _build_integrity_headline(
+    *,
+    status: str,
+    trusted_sources: int,
+    trusted_claims: int,
+    trusted_artifacts: int,
+    stale_count: int,
+    missing_evidence_count: int,
+    conflict_count: int,
+    blocked_count: int,
+) -> str:
+    if status == "empty":
+        return "No integrity records have been promoted into trusted state yet."
+    if status == "ready":
+        return (
+            f"Trusted now: {trusted_sources} source(s), "
+            f"{trusted_claims} claim(s), and {trusted_artifacts} artifact(s)."
+        )
+    if status == "conflict":
+        return f"{conflict_count} open conflict(s) need resolution before promotion or release."
+    if status == "blocked":
+        return f"{blocked_count} blocked integrity item(s) need repair before promotion or release."
+    if status == "stale":
+        return f"{stale_count} stale integrity item(s) need refresh before promotion or release."
+    if status == "missing_evidence":
+        return f"{missing_evidence_count} item(s) still lack the evidence needed for trusted promotion."
+    return "Integrity needs attention before promotion or release."
+
+
+def _build_integrity_readiness_summary(indexes: Any) -> dict[str, Any]:
+    source_by_key = {item.source_key: item for item in indexes.sources}
+    chunks_by_claim_key: dict[str, list[Any]] = {}
+    for chunk in indexes.evidence_chunks:
+        for claim_key in chunk.claim_keys:
+            chunks_by_claim_key.setdefault(claim_key, []).append(chunk)
+
+    artifacts_by_claim_key: dict[str, list[Any]] = {}
+    artifacts_by_source_key: dict[str, list[Any]] = {}
+    verification_runs_by_artifact_path: dict[str, list[Any]] = {}
+    for run in indexes.verification_runs:
+        for artifact_path in run.artifact_paths:
+            verification_runs_by_artifact_path.setdefault(artifact_path, []).append(run)
+
+    for artifact in indexes.artifact_lineage:
+        for claim_ref in artifact.claims:
+            artifacts_by_claim_key.setdefault(_reference_key(claim_ref), []).append(artifact)
+        for source_ref in artifact.sources:
+            artifacts_by_source_key.setdefault(_reference_key(source_ref), []).append(artifact)
+
+    promotion_state_counts: dict[str, int] = {}
+    verification_status_counts: dict[str, int] = {}
+    source_freshness_counts: dict[str, int] = {}
+    source_admissibility_counts: dict[str, int] = {}
+
+    trusted_sources: list[dict[str, Any]] = []
+    trusted_claims: list[dict[str, Any]] = []
+    trusted_artifacts: list[dict[str, Any]] = []
+    stale_items: list[dict[str, Any]] = []
+    missing_evidence_items: list[dict[str, Any]] = []
+    blocked_items: list[dict[str, Any]] = []
+
+    for source in indexes.sources:
+        dependent_claims = [
+            claim
+            for claim in indexes.claims
+            if source.source_key in claim.source_keys
+        ]
+        dependent_artifacts = artifacts_by_source_key.get(source.source_key, [])
+        chunk_count = len([chunk for chunk in indexes.evidence_chunks if chunk.source_key == source.source_key])
+        source_state = build_source_state(
+            source,
+            dependent_claim_count=len(dependent_claims),
+            dependent_artifact_count=len(dependent_artifacts),
+            chunk_count=chunk_count,
+        )
+        source_freshness_counts[source.freshness_status] = source_freshness_counts.get(source.freshness_status, 0) + 1
+        admissibility = str(source_state.get("admissibilityStatus") or "unknown")
+        source_admissibility_counts[admissibility] = source_admissibility_counts.get(admissibility, 0) + 1
+
+        item = _compact_integrity_item(
+            entity_type="source",
+            key=source.source_key,
+            label=source.title,
+            state=source.freshness_status,
+            reason=(
+                "Resolve source quality issues before using it for trusted outputs."
+                if source_state["isBlocked"]
+                else "Refresh this source and rerun dependent analyses."
+                if source_state["needsRefresh"] or source_state["isStale"]
+                else "Source state is current."
+            ),
+            detail_command=f"krail --local integrity source {source.source_key}",
+        )
+        if source_state["isBlocked"]:
+            blocked_items.append(item)
+        elif source_state["needsRefresh"] or source_state["isStale"]:
+            stale_items.append(item)
+        elif source_state["isFresh"]:
+            trusted_sources.append(item)
+
+    conflict_records = [item for item in indexes.conflicts if item.status != "resolved"]
+    conflict_by_claim_key: dict[str, list[Any]] = {}
+    conflict_items: list[dict[str, Any]] = []
+    for conflict in conflict_records:
+        left_key = _reference_key(conflict.left_ref)
+        right_key = _reference_key(conflict.right_ref)
+        conflict_by_claim_key.setdefault(left_key, []).append(conflict)
+        conflict_by_claim_key.setdefault(right_key, []).append(conflict)
+        conflict_items.append(
+            _compact_integrity_item(
+                entity_type="conflict",
+                key=conflict.conflict_key,
+                label=f"{left_key} vs {right_key}",
+                state=conflict.status,
+                reason=conflict.recommended_resolution or "Resolve contradictory claims before promotion.",
+                detail_command=INTEGRITY_DETAIL_COMMANDS["claims"],
+                repair_command=f"krail --local integrity resolve-conflict {conflict.conflict_key} --status resolved",
+            )
+        )
+
+    for claim in indexes.claims:
+        sources = [source_by_key[key] for key in claim.source_keys if key in source_by_key]
+        contradictory_claims = conflict_by_claim_key.get(claim.claim_key, [])
+        chunks = chunks_by_claim_key.get(claim.claim_key, [])
+        artifacts = artifacts_by_claim_key.get(claim.claim_key, [])
+        artifact_paths = [artifact.artifact_path for artifact in artifacts]
+        verification_runs = [
+            run
+            for artifact_path in artifact_paths
+            for run in verification_runs_by_artifact_path.get(artifact_path, [])
+        ]
+        claim_state = build_claim_state(
+            claim,
+            contradictory_claim_count=len(contradictory_claims),
+            source_count=len(sources),
+            chunk_count=len(chunks),
+            artifact_count=len(artifacts),
+            verification_run_count=len({run.run_id for run in verification_runs}),
+        )
+        has_stale_source = any(
+            source.freshness_status in {"needs_refresh", "stale"} or source.quality_status in {"blocked", "rejected"}
+            for source in sources
+        )
+        item = _compact_integrity_item(
+            entity_type="claim",
+            key=claim.claim_key,
+            label=claim.claim_text,
+            state=claim.status,
+            reason=(
+                "Resolve contradictory claims before promotion."
+                if contradictory_claims or claim.status == "conflicted"
+                else "Refresh stale sources or rerun dependent analyses."
+                if claim.status == "stale" or has_stale_source
+                else "Attach explicit evidence before relying on this claim."
+                if not claim_state["evidenceComplete"] or claim.status in {"draft", "unsupported", "needs_evidence"}
+                else "Claim has explicit evidence and current linked sources."
+            ),
+            detail_command=f"krail --local integrity claim {claim.claim_key}",
+        )
+        if contradictory_claims or claim.status == "conflicted":
+            continue
+        elif claim.status == "stale" or has_stale_source:
+            stale_items.append(item)
+        elif not claim_state["evidenceComplete"] or claim.status in {"draft", "unsupported", "needs_evidence"}:
+            missing_evidence_items.append(item)
+        else:
+            trusted_claims.append(item)
+
+    for artifact in indexes.artifact_lineage:
+        promotion_state_counts[artifact.promotion_state] = promotion_state_counts.get(artifact.promotion_state, 0) + 1
+        verification_runs = verification_runs_by_artifact_path.get(artifact.artifact_path, [])
+        verification_status = _artifact_verification_status(artifact.artifact_path, artifact, indexes.verification_runs)
+        verification_status_counts[verification_status] = verification_status_counts.get(verification_status, 0) + 1
+        trust_state = _artifact_trust_state(artifact, verification_status)
+        item = _compact_integrity_item(
+            entity_type="artifact",
+            key=artifact.artifact_path,
+            label=artifact.title,
+            state=artifact.promotion_state,
+            reason=trust_state["recommendedNextAction"],
+            detail_command=f"krail --local integrity artifact {artifact.artifact_path}",
+            repair_command=(
+                f"krail --local integrity promote {artifact.artifact_path} --target-state verified"
+                if artifact.promotion_state in {"draft", "needs_evidence", "partially_verified"}
+                and not trust_state["isBlocked"]
+                and not trust_state["isStale"]
+                else None
+            ),
+        )
+        if artifact.promotion_state == "needs_evidence" and not any(
+            run.status in {"failed", "blocked"} for run in verification_runs
+        ):
+            missing_evidence_items.append(item)
+        elif trust_state["isBlocked"] or any(run.status in {"failed", "blocked"} for run in verification_runs):
+            blocked_items.append(item)
+        elif trust_state["isStale"]:
+            stale_items.append(item)
+        elif artifact.promotion_state in {"draft", "exploratory", "needs_evidence"} or not trust_state["hasEvidence"]:
+            missing_evidence_items.append(item)
+        elif trust_state["isTrusted"]:
+            trusted_artifacts.append(item)
+
+    blocked_count = len(blocked_items)
+    stale_count = len(stale_items)
+    missing_evidence_count = len(missing_evidence_items)
+    conflict_count = len(conflict_items)
+    has_records = bool(indexes.sources or indexes.claims or indexes.artifact_lineage or indexes.verification_runs)
+    if conflict_count:
+        status = "conflict"
+    elif blocked_count:
+        status = "blocked"
+    elif stale_count:
+        status = "stale"
+    elif missing_evidence_count:
+        status = "missing_evidence"
+    elif not has_records:
+        status = "empty"
+    else:
+        status = "ready"
+
+    ready_for_promotion = status == "ready" and bool(trusted_claims or trusted_artifacts)
+    ready_for_release = (
+        ready_for_promotion
+        and promotion_state_counts.get("verified", 0) > 0
+        and verification_status_counts.get("passed", 0) >= promotion_state_counts.get("verified", 0)
+    )
+
+    return {
+        "summary": {
+            "status": status,
+            "headline": _build_integrity_headline(
+                status=status,
+                trusted_sources=len(trusted_sources),
+                trusted_claims=len(trusted_claims),
+                trusted_artifacts=len(trusted_artifacts),
+                stale_count=stale_count,
+                missing_evidence_count=missing_evidence_count,
+                conflict_count=conflict_count,
+                blocked_count=blocked_count,
+            ),
+            "readyForPromotion": ready_for_promotion,
+            "readyForRelease": ready_for_release,
+            "assumptionCount": len(indexes.assumptions),
+            "sourceCount": len(indexes.sources),
+            "claimCount": len(indexes.claims),
+            "hypothesisCount": len(indexes.hypotheses),
+            "artifactCount": len(indexes.artifact_lineage),
+            "verificationRunCount": len(indexes.verification_runs),
+            "conflictCount": len(conflict_records),
+            "trustedSourceCount": len(trusted_sources),
+            "trustedClaimCount": len(trusted_claims),
+            "trustedArtifactCount": len(trusted_artifacts),
+            "blockedCount": blocked_count,
+            "staleCount": stale_count,
+            "missingEvidenceCount": missing_evidence_count,
+            "staleArtifactCount": len([item for item in stale_items if item["entityType"] == "artifact"]),
+            "sourceFreshnessCounts": source_freshness_counts,
+            "sourceAdmissibilityCounts": source_admissibility_counts,
+            "verificationStatusCounts": verification_status_counts,
+            "promotionStateCounts": promotion_state_counts,
+        },
+        "trusted": {
+            "sources": _sample_integrity_items(trusted_sources),
+            "claims": _sample_integrity_items(trusted_claims),
+            "artifacts": _sample_integrity_items(trusted_artifacts),
+        },
+        "attention": {
+            "conflicts": _sample_integrity_items(conflict_items),
+            "blocked": _sample_integrity_items(blocked_items),
+            "stale": _sample_integrity_items(stale_items),
+            "missingEvidence": _sample_integrity_items(missing_evidence_items),
+        },
+        "nextCommand": _choose_integrity_next_command(
+            conflicts=conflict_items,
+            blocked=blocked_items,
+            stale=stale_items,
+            missing_evidence=missing_evidence_items,
+        ),
+        "detailCommands": dict(INTEGRITY_DETAIL_COMMANDS),
+    }
+
+
 def rank_hypotheses(project: dict) -> list[dict[str, Any]]:
     indexes = _project_integrity_indexes(project)
     if indexes is None:
@@ -646,96 +985,52 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
     root = project_root(project)
     indexes = _project_integrity_indexes(project)
     if indexes is None:
-        empty = {
-            "assumptions": [],
-            "sources": [],
-            "claims": [],
-            "artifact_lineage": [],
-            "verification_runs": [],
-        }
-        return {
-            "indexes": empty,
+        readiness = {
             "summary": {
+                "status": "empty",
+                "headline": "No integrity records have been promoted into trusted state yet.",
+                "readyForPromotion": False,
+                "readyForRelease": False,
                 "assumptionCount": 0,
                 "sourceCount": 0,
+                "claimCount": 0,
+                "hypothesisCount": 0,
+                "artifactCount": 0,
+                "verificationRunCount": 0,
+                "conflictCount": 0,
+                "trustedSourceCount": 0,
+                "trustedClaimCount": 0,
+                "trustedArtifactCount": 0,
+                "blockedCount": 0,
+                "staleCount": 0,
+                "missingEvidenceCount": 0,
+                "staleArtifactCount": 0,
                 "sourceFreshnessCounts": {},
                 "sourceAdmissibilityCounts": {},
-                "claimCount": 0,
-                "artifactCount": 0,
-                "staleArtifactCount": 0,
-                "verificationRunCount": 0,
                 "verificationStatusCounts": {},
                 "promotionStateCounts": {},
             },
+            "trusted": {"sources": [], "claims": [], "artifacts": []},
+            "attention": {
+                "conflicts": [],
+                "blocked": [],
+                "stale": [],
+                "missingEvidence": [],
+            },
+            "nextCommand": None,
+            "detailCommands": dict(INTEGRITY_DETAIL_COMMANDS),
+        }
+        return {
+            **readiness,
             "agentWorkflow": _build_agent_workflow_summary([], [], [], [], []),
-            "staleOutputs": [],
             "hypothesisRanking": [],
         }
-
-    assumptions = [row.model_dump(mode="json") for row in indexes.assumptions]
-    sources = []
-    for row in indexes.sources:
-        payload = row.model_dump(mode="json")
-        payload["sourceState"] = _source_state(row)
-        sources.append(payload)
-    claims = [row.model_dump(mode="json") for row in indexes.claims]
-    artifact_lineage = []
-    for row in indexes.artifact_lineage:
-        payload = row.model_dump(mode="json")
-        verification_status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
-        payload["verificationStatus"] = verification_status
-        payload["trustState"] = _artifact_trust_state(row, verification_status)
-        artifact_lineage.append(payload)
-    verification_runs = [row.model_dump(mode="json") for row in indexes.verification_runs]
-
-    promotion_state_counts: dict[str, int] = {}
-    verification_status_counts: dict[str, int] = {}
-    source_freshness_counts: dict[str, int] = {}
-    source_admissibility_counts: dict[str, int] = {}
-    for row in indexes.sources:
-        source_freshness_counts[row.freshness_status] = source_freshness_counts.get(row.freshness_status, 0) + 1
-        admissibility = str(_source_state(row).get("admissibilityStatus") or "unknown")
-        source_admissibility_counts[admissibility] = source_admissibility_counts.get(admissibility, 0) + 1
-    for row in indexes.artifact_lineage:
-        promotion_state_counts[row.promotion_state] = promotion_state_counts.get(row.promotion_state, 0) + 1
-        status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
-        verification_status_counts[status] = verification_status_counts.get(status, 0) + 1
-
-    stale_outputs = []
-    for row in indexes.artifact_lineage:
-        if row.promotion_state != "stale" and not row.stale_reasons:
-            continue
-        payload = row.model_dump(mode="json")
-        verification_status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
-        payload["verificationStatus"] = verification_status
-        payload["trustState"] = _artifact_trust_state(row, verification_status)
-        stale_outputs.append(payload)
+    readiness = _build_integrity_readiness_summary(indexes)
     agent_workflow = summarize_agent_workflow_health(root)
 
     return {
-        "indexes": {
-            "assumptions": assumptions,
-            "sources": sources,
-            "claims": claims,
-            "hypotheses": [row.model_dump(mode="json", by_alias=True) for row in indexes.hypotheses],
-            "artifact_lineage": artifact_lineage,
-            "verification_runs": verification_runs,
-        },
-        "summary": {
-            "assumptionCount": len(assumptions),
-            "sourceCount": len(sources),
-            "sourceFreshnessCounts": source_freshness_counts,
-            "sourceAdmissibilityCounts": source_admissibility_counts,
-            "claimCount": len(claims),
-            "hypothesisCount": len(indexes.hypotheses),
-            "artifactCount": len(artifact_lineage),
-            "staleArtifactCount": len(stale_outputs),
-            "verificationRunCount": len(verification_runs),
-            "verificationStatusCounts": verification_status_counts,
-            "promotionStateCounts": promotion_state_counts,
-        },
+        **readiness,
         "agentWorkflow": agent_workflow,
-        "staleOutputs": stale_outputs,
         "hypothesisRanking": rank_hypotheses(project),
     }
 

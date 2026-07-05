@@ -34,22 +34,51 @@ def test_think_runner_dry_run_materializes_session(tmp_path: Path):
 
     result = runtime.think("project objective", limit=3, mode="runner", runner="codex_cli", dry_run=True)
 
+    assert result["contract_version"] == "krail.think.v1"
     assert result["mode"] == "runner"
     assert result["runner"] == "codex_cli"
     assert result["status"] == "dry_run"
+    assert result["answer_source"] == "deterministic_evidence_envelope"
     assert result["session"]["session_path"]
     session_dir = root / result["session"]["session_path"]
     assert (session_dir / "think_request.json").exists()
+    assert (session_dir / "evidence_packet.json").exists()
+    assert (session_dir / "prompt.txt").exists()
     assert (session_dir / "work_order.json").exists()
     assert (session_dir / "command.json").exists()
     assert (session_dir / "session_result.template.json").exists()
+    assert (session_dir / "result.envelope.json").exists()
 
     sessions = runtime.list_think_sessions()
     status = runtime.get_think_session(result["session"]["session_id"])
 
     assert sessions["sessions"][0]["session_id"] == result["session"]["session_id"]
-    assert status["status"] == "prepared"
+    assert status["status"] == "dry_run"
     assert status["request"]["mode"] == "runner"
+    assert status["trace"]["prompt_path"].endswith("prompt.txt")
+    assert status["result_envelope"]["status"] == "dry_run"
+    assert status["result_envelope"]["verification"]["state"] == "not_run"
+
+
+def test_think_hybrid_explicit_runner_failure_is_actionable(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Think Project", slug="think-project")
+    runtime = KnowledgeRuntime(root)
+    monkeypatch.setenv("CODEX_CLI_COMMAND", "/missing/codex")
+    monkeypatch.setenv("CLAUDE_CODE_COMMAND", sys.executable)
+
+    result = runtime.think("project objective", limit=3, mode="hybrid", runner="codex_cli", dry_run=False)
+    session = runtime.get_think_session(result["session"]["session_id"])
+
+    assert result["mode"] == "hybrid"
+    assert result["runner"] == "codex_cli"
+    assert result["status"] == "blocked"
+    assert result["answer_source"] == "deterministic_evidence_envelope"
+    assert "CODEX_CLI_COMMAND" in result["message"]
+    assert "--runner auto" in result["message"]
+    assert result["runner_resolution"]["available"] is False
+    assert session["status"] == "blocked"
+    assert session["failure_state"]["reason"] == "runner_unavailable"
+    assert Path(root / session["trace"]["failure_state_path"]).exists()
 
 
 def test_think_runner_uses_manifest_think_preference(tmp_path: Path, monkeypatch):
@@ -65,6 +94,16 @@ def test_think_runner_uses_manifest_think_preference(tmp_path: Path, monkeypatch
     result = runtime.think("project objective", limit=3, mode="runner", runner="auto", dry_run=True)
 
     assert result["runner"] == "claude_code"
+
+
+def test_think_sessions_do_not_collide_for_same_query(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Think Project", slug="think-project")
+    runtime = KnowledgeRuntime(root)
+
+    first = runtime.think("project objective", limit=3, mode="runner", runner="codex_cli", dry_run=True)
+    second = runtime.think("project objective", limit=3, mode="runner", runner="codex_cli", dry_run=True)
+
+    assert first["session"]["session_id"] != second["session"]["session_id"]
 
 
 def test_register_think_result_creates_integrity_artifact_and_candidates(tmp_path: Path):
@@ -186,7 +225,11 @@ def test_think_runner_executes_local_runner_and_records_result(tmp_path: Path, m
 
     assert result["status"] == "done"
     assert result["runner"] == "cursor_cli"
+    assert result["answer_source"] == "runner_synthesis"
     assert result["verification"]["ok"] is True
     assert result["answer"] == "Evidence suggests the objective is documented."
     assert session["status"] == "done"
     assert session["result"]["citations_used"] == ["[1]"]
+    assert session["trace"]["prompt_path"].endswith("prompt.txt")
+    assert session["trace"]["result_envelope_path"].endswith("result.envelope.json")
+    assert session["result_envelope"]["status"] == "done"

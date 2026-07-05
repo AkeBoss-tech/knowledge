@@ -42,8 +42,8 @@ integrity = decide what is ready to trust, verify, or promote
 
 ## What You Get
 
-- local-first knowledge projects with `krail.yaml`, `topics/`, `sources/`, and
-  `research_plan/`
+- local-first knowledge projects with `rail.yaml`, `.ontology/`, `topics/`,
+  `sources/`, `research_plan/`, and `artifacts/`
 - deterministic search, unified `find`, and `think` envelopes with citations,
   freshness, typed records, and next actions
 - repo-backed tasks, workflow runs, and session outputs
@@ -58,6 +58,35 @@ integrity = decide what is ready to trust, verify, or promote
 - markdown graph inspection for frontmatter-rich topic collections
 - MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
 - optional local API adapter for custom clients and interfaces
+
+## V1 Contract
+
+KRAIL's v1 promise is a stable local-first runtime for repo-backed knowledge
+work.
+
+The v1 contract covers:
+
+- `krail init` scaffolding a working local project with `rail.yaml`
+- `doctor`, `mode active`, and `pack active` for local project inspection
+- `capture`, `inbox list`, `inbox promote`, and `topic upsert` for the raw-note
+  to durable-topic loop
+- deterministic `search` and typed `find`
+- optional local vector retrieval via `vector build` and `vector search`
+- deterministic `think` envelopes with citations, freshness, gaps, conflicts,
+  and next actions
+- repo-backed tasks, workflow templates, materialized workflow execution, and
+  dry-run dispatch records
+- `integrity status` and related ledger views for promotion readiness
+- MCP access to the stable local project subset
+
+The v1 contract does not promise:
+
+- hosted platform behavior or managed multi-user control planes
+- host-level sandbox isolation
+- autonomous agent execution without human review
+- model-backed synthesis as the default `think` behavior
+- mature external pack registries or plugin ecosystems
+- perfect semantic retrieval or perfect reranking
 
 ## Quick Start
 
@@ -90,6 +119,12 @@ krail --local search "GCS feasibility" --explain
 krail --local think "What changed in task and motion planning?"
 ```
 
+`think` now follows the `krail.think.v1` contract. `deterministic` mode stays
+honest and returns an evidence envelope rather than pretending a model
+synthesized an answer. `runner` and `hybrid` modes write reviewable session
+traces under `research_plan/sessions/think_*`, including the prompt, evidence
+packet, result envelope, and failure state when synthesis cannot run cleanly.
+
 Build the project graph when your notes use frontmatter:
 
 ```bash
@@ -114,8 +149,24 @@ Create auditable work before launching another agent:
 ```bash
 krail --local task create "summarize new captures" --runner codex_cli
 krail --local task list
-krail --local task dispatch 1 --dry-run
+krail --local task dispatch <task_id> --dry-run
 ```
+
+Before you promote a topic update or ship an artifact, check integrity:
+
+```bash
+krail --local integrity status
+krail --local integrity source <source_key>
+krail --local integrity claim <claim_key>
+krail --local integrity artifact <artifact_path>
+krail --local integrity stale-graph
+krail --local integrity verification-runs
+```
+
+`integrity status` is the readiness surface. It tells you what can be trusted
+now, what is stale, what still lacks evidence, and which KRAIL command to run
+next before promotion or release. Use the detail commands to inspect and repair
+the exact record that is blocking trust.
 
 ## What A Good First Run Looks Like
 
@@ -145,17 +196,16 @@ tasks, workflow history, and deterministic repo inventory.
 Keep internal sources, policy notes, owners, and stale-doc reviews local and
 auditable.
 
-## Current Status
+## Local Runtime Status
 
-KRAIL is ready for pilot projects. It is not yet a polished production
-platform.
-
-Working well now:
+Covered by the current CLI tests, MCP tests, or fixture smoke commands:
 
 - local project scaffolding
 - knowledge pack activation
 - capture inbox
+- inbox promotion and topic upsert
 - deterministic local file search and unified typed `find`
+- optional local-hash vector retrieval
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records
@@ -171,13 +221,13 @@ Working well now:
 - MCP tools for find, search, think, capture, tasks, workflows, and integrity
 - optional local FastAPI adapter using `.krail/store.json`
 
-Still early:
+Explicitly outside the v1 promise for now:
 
-- model-backed synthesis inside `think`
-- better embedding and reranking defaults
-- deeper graph-aware retrieval
-- external pack installation
-- production-grade sandbox and permission controls
+- model-backed synthesis inside `think` remains opt-in and runner-backed
+- embedding upgrades and reranking quality beyond the local hash default
+- deeper graph-aware retrieval beyond the current deterministic graph signals
+- external pack installation and registry ergonomics
+- production-grade sandboxing or host-level permission isolation
 
 ## MCP
 
@@ -213,6 +263,7 @@ Optional agent CLI setup:
 - [Architecture](docs/architecture.md)
 - [Knowledge Modes](docs/knowledge-modes.md)
 - [Project Layout](docs/project-layout.md)
+- [Release Checklist](RELEASE.md)
 - [Growth Plan](docs/growth-plan.md)
 - [Launch Kit](docs/launch-kit.md)
 - [Launch Posts](docs/launch-posts.md)

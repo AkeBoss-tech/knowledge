@@ -129,8 +129,8 @@ truth.
 
 ## What KRAIL Looks Like Today
 
-KRAIL is still early, but the local-first workflow is already usable for pilot
-projects.
+KRAIL's v1 contract is intentionally narrow: a local-first workflow for
+repo-backed knowledge projects.
 
 Right now it can already help with:
 
@@ -143,7 +143,7 @@ Right now it can already help with:
 - dry-run agent dispatch
 - MCP exposure for local KRAIL projects
 
-What is still early:
+What remains outside the current contract:
 
 - model-backed synthesis inside `think`
 - deeper retrieval and reranking

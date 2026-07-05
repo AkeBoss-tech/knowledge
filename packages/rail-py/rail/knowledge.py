@@ -164,6 +164,8 @@ LOCAL_RUNNERS: dict[str, dict[str, str]] = {
     },
 }
 
+THINK_CONTRACT_VERSION = "krail.think.v1"
+
 KRAIL_AGENT_ROLES: dict[str, dict[str, str]] = {
     "doctor": {
         "label": "KRAIL Doctor Agent",
@@ -791,6 +793,9 @@ class ThinkRequest:
 
 @dataclass
 class ThinkResult:
+    contract_version: str
+    status: str
+    answer_source: str
     query: str
     mode: str
     requested_runner: str
@@ -807,6 +812,7 @@ class ThinkResult:
     conflicts: list[str]
     suggested_next_actions: list[str]
     verification: dict[str, Any]
+    message: str | None = None
     session: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -2047,6 +2053,80 @@ class KnowledgeRuntime:
             retrieval=retrieval,
         )
 
+    @staticmethod
+    def _write_json(path: Path, payload: Any) -> None:
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _write_text(path: Path, content: str) -> None:
+        path.write_text(content, encoding="utf-8")
+
+    def _think_session_paths(self, session_dir: Path) -> dict[str, Path]:
+        return {
+            "request": session_dir / "think_request.json",
+            "evidence_packet": session_dir / "evidence_packet.json",
+            "prompt": session_dir / "prompt.txt",
+            "work_order": session_dir / "work_order.json",
+            "command": session_dir / "command.json",
+            "template": session_dir / "session_result.template.json",
+            "raw_result": session_dir / "session_result.json",
+            "result_envelope": session_dir / "result.envelope.json",
+            "failure_state": session_dir / "failure_state.json",
+            "stdout": session_dir / "stdout.log",
+            "stderr": session_dir / "stderr.log",
+            "exit_code": session_dir / "exit_code.txt",
+        }
+
+    def _think_session_trace(self, paths: dict[str, Path]) -> dict[str, str]:
+        return {
+            f"{name}_path": str(path.relative_to(self.project_path))
+            for name, path in paths.items()
+        }
+
+    def _think_evidence_packet(self, request: ThinkRequest) -> dict[str, Any]:
+        retrieval = request.retrieval
+        return {
+            "query": request.query,
+            "mode": request.mode,
+            "requested_runner": request.requested_runner,
+            "evidence": retrieval["evidence"],
+            "citations": retrieval["citations"],
+            "graph_context": retrieval["search"].get("graph_context"),
+            "vector_hits": retrieval["search"].get("vector_hits", []),
+            "source_freshness": retrieval["source_freshness"],
+            "deterministic_answer": retrieval["deterministic_answer"],
+            "confidence": retrieval["confidence"],
+            "gaps": retrieval["gaps"],
+            "conflicts": retrieval["conflicts"],
+            "suggested_next_actions": retrieval["suggested_next_actions"],
+        }
+
+    def _pending_think_verification(self, *, reason: str, state: str = "not_run") -> dict[str, Any]:
+        return {
+            "ok": False,
+            "state": state,
+            "reason": reason,
+            "checks": [
+                {
+                    "name": "citation_coverage",
+                    "ok": False,
+                    "detail": "Runner synthesis has not completed yet, so cited-output verification has not run.",
+                },
+                {
+                    "name": "unsupported_claims",
+                    "ok": False,
+                    "detail": "Runner synthesis has not completed yet, so unsupported-claim verification has not run.",
+                },
+                {
+                    "name": "stale_evidence_check",
+                    "ok": False,
+                    "detail": "Treat the session as review-only until a structured synthesis result is available.",
+                },
+            ],
+            "citations_used": [],
+            "unsupported_claims": [],
+        }
+
     def _deterministic_think_result(self, request: ThinkRequest) -> ThinkResult:
         retrieval = request.retrieval
         source_freshness = retrieval["source_freshness"]
@@ -2066,6 +2146,9 @@ class KnowledgeRuntime:
             ],
         }
         return ThinkResult(
+            contract_version=THINK_CONTRACT_VERSION,
+            status="done",
+            answer_source="deterministic_evidence_envelope",
             query=request.query,
             mode=request.mode,
             requested_runner=request.requested_runner,
@@ -2085,17 +2168,7 @@ class KnowledgeRuntime:
         )
 
     def _runner_prompt_for_think(self, request: ThinkRequest, session_result_path: str) -> str:
-        retrieval = request.retrieval
-        payload = {
-            "query": request.query,
-            "evidence": retrieval["evidence"],
-            "citations": retrieval["citations"],
-            "graph_context": retrieval["search"].get("graph_context"),
-            "vector_hits": retrieval["search"].get("vector_hits", []),
-            "source_freshness": retrieval["source_freshness"],
-            "deterministic_answer": retrieval["deterministic_answer"],
-            "gaps": retrieval["gaps"],
-        }
+        payload = self._think_evidence_packet(request)
         return (
             "You are the KRAIL think synthesis worker.\n\n"
             "Use only the provided project evidence unless the prompt explicitly says otherwise.\n"
@@ -2196,9 +2269,10 @@ class KnowledgeRuntime:
     ) -> dict[str, Any]:
         deterministic = self._deterministic_think_result(request)
         resolved = self._resolve_think_runner_for_session(runner, dry_run=dry_run)
-        session_id = f"think_{self._slug(request.query, fallback='think')}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S')}"
+        session_id = f"think_{self._slug(request.query, fallback='think')}_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d%H%M%S%f')}"
         session_dir = self.sessions_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
+        paths = self._think_session_paths(session_dir)
         work_order_id = f"wo_{session_id}"
         work_order = {
             "work_order_id": work_order_id,
@@ -2211,26 +2285,25 @@ class KnowledgeRuntime:
             "trust": "candidate_until_reviewed",
             "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
         }
-        session_result_path = str((session_dir / "session_result.json").relative_to(self.project_path))
+        session_result_path = str(paths["raw_result"].relative_to(self.project_path))
         prompt = self._runner_prompt_for_think(request, session_result_path)
         command = self._runner_command(resolved["runner"], prompt)
-        (session_dir / "think_request.json").write_text(json.dumps(request.to_dict(), indent=2) + "\n", encoding="utf-8")
-        (session_dir / "work_order.json").write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
-        (session_dir / "command.json").write_text(json.dumps({"command": command}, indent=2) + "\n", encoding="utf-8")
-        (session_dir / "session_result.template.json").write_text(
-            json.dumps(
-                {
-                    "answer": "",
-                    "citations_used": [],
-                    "gaps": [],
-                    "conflicts": [],
-                    "suggested_next_actions": [],
-                    "unsupported_claims": [],
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
+        evidence_packet = self._think_evidence_packet(request)
+        self._write_json(paths["request"], request.to_dict())
+        self._write_json(paths["evidence_packet"], evidence_packet)
+        self._write_text(paths["prompt"], prompt)
+        self._write_json(paths["work_order"], work_order)
+        self._write_json(paths["command"], {"command": command})
+        self._write_json(
+            paths["template"],
+            {
+                "answer": "",
+                "citations_used": [],
+                "gaps": [],
+                "conflicts": [],
+                "suggested_next_actions": [],
+                "unsupported_claims": [],
+            },
         )
 
         payload: dict[str, Any] = deterministic.to_dict()
@@ -2244,16 +2317,43 @@ class KnowledgeRuntime:
                     "session_id": session_id,
                     "session_path": str(session_dir.relative_to(self.project_path)),
                     "work_order_id": work_order_id,
+                    "trace": self._think_session_trace(paths),
                 },
             }
         )
         if dry_run or not resolved.get("available"):
-            if not resolved.get("available"):
-                payload["gaps"] = list(payload["gaps"]) + [
-                    resolved.get("warning") or f"Runner unavailable for synthesis: {resolved['runner']}.",
-                ]
+            blocked = not resolved.get("available")
+            message = (
+                resolved.get("actionable_error")
+                if blocked
+                else "Dry run prepared the think session traces without launching a runner."
+            )
+            if blocked:
+                payload["gaps"] = list(payload["gaps"]) + [message]
+                payload["suggested_next_actions"] = list(
+                    dict.fromkeys(payload["suggested_next_actions"] + list(resolved.get("suggested_next_actions") or []))
+                )
+                self._write_json(
+                    paths["failure_state"],
+                    {
+                        "status": "blocked" if not dry_run else "dry_run",
+                        "reason": "runner_unavailable",
+                        "message": message,
+                        "runner": resolved["runner"],
+                        "requested_runner": runner,
+                        "command": resolved.get("command"),
+                        "checked": resolved.get("checked", []),
+                    },
+                )
             payload["status"] = "dry_run" if dry_run else "blocked"
-            payload["verification"] = self._verify_think_result(request, deterministic)
+            payload["answer_source"] = "deterministic_evidence_envelope"
+            payload["message"] = message
+            payload["verification"] = self._pending_think_verification(
+                reason=message,
+                state="not_run" if dry_run else "runner_unavailable",
+            )
+            payload["session"]["trace"] = self._think_session_trace(paths)
+            self._write_json(paths["result_envelope"], payload)
             return payload
 
         raw_result: dict[str, Any] | None = None
@@ -2265,65 +2365,117 @@ class KnowledgeRuntime:
             text=True,
             timeout=None,
         )
-        (session_dir / "stdout.log").write_text(completed.stdout or "", encoding="utf-8")
-        (session_dir / "stderr.log").write_text(completed.stderr or "", encoding="utf-8")
-        (session_dir / "exit_code.txt").write_text(str(completed.returncode), encoding="utf-8")
-        result_path = session_dir / "session_result.json"
-        if result_path.exists():
+        self._write_text(paths["stdout"], completed.stdout or "")
+        self._write_text(paths["stderr"], completed.stderr or "")
+        self._write_text(paths["exit_code"], f"{completed.returncode}\n")
+        if paths["raw_result"].exists():
             try:
-                raw_result = json.loads(result_path.read_text(encoding="utf-8"))
+                parsed = json.loads(paths["raw_result"].read_text(encoding="utf-8"))
+                raw_result = parsed if isinstance(parsed, dict) else None
             except Exception:
                 raw_result = None
         if raw_result is None and completed.stdout:
             try:
-                raw_result = json.loads(completed.stdout)
+                parsed = json.loads(completed.stdout)
+                raw_result = parsed if isinstance(parsed, dict) else None
             except Exception:
-                raw_result = {
-                    "answer": completed.stdout.strip(),
-                    "citations_used": [],
-                    "gaps": [],
-                    "conflicts": [],
-                    "suggested_next_actions": [],
-                    "unsupported_claims": [],
-                }
-        if raw_result is None:
-            raw_result = {
-                "answer": deterministic.answer,
-                "citations_used": [],
-                "gaps": ["Runner did not produce structured synthesis output."],
-                "conflicts": [],
-                "suggested_next_actions": [],
-                "unsupported_claims": [],
-            }
-        result = ThinkResult(
-            query=request.query,
-            mode=request.mode,
-            requested_runner=runner,
-            runner=resolved["runner"],
-            runner_resolution=resolved,
-            answer=str(raw_result.get("answer") or deterministic.answer),
-            evidence=deterministic.evidence,
-            citations=deterministic.citations,
-            graph_context=deterministic.graph_context,
-            vector_hits=deterministic.vector_hits,
-            source_freshness=deterministic.source_freshness,
-            confidence="medium" if completed.returncode == 0 else "low",
-            gaps=list(deterministic.gaps) + self._ensure_list_of_strings(raw_result.get("gaps")),
-            conflicts=self._ensure_list_of_strings(raw_result.get("conflicts")),
-            suggested_next_actions=list(dict.fromkeys(deterministic.suggested_next_actions + self._ensure_list_of_strings(raw_result.get("suggested_next_actions")))),
-            verification={},
-            session={
-                "session_id": session_id,
-                "session_path": str(session_dir.relative_to(self.project_path)),
-                "work_order_id": work_order_id,
-                "started_at": started.isoformat(),
-                "ended_at": _dt.datetime.now(_dt.UTC).isoformat(),
-                "exit_code": completed.returncode,
-            },
-        )
-        result.verification = self._verify_think_result(request, result, raw_result=raw_result)
-        payload = result.to_dict()
-        payload["status"] = "done" if completed.returncode == 0 else "failed"
+                raw_result = None
+
+        structured_success = completed.returncode == 0 and isinstance(raw_result, dict)
+        ended = _dt.datetime.now(_dt.UTC)
+        session_payload = {
+            "session_id": session_id,
+            "session_path": str(session_dir.relative_to(self.project_path)),
+            "work_order_id": work_order_id,
+            "started_at": started.isoformat(),
+            "ended_at": ended.isoformat(),
+            "exit_code": completed.returncode,
+        }
+        if structured_success:
+            result = ThinkResult(
+                contract_version=THINK_CONTRACT_VERSION,
+                status="done",
+                answer_source="runner_synthesis",
+                query=request.query,
+                mode=request.mode,
+                requested_runner=runner,
+                runner=resolved["runner"],
+                runner_resolution=resolved,
+                answer=str(raw_result.get("answer") or deterministic.answer),
+                evidence=deterministic.evidence,
+                citations=deterministic.citations,
+                graph_context=deterministic.graph_context,
+                vector_hits=deterministic.vector_hits,
+                source_freshness=deterministic.source_freshness,
+                confidence="medium",
+                gaps=list(deterministic.gaps) + self._ensure_list_of_strings(raw_result.get("gaps")),
+                conflicts=self._ensure_list_of_strings(raw_result.get("conflicts")),
+                suggested_next_actions=list(
+                    dict.fromkeys(
+                        deterministic.suggested_next_actions + self._ensure_list_of_strings(raw_result.get("suggested_next_actions"))
+                    )
+                ),
+                verification={},
+                session=session_payload,
+            )
+            result.verification = self._verify_think_result(request, result, raw_result=raw_result)
+            payload = result.to_dict()
+        else:
+            failure_reason = (
+                f"Runner `{resolved['runner']}` exited with code {completed.returncode}; deterministic evidence envelope returned instead."
+                if completed.returncode != 0
+                else "Runner did not produce the required structured think result; deterministic evidence envelope returned instead."
+            )
+            failure_state = "runner_failed" if completed.returncode != 0 else "invalid_result"
+            merged_gaps = list(dict.fromkeys(list(deterministic.gaps) + [failure_reason]))
+            result = ThinkResult(
+                contract_version=THINK_CONTRACT_VERSION,
+                status="failed",
+                answer_source="deterministic_evidence_envelope",
+                query=request.query,
+                mode=request.mode,
+                requested_runner=runner,
+                runner=resolved["runner"],
+                runner_resolution=resolved,
+                answer=deterministic.answer,
+                evidence=deterministic.evidence,
+                citations=deterministic.citations,
+                graph_context=deterministic.graph_context,
+                vector_hits=deterministic.vector_hits,
+                source_freshness=deterministic.source_freshness,
+                confidence="low",
+                gaps=merged_gaps,
+                conflicts=[],
+                suggested_next_actions=list(
+                    dict.fromkeys(
+                        deterministic.suggested_next_actions
+                        + [
+                            f"Inspect `{paths['stdout'].relative_to(self.project_path)}` and `{paths['stderr'].relative_to(self.project_path)}` for runner output.",
+                            "Retry with `--runner auto` if another local CLI is available.",
+                        ]
+                    )
+                ),
+                verification=self._pending_think_verification(reason=failure_reason, state=failure_state),
+                message=failure_reason,
+                session=session_payload,
+            )
+            payload = result.to_dict()
+            self._write_json(
+                paths["failure_state"],
+                {
+                    "status": "failed",
+                    "reason": failure_state,
+                    "message": failure_reason,
+                    "runner": resolved["runner"],
+                    "requested_runner": runner,
+                    "command": resolved.get("command"),
+                    "exit_code": completed.returncode,
+                    "checked": resolved.get("checked", []),
+                    "has_raw_result": bool(raw_result),
+                },
+            )
+        payload["session"]["trace"] = self._think_session_trace(paths)
+        self._write_json(paths["result_envelope"], payload)
         return payload
 
     def _resolve_think_runner_for_session(self, runner: str, *, dry_run: bool) -> dict[str, Any]:
@@ -2340,7 +2492,14 @@ class KnowledgeRuntime:
                 "explicit_dry_run": True,
             }
             if not available:
-                resolved["warning"] = "explicit runner executable was not found; dry-run session files were still materialized"
+                resolved.update(
+                    self._runner_unavailable_resolution(
+                        runner,
+                        command=command,
+                        purpose="think",
+                        explicit=True,
+                    )
+                )
             return resolved
         return self.resolve_runner(runner, purpose="think")
 
@@ -2491,30 +2650,27 @@ class KnowledgeRuntime:
             else:
                 raise FileNotFoundError(f"Think session not found: {session_id}")
 
-        request_path = session_dir / "think_request.json"
-        work_order_path = session_dir / "work_order.json"
-        command_path = session_dir / "command.json"
-        result_path = session_dir / "session_result.json"
-        template_path = session_dir / "session_result.template.json"
-        stdout_path = session_dir / "stdout.log"
-        stderr_path = session_dir / "stderr.log"
-        exit_code_path = session_dir / "exit_code.txt"
+        paths = self._think_session_paths(session_dir)
 
-        request = json.loads(request_path.read_text(encoding="utf-8")) if request_path.exists() else {}
-        work_order = json.loads(work_order_path.read_text(encoding="utf-8")) if work_order_path.exists() else {}
-        command = json.loads(command_path.read_text(encoding="utf-8")) if command_path.exists() else {}
-        raw_result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else None
+        request = json.loads(paths["request"].read_text(encoding="utf-8")) if paths["request"].exists() else {}
+        work_order = json.loads(paths["work_order"].read_text(encoding="utf-8")) if paths["work_order"].exists() else {}
+        command = json.loads(paths["command"].read_text(encoding="utf-8")) if paths["command"].exists() else {}
+        raw_result = json.loads(paths["raw_result"].read_text(encoding="utf-8")) if paths["raw_result"].exists() else None
+        result_envelope = json.loads(paths["result_envelope"].read_text(encoding="utf-8")) if paths["result_envelope"].exists() else None
+        failure_state = json.loads(paths["failure_state"].read_text(encoding="utf-8")) if paths["failure_state"].exists() else None
         exit_code = None
-        if exit_code_path.exists():
+        if paths["exit_code"].exists():
             try:
-                exit_code = int(exit_code_path.read_text(encoding="utf-8").strip())
+                exit_code = int(paths["exit_code"].read_text(encoding="utf-8").strip())
             except ValueError:
                 exit_code = None
-        if raw_result is not None:
+        if isinstance(result_envelope, dict) and isinstance(result_envelope.get("status"), str):
+            status = str(result_envelope["status"])
+        elif raw_result is not None:
             status = "done" if exit_code in {None, 0} else "failed"
         elif exit_code is not None:
             status = "failed" if exit_code != 0 else "done"
-        elif template_path.exists():
+        elif paths["template"].exists():
             status = "prepared"
         else:
             status = "unknown"
@@ -2528,17 +2684,22 @@ class KnowledgeRuntime:
             "runner": work_order.get("runner"),
             "created_at": work_order.get("created_at"),
             "session_path": str(session_dir.relative_to(self.project_path)),
-            "result_path": str(result_path.relative_to(self.project_path)) if result_path.exists() else None,
-            "has_result": result_path.exists(),
+            "result_path": str(paths["raw_result"].relative_to(self.project_path)) if paths["raw_result"].exists() else None,
+            "has_result": paths["raw_result"].exists(),
             "exit_code": exit_code,
+            "trace": self._think_session_trace(paths),
         }
         if include_payload:
             payload["request"] = request
             payload["work_order"] = work_order
+            payload["evidence_packet"] = json.loads(paths["evidence_packet"].read_text(encoding="utf-8")) if paths["evidence_packet"].exists() else {}
             payload["command"] = command
+            payload["prompt"] = paths["prompt"].read_text(encoding="utf-8") if paths["prompt"].exists() else ""
             payload["result"] = raw_result
-            payload["stdout"] = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
-            payload["stderr"] = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+            payload["result_envelope"] = result_envelope
+            payload["failure_state"] = failure_state
+            payload["stdout"] = paths["stdout"].read_text(encoding="utf-8") if paths["stdout"].exists() else ""
+            payload["stderr"] = paths["stderr"].read_text(encoding="utf-8") if paths["stderr"].exists() else ""
         return payload
 
     def capture(
@@ -4408,6 +4569,32 @@ jobs:
     def schedules_dir(self) -> Path:
         return self.krail_dir / "schedules"
 
+    def _runner_unavailable_resolution(self, runner: str, *, command: str, purpose: str | None = None, explicit: bool) -> dict[str, Any]:
+        meta = LOCAL_RUNNERS.get(runner, {})
+        command_env = str(meta.get("command_env") or "RUNNER_COMMAND")
+        executable = shlex.split(command)[0] if command else runner
+        scope = f" for {purpose}" if purpose else ""
+        if explicit:
+            summary = (
+                f"Requested runner `{runner}` is unavailable{scope}. "
+                f"Install `{executable}` or set `{command_env}` to a working command. "
+                "Use `--runner auto` to allow any available local runner."
+            )
+        else:
+            summary = (
+                f"No configured local runner executable was found{scope}. "
+                f"Install one of the supported CLIs or set its command environment variable."
+            )
+        actions = [
+            f"Install `{executable}` or point `{command_env}` at a working executable.",
+            "Use `--runner auto` to let KRAIL pick any available local runner." if explicit else "Run `krail --local list-agents` to inspect available local runners.",
+        ]
+        return {
+            "warning": summary,
+            "actionable_error": summary,
+            "suggested_next_actions": actions,
+        }
+
     def list_agents(self) -> dict[str, Any]:
         agents = []
         for name, meta in LOCAL_RUNNERS.items():
@@ -4427,18 +4614,21 @@ jobs:
     def resolve_runner(self, preferred: str | None = None, *, purpose: str | None = None) -> dict[str, Any]:
         manifest_agents = self._manifest_data().get("agents", {})
         policy = manifest_agents.get("runner_policy") if isinstance(manifest_agents.get("runner_policy"), dict) else {}
-        candidates = [preferred] if preferred and preferred != "auto" else []
+        explicit_runner = preferred not in {None, "", "auto"}
+        candidates = [preferred] if explicit_runner else []
         if preferred in {None, "", "auto"} and purpose == "think":
             for candidate in policy.get("think_preferred") or []:
                 if isinstance(candidate, str) and candidate not in candidates:
                     candidates.append(candidate)
-        for candidate in policy.get("preferred") or []:
-            if isinstance(candidate, str) and candidate not in candidates:
-                candidates.append(candidate)
+        if not explicit_runner:
+            for candidate in policy.get("preferred") or []:
+                if isinstance(candidate, str) and candidate not in candidates:
+                    candidates.append(candidate)
         default_runner = manifest_agents.get("default_runner")
-        if isinstance(default_runner, str) and default_runner and default_runner not in candidates:
+        if not explicit_runner and isinstance(default_runner, str) and default_runner and default_runner not in candidates:
             candidates.append(default_runner)
-        candidates.extend(name for name in LOCAL_RUNNERS if name not in candidates)
+        if not explicit_runner:
+            candidates.extend(name for name in LOCAL_RUNNERS if name not in candidates)
 
         checked: list[dict[str, Any]] = []
         for candidate in candidates:
@@ -4458,13 +4648,21 @@ jobs:
         fallback = preferred if preferred and preferred in LOCAL_RUNNERS else (default_runner if isinstance(default_runner, str) and default_runner in LOCAL_RUNNERS else "codex_cli")
         meta = LOCAL_RUNNERS.get(fallback, LOCAL_RUNNERS["codex_cli"])
         command = os.environ.get(meta["command_env"], meta["default_command"])
-        return {
+        payload = {
             "runner": fallback,
             "command": command,
             "available": False,
             "checked": checked,
-            "warning": "no configured local runner executable was found; dry-run work orders can still be reviewed",
         }
+        payload.update(
+            self._runner_unavailable_resolution(
+                fallback,
+                command=command,
+                purpose=purpose,
+                explicit=explicit_runner,
+            )
+        )
+        return payload
 
     def scaffold_krail_agents(self, *, force: bool = False) -> dict[str, Any]:
         written: list[str] = []

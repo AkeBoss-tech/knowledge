@@ -1,64 +1,82 @@
 # Release Checklist
 
-Target: `v0.2.3-local-preview`
+Target: `v1.0.0` local-runtime contract
 
-Planned scope: permission-aware local file tooling, mounted/federated KRAIL
-projects, software-map repo inspection commands, git listeners, and the
-associated CLI/MCP/test coverage updates.
+This checklist defines the KRAIL v1 release as an honest local-runtime release.
+It is about the repo-backed workflow that works today, not a claim that every
+experimental surface is finished.
 
-## Fresh Clone Smoke
+## Contract
+
+The v1 release covers:
+
+- local project scaffolding with `krail init`
+- `rail.yaml`-backed projects with `.ontology/`, `topics/`, `sources/`,
+  `research_plan/`, `research_plan/state/`, and `artifacts/`
+- `doctor`, `mode active`, and `pack active`
+- `capture`, `inbox list`, `inbox promote`, and `topic upsert`
+- deterministic `search`, typed `find`, optional `vector build` and
+  `vector search`
+- deterministic `think` envelopes with citations, gaps, conflicts, freshness,
+  and next actions
+- repo-backed tasks, workflow templates, materialized workflow execution, and
+  dry-run dispatch
+- `integrity status` and related ledger views
+- MCP access to the stable local project subset
+
+The v1 release does not promise:
+
+- hosted platform behavior
+- host-level sandbox isolation
+- autonomous agent execution without review
+- model-backed synthesis as the default `think` path
+- mature external pack registries
+- perfect semantic retrieval or reranking
+
+## Fresh Smoke
+
+These commands should pass from a supported Python 3.11+ environment:
 
 ```bash
-git clone https://github.com/AkeBoss-tech/knowledge.git
-cd knowledge
-git checkout future
-./scripts/install-rail.sh
-krail --version
+krail init /tmp/krail-v1-smoke --pack research-intelligence --mode markdown_graph
+krail --local --path examples/minimal-project mode active
+krail --local --path examples/minimal-project pack active
 krail --local --path examples/minimal-project doctor
-krail --local --path examples/minimal-project sources validate
-krail --local --path examples/minimal-project sources check
-krail --local --path examples/minimal-project sources affected
-krail --local --path examples/minimal-project graph build
-krail --local --path examples/minimal-project graph check
-krail --local --path examples/minimal-project vector build
-krail --local --path examples/minimal-project search "employment index" --rag --explain
+krail --local --path examples/minimal-project search "employment index" --explain
 krail --local --path examples/minimal-project think "employment index"
 krail --local --path examples/minimal-project workflow list
-krail --local --path examples/minimal-project grep "employment"
-krail --local --path examples/minimal-project files list topics --recursive
-krail --local --path examples/minimal-project graph summary --federated
 ```
 
-## Pre-Tag Checks
+The capture-to-topic loop should also remain working against a copied fixture:
+
+```bash
+tmpdir="$(mktemp -d)"
+cp -R examples/minimal-project "$tmpdir/project"
+krail --local --path "$tmpdir/project" capture "PDDLStream is useful for task and motion planning baselines." --topic robotics --entity PDDLStream --entity-type Package
+krail --local --path "$tmpdir/project" inbox list
+krail --local --path "$tmpdir/project" inbox promote topics/inbox/<capture>.md --topic task-and-motion-planning --type method
+krail --local --path "$tmpdir/project" topic upsert task-and-motion-planning --content "Reviewed update with evidence."
+krail --local --path "$tmpdir/project" graph build
+krail --local --path "$tmpdir/project" vector build
+krail --local --path "$tmpdir/project" integrity status
+```
+
+## Focused Test Gate
+
+At minimum, the docs-adjacent and contract-adjacent tests should pass:
 
 ```bash
 PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
   packages/rail-py/tests/test_bootstrap.py \
-  packages/rail-py/tests/test_markdown_graph.py \
   packages/rail-py/tests/test_cli.py \
-  packages/rail-py/tests/test_issue_intake.py \
-  packages/rail-py/tests/test_mounts.py \
-  packages/rail-py/tests/test_source_dependencies.py \
+  packages/rail-py/tests/test_knowledge_modes.py \
   packages/rail-py/tests/test_think.py \
-  packages/rail-py/tests/test_workflows.py \
-  packages/rail-py/tests/test_permissions.py \
-  packages/rail-py/tests/test_repo_tools.py \
-  packages/rail-py/tests/test_listeners.py \
-  packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
-  packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
-  packages/mcp-server/tests/test_server.py::test_mcp_sources_affected_passes_source_ids \
-  packages/mcp-server/tests/test_server.py::test_mcp_sources_check_calls_project \
-  packages/mcp-server/tests/test_server.py::test_mcp_mount_list_calls_project \
-  packages/mcp-server/tests/test_server.py::test_mcp_think_can_call_federated_project_think
-
-python3 -m compileall -q packages/rail-py/rail packages/mcp-server/rail_mcp
-python3 -m py_compile scripts/krail_issue_intake.py
-git diff --check
+  packages/mcp-server/tests/test_server.py
 ```
 
-## Tag
+## Packaging Note
 
-```bash
-git tag -a v0.2.3-local-preview -m "KRAIL v0.2.3 local preview"
-git push origin v0.2.3-local-preview
-```
+Version numbers, distribution metadata, build artifacts, and final tag names
+must be aligned in the packaging workstream before tagging. This checklist uses
+`v1.0.0` as the intended contract target, not as proof that packaging work is
+already complete.

@@ -66,13 +66,16 @@ envelope that shaped the session.
 The optional API stores operational records in `.krail/store.json` by default.
 Durable project truth should stay in the project repo:
 
-- `krail.yaml`
+- `rail.yaml`
 - `.ontology/`
-- `workflows/`
-- `agents/`
-- `prompts/`
-- `state/`
+- `topics/`
+- `sources/`
+- `research_plan/`
+- `research_plan/state/`
 - `artifacts/`
+
+This is the v1 product contract: the local repo is the source of truth, while
+API and MCP surfaces are adapters over that state.
 
 ## Next Refactors
 

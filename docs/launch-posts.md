@@ -51,9 +51,9 @@ The part I care about most is making agent work more durable and auditable:
 It also exposes local projects over MCP for tools like Codex, Claude Code, or
 Cursor.
 
-It is still early, but the local-first workflow is already usable for pilot
-projects. I would love feedback on the onboarding flow, the core mental model,
-and whether the repo-backed agent workflow feels useful.
+The v1 contract is intentionally local-first and repo-backed. I would love
+feedback on the onboarding flow, the core mental model, and whether the
+repo-backed agent workflow feels useful.
 
 Repo: https://github.com/AkeBoss-tech/knowledge
 
