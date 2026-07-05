@@ -553,7 +553,8 @@ Current repo-mediated protection is intentionally narrow and honest:
 
 - `search`, `find`, `think`, MCP retrieval, and workflow execution consult the
   same record metadata model
-- denied reads and allowed sensitive reads are appended to
+- denied access and allowed access to restricted or sensitive repo records are
+  appended to
   `research_plan/audit/access.jsonl`
 - runner work orders can further narrow a session with `allowed_paths` and
   `capability_envelope`, but that scope is still KRAIL-mediated
@@ -687,7 +688,7 @@ Explicitly outside the v1 promise for now:
 
 - model-backed synthesis and reranking as the default path
 - external pack installation
-- production-grade sandbox enforcement
+- host-level isolation beyond KRAIL-mediated enforcement
 - remote permission scopes
 - hosted UI and managed deployments
 

@@ -55,6 +55,11 @@ def test_resolve_runner_scope_rejects_path_outside_policy():
         resolve_runner_scope(_runtime_policy(), requested_write_paths=["research_plan"])
 
 
+def test_resolve_runner_scope_rejects_tool_denied_by_policy():
+    with pytest.raises(PermissionError, match="denied by role policy"):
+        resolve_runner_scope(_runtime_policy(), requested_tools=["set_secret"])
+
+
 def test_task_payload_to_dict_exposes_scope_metadata():
     payload = TaskPayload(
         project_slug="demo",

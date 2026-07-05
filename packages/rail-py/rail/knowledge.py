@@ -919,7 +919,7 @@ class KnowledgeRuntime:
                 reason=reason,
                 metadata=permission_metadata,
             )
-        if permission_metadata.get("sensitivity"):
+        if policy.requires_audit(action, True, permission_metadata):
             policy.audit(action, rel_path, "allowed", reason, metadata=permission_metadata)
         return None
 
@@ -949,7 +949,7 @@ class KnowledgeRuntime:
             )
             blocked["workflow"] = workflow_id
             return blocked
-        if permission_metadata.get("sensitivity"):
+        if policy.requires_audit(action, True, permission_metadata):
             policy.audit(action, workflow_target, "allowed", reason, metadata=permission_metadata)
         return None
 
@@ -1017,7 +1017,7 @@ class KnowledgeRuntime:
         rel, metadata = self._path_metadata(path)
         allowed, reason = self._permission_policy().can_read(rel, metadata)
         if allowed:
-            if metadata.get("sensitivity"):
+            if self._permission_policy().requires_audit("read", True, metadata):
                 self._permission_policy().audit("read", rel, "allowed", reason, metadata=metadata)
         else:
             self._permission_policy().audit("read", rel, "denied", reason, metadata=metadata)
@@ -1142,7 +1142,7 @@ class KnowledgeRuntime:
             if not allowed:
                 self._permission_policy().audit("read", rel, "denied", reason, metadata=permission_metadata)
                 continue
-            if permission_metadata.get("sensitivity"):
+            if self._permission_policy().requires_audit("read", True, permission_metadata):
                 self._permission_policy().audit("read", rel, "allowed", reason, metadata=permission_metadata)
             lower = text.lower()
             title = self._title_for(path, text)
@@ -1280,7 +1280,7 @@ class KnowledgeRuntime:
             metadata = policy.metadata_for_path(rel, doc)
             allowed, reason = policy.can_read(rel, metadata)
             if allowed:
-                if metadata.get("sensitivity"):
+                if policy.requires_audit("read", True, metadata):
                     policy.audit("read", rel, "allowed", reason, metadata=metadata)
                 readable_docs.append(doc)
                 readable_paths.add(rel)

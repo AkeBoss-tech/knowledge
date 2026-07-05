@@ -983,7 +983,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             | `search_entities(query)` | Full-text search across all entities |
             | `get_series(series_id)` | Fetch a named time-series |
             | `query_sql(sql)` | DuckDB SQL against the artifact database |
-            | `execute_python(code)` | Run analysis; sandbox has pandas, statsmodels, duckdb |
+            | `execute_python(code)` | Run analysis in a project-scoped subprocess with pandas, statsmodels, and duckdb |
             | `run_analysis(plugin_slug)` | Run a registered analysis plugin |
             | `search_registry(query)` | Find available datasets in the data catalog |
             | `discover_templates(query)` | Find connector templates to add new data sources |
@@ -1003,7 +1003,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             2. get_entities("ClassName")       → inspect a sample
             3. query_sql("SELECT ...")         → explore or aggregate
             4. integrity_status()              → verify data quality before analysis
-            5. execute_python("import ...")    → run analysis in the sandbox
+            5. execute_python("import ...")    → run analysis in the subprocess helper
             6. search_registry("...")          → find additional datasets if needed
             7. hydrate()                       → refresh data when sources update
             ```

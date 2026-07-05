@@ -47,8 +47,8 @@ integrity = decide what is ready to trust, verify, or promote
 - deterministic search, unified `find`, and `think` envelopes with citations,
   freshness, typed records, and next actions
 - repo-backed tasks, workflow runs, and session outputs
-- public-by-default permission metadata with local audit logs for restricted
-  reads and workflow execution
+- public-by-default permission metadata with repo audit logs for denied access
+  and restricted-record access through KRAIL surfaces
 - listener/event triggers for files, websites, RSS, GitHub polling, schedules,
   and custom command adapters
 - deterministic repo snapshot, inventory, ownership, dependency, and change
@@ -187,6 +187,18 @@ If KRAIL is working well for you, the first session should feel like this:
 5. `think` returns a usable answer envelope with citations and gaps.
 6. `task` or `workflow` prepares agent work without losing project state.
 
+## Permission And Security Boundary
+
+KRAIL enforces repo-backed access rules when you go through the CLI, SDK, MCP
+server, workflows, or launched runner adapters. Records stay public by default
+unless they opt into restrictive metadata, and denied access plus allowed
+access to restricted or sensitive repo records are written to
+`research_plan/audit/access.jsonl`.
+
+KRAIL does not isolate the host machine. Anyone with direct shell or filesystem
+access to the repo can bypass KRAIL by reading or writing files outside those
+mediated surfaces.
+
 ## Primary Use Cases
 
 ### Research workspaces
@@ -217,7 +229,8 @@ Covered by the current CLI tests, MCP tests, or fixture smoke commands:
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records
-- public-by-default permissions doctor and restricted-read audit log
+- public-by-default permissions doctor and access audit log for denied and
+  restricted-record access
 - listener templates, event logs, workflow triggers, and event replay
 - software-map repo inspection commands and a bundled `examples/software-map`
   fixture
@@ -235,7 +248,8 @@ Explicitly outside the v1 promise for now:
 - embedding upgrades and reranking quality beyond the local hash default
 - deeper graph-aware retrieval beyond the current deterministic graph signals
 - external pack installation and registry ergonomics
-- production-grade sandboxing or host-level permission isolation
+- host-level isolation and managed security controls outside KRAIL-mediated
+  surfaces
 
 ## MCP
 
@@ -248,7 +262,8 @@ RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 ```
 
 This is a strong fit if you want local project knowledge available inside agent
-tools without turning the project itself into a hosted service.
+tools without turning the project itself into a hosted service. MCP follows the
+same KRAIL-mediated access policy; it is not a separate host sandbox.
 
 ## Install Notes
 
