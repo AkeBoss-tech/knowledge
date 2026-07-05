@@ -12,6 +12,7 @@ Configuration via environment variables:
 import json
 import os
 import sys
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,219 @@ import rail
 from rail.permissions import PermissionPolicy
 
 mcp = FastMCP("KRAIL")
+_original_mcp_tool = mcp.tool
+
+STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
+    "doctor": ("doctor",),
+    "search": ("search", "find"),
+    "think": (
+        "think",
+        "register_think_result",
+        "think_sessions",
+        "think_session_status",
+    ),
+    "capture": ("capture", "topic_list", "topic_upsert", "inbox_list", "inbox_promote"),
+    "tasks": ("create_task", "list_tasks", "dispatch_task"),
+    "workflows": (
+        "list_workflows",
+        "workflow_templates",
+        "init_workflow",
+        "show_workflow",
+        "validate_workflow",
+        "run_workflow",
+        "execute_workflow",
+        "workflow_runs",
+        "workflow_status",
+        "workflow_dashboard",
+    ),
+    "integrity": (
+        "integrity_status",
+        "integrity_assumptions",
+        "integrity_sources",
+        "integrity_claims",
+        "integrity_claim_candidates",
+        "integrity_artifacts",
+        "integrity_promote_claim_candidate",
+        "integrity_reproducibility_rerun",
+        "integrity_freshness_evaluate",
+        "integrity_source_detail",
+        "integrity_claim_detail",
+        "integrity_verification_runs",
+        "integrity_benchmark",
+        "integrity_stale_graph",
+        "integrity_promote_artifact",
+        "integrity_artifact_detail",
+        "integrity_graph",
+        "integrity_retrieve",
+        "integrity_rerun_plan",
+    ),
+    "permissions": ("permissions_doctor",),
+}
+STABLE_V1_TOOLS: tuple[str, ...] = tuple(
+    tool_name
+    for group in STABLE_V1_TOOL_GROUPS.values()
+    for tool_name in group
+)
+EXPERIMENTAL_TOOLS: tuple[str, ...] = (
+    "list_classes",
+    "get_entities",
+    "search_entities",
+    "mount_list",
+    "mode_active",
+    "mode_list",
+    "graph_build",
+    "graph_validate",
+    "graph_check",
+    "graph_entities",
+    "graph_edges",
+    "graph_docs",
+    "graph_export",
+    "vector_build",
+    "vector_search",
+    "sources_validate",
+    "sources_list",
+    "sources_check",
+    "sources_changed",
+    "sources_affected",
+    "ci_init",
+    "pack_active",
+    "list_agents",
+    "scaffold_krail_agents",
+    "agent_prompt",
+    "listener_list",
+    "listener_templates",
+    "listener_init",
+    "listener_validate",
+    "listener_doctor",
+    "listener_poll",
+    "event_list",
+    "event_show",
+    "event_replay",
+    "queue_status",
+    "queue_claim",
+    "graph_summary",
+    "federated_graph_summary",
+    "graph_diff",
+    "repo_inspect",
+    "get_series",
+    "query_sql",
+    "execute_python",
+    "run_analysis",
+    "search_registry",
+    "discover_templates",
+    "hydrate",
+    "list_project_state",
+    "get_work_order",
+    "submit_session_result",
+    "ask",
+    "list_secrets",
+    "set_secret",
+)
+
+
+class ToolInputError(ValueError):
+    def __init__(self, argument: str, message: str, *, hint: str = "") -> None:
+        super().__init__(message)
+        self.argument = argument
+        self.hint = hint
+
+
+def _error_payload(
+    tool_name: str,
+    code: str,
+    message: str,
+    *,
+    hint: str = "",
+    details: dict[str, Any] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "status": "error",
+        "error": {
+            "code": code,
+            "tool": tool_name,
+            "message": message,
+        },
+    }
+    if hint:
+        payload["error"]["hint"] = hint
+    if details:
+        payload["error"]["details"] = details
+    return _json(payload)
+
+
+def _project_error_hint() -> str:
+    if os.environ.get("RAIL_LOCAL", "") == "1":
+        project_path = os.environ.get("RAIL_PATH", ".")
+        return (
+            "Verify RAIL_PATH points at a KRAIL project containing "
+            f"`rail.yaml` or `krail.yaml` (current: {project_path})."
+        )
+    return "Set RAIL_PROJECT, or set RAIL_LOCAL=1 with RAIL_PATH pointing at a local KRAIL project."
+
+
+def _safe_mcp_tool(*tool_args, **tool_kwargs):
+    original_tool = _original_mcp_tool(*tool_args, **tool_kwargs)
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except ToolInputError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "invalid_arguments",
+                    str(exc),
+                    hint=exc.hint or f"Fix the `{exc.argument}` argument and retry.",
+                    details={"argument": exc.argument},
+                )
+            except json.JSONDecodeError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "invalid_arguments",
+                    f"Invalid JSON input: {exc.msg}.",
+                    hint="Pass a valid JSON object or array for the documented *_json argument.",
+                )
+            except FileNotFoundError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "not_found",
+                    str(exc),
+                )
+            except PermissionError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "permission_denied",
+                    str(exc),
+                )
+            except RuntimeError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "project_unavailable",
+                    str(exc),
+                    hint=_project_error_hint(),
+                )
+            except ValueError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "invalid_arguments",
+                    str(exc),
+                )
+            except Exception as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "internal_error",
+                    f"{type(exc).__name__}: {exc}",
+                    hint="Inspect the tool arguments and project state, then retry.",
+                )
+
+        return original_tool(wrapped)
+
+    return decorator
+
+
+mcp.tool = _safe_mcp_tool
 
 # ---------------------------------------------------------------------------
 # Lazy project singleton — resolved on first tool call
@@ -57,6 +271,47 @@ def _json(data: Any) -> str:
     if hasattr(data, "to_dict"):
         return json.dumps(data.to_dict(orient="records"), indent=2)
     return json.dumps(data, indent=2, default=str)
+
+
+def _load_json_argument(raw: str, *, argument: str, expected: str) -> Any:
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ToolInputError(
+            argument,
+            f"`{argument}` must be valid JSON: {exc.msg}.",
+            hint=expected,
+        ) from exc
+
+
+def _load_json_list_argument(raw: str, *, argument: str, item_description: str) -> list[Any]:
+    loaded = _load_json_argument(
+        raw,
+        argument=argument,
+        expected=f"Pass a JSON array of {item_description}.",
+    )
+    if not isinstance(loaded, list):
+        raise ToolInputError(
+            argument,
+            f"`{argument}` must decode to a JSON array.",
+            hint=f"Pass a JSON array of {item_description}.",
+        )
+    return loaded
+
+
+def _load_json_object_argument(raw: str, *, argument: str, description: str) -> dict[str, Any]:
+    loaded = _load_json_argument(
+        raw,
+        argument=argument,
+        expected=f"Pass a JSON object for {description}.",
+    )
+    if not isinstance(loaded, dict):
+        raise ToolInputError(
+            argument,
+            f"`{argument}` must decode to a JSON object.",
+            hint=f"Pass a JSON object for {description}.",
+        )
+    return loaded
 
 
 _WRITE_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
@@ -491,7 +746,12 @@ def register_think_result(result_json: str, artifact_path: str, title: str = "")
         artifact_path: Repo-relative or absolute path to the persisted think result artifact.
         title: Optional artifact title override.
     """
-    return _json(_get_project().register_think_result(json.loads(result_json), artifact_path=artifact_path, title=title or None))
+    result = _load_json_object_argument(
+        result_json,
+        argument="result_json",
+        description="the think result envelope",
+    )
+    return _json(_get_project().register_think_result(result, artifact_path=artifact_path, title=title or None))
 
 
 @mcp.tool()
@@ -573,8 +833,8 @@ def topic_upsert(
             kind=type,
             content=content,
             source_path=source_path or None,
-            sources=json.loads(sources_json) if sources_json else None,
-            entities=json.loads(entities_json) if entities_json else None,
+            sources=_load_json_list_argument(sources_json, argument="sources_json", item_description="source paths or URLs") if sources_json else None,
+            entities=_load_json_list_argument(entities_json, argument="entities_json", item_description="entity names") if entities_json else None,
             entity_type=entity_type or None,
         )
     )
@@ -605,7 +865,7 @@ def inbox_promote(
             topic=topic,
             title=title or None,
             kind=type,
-            entities=json.loads(entities_json) if entities_json else None,
+            entities=_load_json_list_argument(entities_json, argument="entities_json", item_description="entity names") if entities_json else None,
             entity_type=entity_type or None,
         )
     )
@@ -767,7 +1027,11 @@ def sources_changed() -> str:
 @mcp.tool()
 def sources_affected(source_ids_json: str = "") -> str:
     """List markdown documents affected by changed or selected source IDs."""
-    source_ids = json.loads(source_ids_json) if source_ids_json else None
+    source_ids = (
+        _load_json_list_argument(source_ids_json, argument="source_ids_json", item_description="source IDs")
+        if source_ids_json
+        else None
+    )
     return _json(_get_project().sources_affected(source_ids=source_ids))
 
 
@@ -990,7 +1254,11 @@ def queue_status(queue_id: str) -> str:
 @mcp.tool()
 def queue_claim(queue_id: str, limit: int = 10, where_json: str = "", owner: str = "", lease_minutes: int = 120) -> str:
     """Reserve a queue batch. where_json is an optional JSON list of key=value filters."""
-    where = json.loads(where_json) if where_json else None
+    where = (
+        _load_json_list_argument(where_json, argument="where_json", item_description="key=value filters")
+        if where_json
+        else None
+    )
     return _json(_get_project().queue_claim(queue_id, limit=limit, where=where, owner=owner or None, lease_minutes=lease_minutes))
 
 
@@ -1235,7 +1503,12 @@ def integrity_reproducibility_rerun(outputs_json: str, run_id: str = "rerun-veri
         run_id: Verification run identifier.
         scope: Verification scope label.
     """
-    return _json(_get_project().apply_integrity_reproducibility_rerun(json.loads(outputs_json), run_id=run_id, scope=scope))
+    outputs = _load_json_object_argument(
+        outputs_json,
+        argument="outputs_json",
+        description="artifact-path to contents mappings",
+    )
+    return _json(_get_project().apply_integrity_reproducibility_rerun(outputs, run_id=run_id, scope=scope))
 
 
 @mcp.tool()
@@ -1309,9 +1582,33 @@ def integrity_retrieve(
 
     JSON-encoded list arguments are used to stay compatible with MCP scalar tool inputs.
     """
-    artifact_types = json.loads(artifact_types_json) if artifact_types_json else None
-    claim_statuses = json.loads(claim_statuses_json) if claim_statuses_json else None
-    source_freshness = json.loads(source_freshness_json) if source_freshness_json else None
+    artifact_types = (
+        _load_json_list_argument(
+            artifact_types_json,
+            argument="artifact_types_json",
+            item_description="artifact type filters",
+        )
+        if artifact_types_json
+        else None
+    )
+    claim_statuses = (
+        _load_json_list_argument(
+            claim_statuses_json,
+            argument="claim_statuses_json",
+            item_description="claim status filters",
+        )
+        if claim_statuses_json
+        else None
+    )
+    source_freshness = (
+        _load_json_list_argument(
+            source_freshness_json,
+            argument="source_freshness_json",
+            item_description="source freshness filters",
+        )
+        if source_freshness_json
+        else None
+    )
     return _json(
         _get_project().integrity_retrieve(
             query,
