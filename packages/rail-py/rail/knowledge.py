@@ -1061,6 +1061,31 @@ class KnowledgeRuntime:
         return sorted(set(terms))
 
     @staticmethod
+    def _search_path_bias(rel_path: str) -> float:
+        rel = rel_path.lower()
+        if rel.startswith("topics/inbox/"):
+            return 4.0
+        if rel.startswith("topics/"):
+            return 3.0
+        if rel.startswith("sources/"):
+            return 2.5
+        if rel.startswith("artifacts/"):
+            return 2.0
+        if rel == "research_plan/current_plan.md":
+            return 1.5
+        if rel.startswith("research_plan/"):
+            return 1.0
+        if rel.startswith("specs/"):
+            return 1.0
+        if rel.startswith("agents/"):
+            return -3.0
+        if rel.startswith("skills/"):
+            return -2.5
+        if rel.startswith("scripts/"):
+            return -2.0
+        return 0.0
+
+    @staticmethod
     def _title_for(path: Path, text: str) -> str:
         for line in text.splitlines():
             stripped = line.strip()
@@ -1148,7 +1173,8 @@ class KnowledgeRuntime:
             title_boost = sum(2 for term in matched if term in title_lower)
             path_boost = sum(1 for term in matched if term in rel.lower())
             wikilink_boost = len(_WIKILINK_RE.findall(text)) * 0.05
-            score = exact_hits + title_boost + path_boost + wikilink_boost
+            path_bias = self._search_path_bias(rel)
+            score = exact_hits + title_boost + path_boost + wikilink_boost + path_bias
             hits.append(SearchHit(rel, title, score, matched, self._snippet(text, terms)))
 
         hits.sort(key=lambda hit: (-hit.score, hit.path))

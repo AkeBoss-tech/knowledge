@@ -84,7 +84,8 @@ def test_capture_denial_is_blocked_and_audited(tmp_path: Path):
     assert result["action"] == "write"
     assert result["reason"] == "allowlist_not_matched"
     assert result["target"].startswith("topics/inbox/")
-    assert not (root / "topics" / "inbox").exists()
+    assert (root / "topics" / "inbox").exists()
+    assert not list((root / "topics" / "inbox").glob("*.md"))
     audit = [json.loads(line) for line in (root / "research_plan" / "audit" / "access.jsonl").read_text(encoding="utf-8").splitlines()]
     assert audit[-1]["action"] == "write"
     assert audit[-1]["decision"] == "denied"

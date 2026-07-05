@@ -49,6 +49,7 @@ def test_bootstrap_future_project_creates_workspace_scaffold(tmp_path):
     assert (root / "skills/literature-review.md").exists()
     assert (root / "skills/econometric-design.md").exists()
     assert (root / "topics").is_dir()
+    assert (root / "topics/inbox").is_dir()
     assert (root / "scripts/setup-workspace.sh").exists()
     assert (root / "scripts/run-verification.sh").exists()
     assert (root / "scripts/archive-workspace.sh").exists()
@@ -157,8 +158,11 @@ def test_cli_init_materializes_pack_workflows_by_default(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     payload = json.loads(result.stdout)
+    assert payload["capture_inbox"] == "topics/inbox"
+    assert "research_plan/graph/graph.json" in payload["graph"]["written"]
     assert "company_profile_refresh" in payload["materialized_workflows"]
     assert (target / "research_plan" / "workflows" / "company-profile-refresh.yaml").exists()
+    assert (target / "research_plan" / "graph" / "graph.json").exists()
 
 
 def test_cli_init_software_mode_materializes_repo_workflows(tmp_path):
@@ -214,3 +218,119 @@ def test_cli_init_can_skip_pack_workflow_materialization(tmp_path):
     payload = json.loads(result.stdout)
     assert "materialized_workflows" not in payload
     assert not (target / "research_plan" / "workflows" / "company-profile-refresh.yaml").exists()
+
+
+def test_cli_first_run_smoke_path_surfaces_fresh_capture(tmp_path):
+    target = tmp_path / "demo-kb"
+
+    init_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "init",
+            str(target),
+            "--pack",
+            "research-intelligence",
+            "--mode",
+            "markdown_graph",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert init_result.returncode == 0, init_result.stdout + init_result.stderr
+
+    doctor_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "doctor"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert doctor_result.returncode == 0, doctor_result.stdout + doctor_result.stderr
+    doctor_payload = json.loads(doctor_result.stdout)
+    assert doctor_payload["ok"] is True
+    assert all(check["ok"] for check in doctor_payload["checks"])
+    assert not any(item["name"] == "markdown_graph_freshness" for item in doctor_payload["warnings"])
+
+    capture_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "--local",
+            "--path",
+            str(target),
+            "capture",
+            "PDDLStream may help bridge symbolic plans and geometric feasibility.",
+            "--topic",
+            "robotics",
+            "--entity",
+            "PDDLStream",
+            "--entity-type",
+            "Package",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert capture_result.returncode == 0, capture_result.stdout + capture_result.stderr
+    capture_payload = json.loads(capture_result.stdout)
+    assert capture_payload["status"] == "captured"
+    capture_path = capture_payload["path"]
+
+    inbox_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "inbox", "list"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert inbox_result.returncode == 0, inbox_result.stdout + inbox_result.stderr
+    inbox_payload = json.loads(inbox_result.stdout)
+    assert inbox_payload["unhandled"] == 1
+    assert inbox_payload["captures"][0]["path"] == capture_path
+
+    search_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "search", "PDDLStream feasibility", "--explain"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert search_result.returncode == 0, search_result.stdout + search_result.stderr
+    search_payload = json.loads(search_result.stdout)
+    assert search_payload["hits"][0]["path"] == capture_path
+
+    think_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "think", "What do we know about PDDLStream feasibility?"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert think_result.returncode == 0, think_result.stdout + think_result.stderr
+    think_payload = json.loads(think_result.stdout)
+    assert think_payload["evidence"][0]["path"] == capture_path
+
+    workflow_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "workflow", "run", "weekly_literature_refresh", "--dry-run"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert workflow_result.returncode == 0, workflow_result.stdout + workflow_result.stderr
+    workflow_payload = json.loads(workflow_result.stdout)
+    assert workflow_payload["status"] == "dry_run"
+    assert workflow_payload["path"].startswith("research_plan/sessions/")

@@ -82,6 +82,9 @@ cd robotics-kb
 krail --local doctor
 ```
 
+`krail init` seeds the capture inbox and initial markdown graph files so the
+fresh project starts with visible repo-backed outputs.
+
 Capture a note, search the project, and generate a cited answer envelope:
 
 ```bash

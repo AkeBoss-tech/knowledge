@@ -108,7 +108,7 @@ def test_grep_and_files_read_respect_permissions(tmp_path: Path, monkeypatch):
     assert [match["path"] for match in denied_grep["matches"]] == ["topics/public-note.md"]
     assert denied_grep["summary"]["denied_files"] == 1
     assert denied_read["status"] == "blocked"
-    assert {item["path"] for item in listing["items"]} == {"topics", "topics/brief.md", "topics/public-note.md"}
+    assert {item["path"] for item in listing["items"]} == {"topics", "topics/brief.md", "topics/inbox", "topics/public-note.md"}
 
     monkeypatch.setenv("KRAIL_ROLES", "reviewer")
     allowed_runtime = KnowledgeRuntime(root)
