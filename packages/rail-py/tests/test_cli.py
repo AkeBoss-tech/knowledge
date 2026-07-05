@@ -6,6 +6,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 RAIL_PY_ROOT = Path(__file__).parents[1]
 if str(RAIL_PY_ROOT) not in sys.path:
     sys.path.insert(0, str(RAIL_PY_ROOT))
@@ -379,6 +381,31 @@ def test_get_project_uses_cloud_connect(monkeypatch):
         "api_url": "http://127.0.0.1:8000/api/v1",
         "api_key": "secret-token",
     }
+
+
+def test_get_project_prints_repo_root_hint_when_local_manifest_is_missing(tmp_path: Path, monkeypatch, capsys):
+    example_root = tmp_path / "examples" / "minimal-project"
+    example_root.mkdir(parents=True)
+    (example_root / "rail.yaml").write_text("version: 1\nproject:\n  name: demo\n  slug: demo\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    args = argparse.Namespace(
+        local=True,
+        path=".",
+        command="doctor",
+        project=None,
+        api_url=None,
+        api_key=None,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        rail_cli._get_project(args)
+
+    assert exc_info.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "is not a KRAIL project" in stderr
+    assert "--path examples/minimal-project doctor" in stderr
+    assert "cd examples/minimal-project && krail --local doctor" in stderr
 
 
 def test_cloud_client_retains_api_key_and_timeout():

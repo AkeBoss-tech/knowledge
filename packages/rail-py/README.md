@@ -301,6 +301,13 @@ Most local commands look like this:
 krail --local --path /path/to/project <command>
 ```
 
+If you are running from this repository root, point `--path` at
+`examples/minimal-project` for a source-build smoke test:
+
+```bash
+PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project doctor
+```
+
 If you are already inside the project directory, this is enough:
 
 ```bash

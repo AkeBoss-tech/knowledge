@@ -8,6 +8,7 @@ from typing import Any
 import rail
 from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
+from rail.manifest import ManifestValidationError
 from rail.modes import DEFAULT_MODES, get_mode
 
 RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
@@ -29,9 +30,43 @@ def _parse_inputs(items: list[str] | None) -> dict[str, Any]:
             inputs[key] = value
     return inputs
 
+
+def _missing_local_project_message(args: argparse.Namespace, exc: ManifestValidationError) -> str | None:
+    if not getattr(args, "local", False):
+        return None
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "cause", None)
+    if not isinstance(cause, FileNotFoundError):
+        return None
+
+    requested_path = Path(getattr(args, "path", ".") or ".").resolve()
+    lines = [
+        f"Error: {requested_path} is not a KRAIL project (missing rail.yaml).",
+        "Run this command from a KRAIL project directory or pass --path /path/to/project.",
+    ]
+
+    example_manifest = requested_path / "examples" / "minimal-project" / "rail.yaml"
+    if example_manifest.exists():
+        lines.extend(
+            [
+                "",
+                "This repository root is the KRAIL source tree, not a local project workspace.",
+                "For a source-build smoke test, use the curated example project:",
+                "  PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project doctor",
+                "  (or: cd examples/minimal-project && krail --local doctor)",
+            ]
+        )
+    return "\n".join(lines)
+
 def _get_project(args: argparse.Namespace) -> rail.Project:
     if args.local:
-        return rail.local(path=args.path)
+        try:
+            return rail.local(path=args.path)
+        except ManifestValidationError as exc:
+            message = _missing_local_project_message(args, exc)
+            if message:
+                print(message, file=sys.stderr)
+                raise SystemExit(2) from exc
+            raise
     
     slug = args.project or os.environ.get("RAIL_PROJECT")
     if not slug:
