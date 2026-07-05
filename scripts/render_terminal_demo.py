@@ -128,7 +128,7 @@ def collect_steps() -> list[Step]:
     ]
 
     workflow = run_json(
-        "python -m rail.cli --local --path examples/minimal-project workflow run weekly_research_review --dry-run"
+        "python -m rail.cli --local --path examples/minimal-project workflow execute weekly_research_review --dry-run"
     )
     workflow_lines = [
         f"Workflow status: {workflow['status']}",
@@ -162,7 +162,7 @@ def collect_steps() -> list[Step]:
             graph_lines,
         ),
         Step(
-            "krail --local workflow run weekly_research_review --dry-run",
+            "krail --local workflow execute weekly_research_review --dry-run",
             workflow_lines,
         ),
     ]

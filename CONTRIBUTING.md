@@ -62,7 +62,8 @@ tmp=$(mktemp -d)
 PYTHONPATH=packages/rail-py python -m rail.cli init "$tmp/krail-smoke" --pack research-intelligence
 cd "$tmp/krail-smoke"
 PYTHONPATH=/path/to/knowledge/packages/rail-py python -m rail.cli --local doctor
-PYTHONPATH=/path/to/knowledge/packages/rail-py python -m rail.cli --local workflow run weekly_literature_refresh --dry-run
+PYTHONPATH=/path/to/knowledge/packages/rail-py python -m rail.cli --local workflow init weekly_literature_refresh
+PYTHONPATH=/path/to/knowledge/packages/rail-py python -m rail.cli --local workflow execute weekly_literature_refresh --dry-run
 ```
 
 ## Pull Request Expectations

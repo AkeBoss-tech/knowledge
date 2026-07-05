@@ -947,9 +947,9 @@ def main():
     td.add_argument("--mount", help="Dispatch a task inside a mounted child project")
 
     # Workflows
-    wf_parser = subparsers.add_parser("workflow", help="Run pack-defined workflow stubs")
+    wf_parser = subparsers.add_parser("workflow", help="List, materialize, and execute local workflows")
     wf_subs = wf_parser.add_subparsers(dest="workflow_command")
-    wl = wf_subs.add_parser("list", help="List workflows from active pack")
+    wl = wf_subs.add_parser("list", help="List materialized workflows plus pack/mode templates")
     wl.add_argument("--mount", help="List workflows from a mounted child project")
     wf_subs.add_parser("templates", help="List built-in workflow templates")
     wi = wf_subs.add_parser("init", help="Create a local workflow spec under research_plan/workflows")
@@ -961,7 +961,7 @@ def main():
     ws.add_argument("--mount", help="Show the workflow from a mounted child project")
     wv = wf_subs.add_parser("validate", help="Validate a local workflow spec")
     wv.add_argument("workflow_id")
-    wr = wf_subs.add_parser("run", help="Create and dispatch a workflow task")
+    wr = wf_subs.add_parser("run", help="Run a materialized workflow or suggest workflow init")
     wr.add_argument("workflow_id")
     wr.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
     wr.add_argument("--dry-run", action="store_true")

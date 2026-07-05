@@ -10,4 +10,4 @@ PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-p
 PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project think "How does the synthetic employment index differ by region?"
 PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project graph build
 PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project graph entities --type Dataset
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project workflow run weekly_research_review --dry-run
+PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project workflow execute weekly_research_review --dry-run

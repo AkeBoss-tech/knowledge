@@ -45,7 +45,8 @@ rail --local agent run "research recent GCS papers" --runner codex_cli --dry-run
 rail --local task create "Compare GCS and diffusion policy" --runner claude_code
 rail --local task dispatch task_compare-gcs-and-diffusion-policy_abc123 --dry-run
 rail --local workflow list
-rail --local workflow run weekly_literature_refresh --dry-run
+rail --local workflow init weekly_literature_refresh
+rail --local workflow execute weekly_literature_refresh --dry-run
 ```
 
 Records are repo-backed:

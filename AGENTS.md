@@ -121,7 +121,8 @@ Prefer dry-run dispatch first:
 
 ```bash
 krail --local agent run "summarize new captures" --runner codex_cli --dry-run
-krail --local workflow run weekly_literature_refresh --dry-run
+krail --local workflow init weekly_literature_refresh
+krail --local workflow execute weekly_literature_refresh --dry-run
 ```
 
 Dry runs write the work order and session command files without launching a
