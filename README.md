@@ -73,6 +73,14 @@ Important:
 - install name: `krail`
 - import name: `rail`
 - CLI commands: `krail` and `rail` both work
+- this repository root is the KRAIL source tree, not a local KRAIL project
+
+From a source checkout, use the curated example fixture for a repo-root smoke
+check:
+
+```bash
+PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project doctor
+```
 
 Create a local project and run the first health check:
 
