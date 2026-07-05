@@ -2938,6 +2938,30 @@ class KnowledgeRuntime:
             )
         return {"captures": captures, "unhandled": len(captures), "handled": handled_count}
 
+    def _merge_string_metadata(self, *values: Any) -> list[str]:
+        merged: list[str] = []
+        for value in values:
+            merged.extend(self._ensure_list_of_strings(value))
+        return sorted(set(merged))
+
+    def _register_integrity_candidates_for_paths(self, relative_paths: list[str]) -> dict[str, Any]:
+        paths = [str(path).strip() for path in relative_paths if str(path).strip()]
+        if not paths:
+            return {
+                "processedPaths": [],
+                "sourceCandidateCount": 0,
+                "claimCandidateCount": 0,
+                "entityCandidateCount": 0,
+                "newSourceCandidates": 0,
+                "newClaimCandidates": 0,
+                "newEntityCandidates": 0,
+            }
+        return self._integrity_repo().extract_candidates_from_paths(paths)
+
+    @staticmethod
+    def _extract_urls_from_text(text: str) -> list[str]:
+        return sorted(set(re.findall(r"https?://[^\s)\]>\"']+", text or "")))
+
     def topic_upsert(
         self,
         topic: str,
@@ -2978,6 +3002,20 @@ class KnowledgeRuntime:
         merged_entities = sorted(set([*self._ensure_list_of_strings(existing_metadata.get("entities")), *(entities or [])]))
         if merged_entities:
             metadata["entities"] = merged_entities
+        merged_source_captures = self._merge_string_metadata(
+            existing_metadata.get("source_captures"),
+            [source_path] if source_path else [],
+        )
+        if merged_source_captures:
+            metadata["source_captures"] = merged_source_captures
+            metadata["source_path"] = merged_source_captures[-1]
+        merged_source_references = self._merge_string_metadata(
+            existing_metadata.get("source_references"),
+            sources or [],
+            self._extract_urls_from_text(content),
+        )
+        if merged_source_references:
+            metadata["source_references"] = merged_source_references
         if entity_type and entities:
             existing_entity_meta = existing_metadata.get("entity_metadata") if isinstance(existing_metadata.get("entity_metadata"), list) else []
             seen = {str(item.get("name")) for item in existing_entity_meta if isinstance(item, dict)}
@@ -3012,10 +3050,12 @@ class KnowledgeRuntime:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(self._dump_markdown_frontmatter(metadata, body), encoding="utf-8")
+        integrity_candidates = self._register_integrity_candidates_for_paths([rel_target])
         return {
             "status": "created" if created else "updated",
             "path": target.relative_to(self.project_path).as_posix(),
             "topic": topic_slug,
+            "integrity_candidates": integrity_candidates,
         }
 
     def inbox_promote(

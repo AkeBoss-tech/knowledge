@@ -3231,6 +3231,46 @@ def test_local_project_can_promote_source_and_claim_candidates(tmp_path):
     assert claim_result["claim"]["status"] == "supported"
 
 
+def test_promoted_topic_candidates_can_be_promoted_to_trusted_records(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    runtime = rail.local(str(root))._backend.knowledge
+    captured = runtime.capture(
+        text="Claim: Evidence suggests employment rose after the reform.\nSource: https://example.com/employment-source",
+        kind="note",
+    )
+    promoted = runtime.inbox_promote(captured["path"], topic="labor-market", kind="topic")
+    repo = ResearchIntegrityRepo(root)
+    source_candidate_key = repo.load_source_candidates()[0].candidate_key
+    claim_candidate = next(
+        item for item in repo.load_claim_candidates() if promoted["topic"]["path"] in item.discovered_in_paths
+    )
+
+    project = rail.local(str(root))
+    source_result = project.apply_integrity_source_candidate_promotion(source_candidate_key, source_type="dataset")
+    claim_result = project.apply_integrity_claim_candidate_promotion(claim_candidate.candidate_key, status="supported")
+
+    assert source_result["mode"] == "local"
+    assert claim_result["mode"] == "local"
+    assert claim_result["claim"]["artifact_path"] is None
+    assert claim_result["claim"]["status"] == "supported"
+
+
+def test_integrity_status_surfaces_untrusted_topic_candidates_as_gaps(tmp_path):
+    root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
+    runtime = rail.local(str(root))._backend.knowledge
+    runtime.topic_upsert(
+        "migration-status",
+        content="Claim: The migration is complete across every environment.",
+    )
+
+    status = rail.local(str(root)).integrity_status()
+
+    assert status["summary"]["claimCandidateCount"] >= 1
+    gap = next(item for item in status["gaps"] if item["kind"] == "claim_candidate")
+    assert gap["status"] == "unsupported"
+    assert "not trusted knowledge yet" in gap["message"] or "unsupported" in gap["message"]
+
+
 def test_promote_source_candidate_rejects_validated_without_explicit_provenance(tmp_path):
     root = bootstrap_future_project(tmp_path, name="Integrity Project", slug="integrity-project")
     repo = ResearchIntegrityRepo(root)

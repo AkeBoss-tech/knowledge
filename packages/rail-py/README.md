@@ -171,6 +171,20 @@ krail --local topic upsert task-and-motion-planning \
   --content "Reviewed update with evidence."
 ```
 
+Trusted knowledge stays explicit and repo-backed:
+
+```bash
+krail --local integrity status
+krail --local evidence candidates
+krail --local evidence promote-source <candidate_key> --source-type dataset
+krail --local evidence promote-claim <candidate_key> --status supported
+```
+
+Promoted topics preserve capture/source provenance in frontmatter and register
+candidate claims or sources under `research_plan/state/`. Candidates remain
+gaps until they are reviewed and promoted; they are not treated as trusted
+claims automatically.
+
 Search local evidence:
 
 ```bash

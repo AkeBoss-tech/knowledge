@@ -56,6 +56,30 @@ krail --local inbox promote topics/inbox/2026-06-13-abc123.md \
 Promotion updates a stable topic page under `topics/` and marks the inbox item
 as promoted. Agents should prefer this flow over writing loose dated files.
 
+The trusted-knowledge lifecycle is:
+
+```text
+capture -> inbox -> promote -> topic -> integrity candidates -> integrity review -> trusted claim/source
+```
+
+In practice:
+
+```bash
+krail --local capture "Claim: PDDLStream is a useful baseline. Source: https://example.com/pddlstream"
+krail --local inbox list
+krail --local inbox promote topics/inbox/<capture>.md --topic task-and-motion-planning --type method
+krail --local topic upsert task-and-motion-planning --content "Claim: Evidence suggests benchmark baselines remain useful."
+krail --local integrity status
+krail --local evidence candidates
+krail --local evidence promote-source <candidate_key> --source-type dataset
+krail --local evidence promote-claim <candidate_key> --status supported
+```
+
+Promotion preserves capture provenance in the topic frontmatter and registers
+claim/source candidates in `research_plan/state/`. Until those candidates are
+reviewed and promoted, `integrity status` should treat them as gaps rather than
+trusted knowledge.
+
 ## Topic Upsert
 
 Use `topic upsert` when the target topic is already known:

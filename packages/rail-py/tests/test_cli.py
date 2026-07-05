@@ -14,6 +14,7 @@ if str(RAIL_PY_ROOT) not in sys.path:
 
 from rail import cli as rail_cli
 from rail.client import CloudClient
+from rail.bootstrap import bootstrap_future_project
 from rail.local import LocalEngine
 from rail.project import Project
 
@@ -324,6 +325,49 @@ def test_cmd_capture_prints_blocked_permission_result(capsys):
     assert payload["status"] == "blocked"
     assert payload["permission"] == "denied"
     assert payload["action"] == "write"
+
+
+def test_cli_capture_inbox_and_topic_lifecycle_registers_integrity_candidates(tmp_path, monkeypatch, capsys):
+    root = bootstrap_future_project(tmp_path, name="CLI Lifecycle", slug="cli-lifecycle")
+
+    def _run(*argv: str) -> dict:
+        monkeypatch.setattr(sys, "argv", ["krail", "--local", "--path", str(root), *argv])
+        rail_cli.main()
+        return json.loads(capsys.readouterr().out)
+
+    captured = _run(
+        "capture",
+        "Claim: PDDLStream is a useful task and motion planning baseline.\nSource: https://example.com/pddlstream",
+        "--topic",
+        "robotics",
+        "--entity",
+        "PDDLStream",
+        "--entity-type",
+        "Package",
+    )
+    inbox = _run("inbox", "list")
+    promoted = _run("inbox", "promote", captured["path"], "--topic", "task-and-motion-planning", "--type", "method")
+    topics = _run("topic", "list")
+    updated = _run(
+        "topic",
+        "upsert",
+        "task-and-motion-planning",
+        "--content",
+        "Claim: Evidence suggests benchmark-style baselines remain useful for feasibility checks.",
+        "--source",
+        "https://example.com/baseline-review",
+    )
+    status = _run("integrity", "status")
+
+    assert captured["status"] == "captured"
+    assert inbox["unhandled"] == 1
+    assert promoted["status"] == "promoted"
+    assert promoted["topic"]["integrity_candidates"]["claimCandidateCount"] >= 1
+    assert any(item["path"] == "topics/task-and-motion-planning.md" for item in topics["topics"])
+    assert updated["status"] == "updated"
+    assert updated["integrity_candidates"]["claimCandidateCount"] >= 1
+    assert status["summary"]["claimCandidateCount"] >= 1
+    assert any(gap["kind"] == "claim_candidate" for gap in status["gaps"])
 
 
 def test_cmd_workflow_execute_prints_blocked_permission_result(capsys):

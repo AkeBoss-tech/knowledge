@@ -1007,6 +1007,10 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
                 "staleArtifactCount": 0,
                 "sourceFreshnessCounts": {},
                 "sourceAdmissibilityCounts": {},
+                "sourceCandidateCount": 0,
+                "claimCandidateCount": 0,
+                "entityCandidateCount": 0,
+                "gapCount": 0,
                 "verificationStatusCounts": {},
                 "promotionStateCounts": {},
             },
@@ -1020,17 +1024,134 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
             "nextCommand": None,
             "detailCommands": dict(INTEGRITY_DETAIL_COMMANDS),
         }
+        empty = {
+            "assumptions": [],
+            "sources": [],
+            "claims": [],
+            "source_candidates": [],
+            "claim_candidates": [],
+            "entity_candidates": [],
+            "hypotheses": [],
+            "artifact_lineage": [],
+            "verification_runs": [],
+        }
         return {
             **readiness,
+            "indexes": empty,
             "agentWorkflow": _build_agent_workflow_summary([], [], [], [], []),
+            "staleOutputs": [],
+            "gaps": [],
             "hypothesisRanking": [],
         }
+
     readiness = _build_integrity_readiness_summary(indexes)
+    assumptions = [row.model_dump(mode="json") for row in indexes.assumptions]
+    sources = []
+    for row in indexes.sources:
+        payload = row.model_dump(mode="json")
+        payload["sourceState"] = _source_state(row)
+        sources.append(payload)
+    claims = [row.model_dump(mode="json") for row in indexes.claims]
+    artifact_lineage = []
+    for row in indexes.artifact_lineage:
+        payload = row.model_dump(mode="json")
+        verification_status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
+        payload["verificationStatus"] = verification_status
+        payload["trustState"] = _artifact_trust_state(row, verification_status)
+        artifact_lineage.append(payload)
+    verification_runs = [row.model_dump(mode="json") for row in indexes.verification_runs]
+    source_candidates = [row.model_dump(mode="json") for row in indexes.source_candidates]
+    claim_candidates = [row.model_dump(mode="json") for row in indexes.claim_candidates]
+    entity_candidates = [row.model_dump(mode="json") for row in indexes.entity_candidates]
+
+    promotion_state_counts: dict[str, int] = {}
+    verification_status_counts: dict[str, int] = {}
+    source_freshness_counts: dict[str, int] = {}
+    source_admissibility_counts: dict[str, int] = {}
+    for row in indexes.sources:
+        source_freshness_counts[row.freshness_status] = source_freshness_counts.get(row.freshness_status, 0) + 1
+        admissibility = str(_source_state(row).get("admissibilityStatus") or "unknown")
+        source_admissibility_counts[admissibility] = source_admissibility_counts.get(admissibility, 0) + 1
+    for row in indexes.artifact_lineage:
+        promotion_state_counts[row.promotion_state] = promotion_state_counts.get(row.promotion_state, 0) + 1
+        status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
+        verification_status_counts[status] = verification_status_counts.get(status, 0) + 1
+
+    stale_outputs = []
+    for row in indexes.artifact_lineage:
+        if row.promotion_state != "stale" and not row.stale_reasons:
+            continue
+        payload = row.model_dump(mode="json")
+        verification_status = _artifact_verification_status(row.artifact_path, row, indexes.verification_runs)
+        payload["verificationStatus"] = verification_status
+        payload["trustState"] = _artifact_trust_state(row, verification_status)
+        stale_outputs.append(payload)
+    gaps: list[dict[str, Any]] = []
+    for row in indexes.source_candidates:
+        if row.status == "promoted":
+            continue
+        gaps.append(
+            {
+                "kind": "source_candidate",
+                "status": "candidate",
+                "candidateKey": row.candidate_key,
+                "paths": list(row.discovered_in_paths),
+                "message": "Source candidate still needs review or promotion before it can support trusted knowledge.",
+            }
+        )
+    for row in indexes.claim_candidates:
+        if row.status == "promoted":
+            continue
+        external_evidence_paths = [
+            path
+            for path in row.evidence_paths
+            if path not in set(row.discovered_in_paths)
+        ]
+        status = "needs_evidence" if row.source_candidate_keys or external_evidence_paths else "unsupported"
+        gaps.append(
+            {
+                "kind": "claim_candidate",
+                "status": status,
+                "candidateKey": row.candidate_key,
+                "paths": list(row.discovered_in_paths),
+                "message": (
+                    "Claim candidate is waiting for evidence review and promotion; it is not trusted knowledge yet."
+                    if status == "needs_evidence"
+                    else "Claim candidate is unsupported and remains a gap until explicit evidence is captured or linked."
+                ),
+            }
+        )
+    for row in stale_outputs:
+        gaps.append(
+            {
+                "kind": "stale_artifact",
+                "status": "stale",
+                "artifactPath": row.get("artifact_path"),
+                "message": "Artifact is marked stale and should be reviewed before reuse as trusted knowledge.",
+            }
+        )
     agent_workflow = summarize_agent_workflow_health(root)
+    readiness["summary"]["sourceCandidateCount"] = len(indexes.source_candidates)
+    readiness["summary"]["claimCandidateCount"] = len(indexes.claim_candidates)
+    readiness["summary"]["entityCandidateCount"] = len(indexes.entity_candidates)
+    readiness["summary"]["gapCount"] = len(gaps)
 
     return {
         **readiness,
+        "indexes": {
+            "assumptions": assumptions,
+            "sources": sources,
+            "claims": claims,
+            "source_candidates": source_candidates,
+            "claim_candidates": claim_candidates,
+            "entity_candidates": entity_candidates,
+            "hypotheses": [row.model_dump(mode="json", by_alias=True) for row in indexes.hypotheses],
+            "artifact_lineage": artifact_lineage,
+            "verification_runs": verification_runs,
+        },
         "agentWorkflow": agent_workflow,
+        "staleOutputs": stale_outputs,
+        "gaps": gaps,
         "hypothesisRanking": rank_hypotheses(project),
     }
 
