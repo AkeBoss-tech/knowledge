@@ -640,11 +640,14 @@ _STOPWORDS = {
     "are",
     "about",
     "as",
+    "do",
+    "does",
     "for",
     "from",
     "how",
     "is",
     "it",
+    "know",
     "known",
     "of",
     "on",
@@ -655,6 +658,7 @@ _STOPWORDS = {
     "when",
     "where",
     "who",
+    "we",
     "why",
 }
 

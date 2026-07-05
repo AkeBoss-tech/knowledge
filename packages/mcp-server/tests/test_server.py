@@ -113,7 +113,7 @@ def test_mcp_readme_lists_stable_and_experimental_tools():
 def test_mcp_pyproject_tracks_current_pre_v1_krail_range():
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    assert '"krail>=0.2.3,<0.3"' in pyproject
+    assert '"krail>=0.2.4,<0.3.0"' in pyproject
 
 
 def test_mcp_graph_entities_calls_project(monkeypatch):
