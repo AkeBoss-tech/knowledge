@@ -38,7 +38,7 @@ krail --local graph build
 krail --local graph entities --type Dataset
 krail --local graph edges --entity "Synthetic Regional Indicators"
 krail --local workflow list
-krail --local workflow run weekly_research_review --dry-run
+krail --local workflow execute weekly_research_review --dry-run
 ```
 
 From the repository root without installing the package:

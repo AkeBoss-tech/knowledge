@@ -354,6 +354,33 @@ def test_cmd_workflow_execute_prints_blocked_permission_result(capsys):
     assert payload["workflow"] == "restricted"
 
 
+def test_cmd_workflow_run_prints_init_hint_for_template_only_workflow(capsys):
+    class _Project:
+        def run_workflow(self, workflow_id, *, runner="auto", dry_run=False):
+            return {
+                "status": "not_materialized",
+                "workflow": workflow_id,
+                "message": f"Built-in template is available but has not been written under research_plan/workflows yet. Run `krail --local workflow init {workflow_id}` first.",
+                "next_action": f"krail --local workflow init {workflow_id}",
+                "template": workflow_id,
+                "readiness": "init_required",
+            }
+
+    args = argparse.Namespace(
+        workflow_command="run",
+        workflow_id="company_profile_refresh",
+        runner="auto",
+        dry_run=True,
+    )
+
+    rail_cli.cmd_workflow(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "not_materialized"
+    assert payload["next_action"] == "krail --local workflow init company_profile_refresh"
+    assert payload["readiness"] == "init_required"
+
+
 def test_project_hydrate_uses_cloud_project_pipeline_route():
     class _Backend:
         def __init__(self):

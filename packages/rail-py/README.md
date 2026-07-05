@@ -341,8 +341,9 @@ krail --local task create "Audit sources" --description "Check stale docs"
 krail --local task list
 krail --local task dispatch <task_id> --dry-run
 krail --local workflow list
-krail --local workflow run weekly_literature_refresh --dry-run
+krail --local workflow init weekly_literature_refresh
 krail --local workflow execute source_refresh --dry-run
+krail --local workflow execute weekly_literature_refresh --dry-run
 ```
 
 Prefer dry runs when dispatching agents or workflows. Dry runs write the work
@@ -386,14 +387,45 @@ krail --local task create "Audit stale sources" \
 
 krail --local task dispatch <task_id> --dry-run
 
-krail --local workflow run weekly_literature_refresh \
-  --runner codex_cli \
+krail --local workflow execute weekly_research_review \
   --dry-run
 ```
 
 Dry runs are the recommended first step. They materialize the prompt, work order,
 session command, and project context without launching another process. Full
 dispatch can then run the selected local CLI once the work order looks right.
+
+### Workflow Readiness
+
+Use `workflow list` as the readiness check:
+
+- `materialized`: a repo-backed spec already exists under `research_plan/workflows/` and is ready for `workflow execute`.
+- `template_available`: KRAIL knows the built-in template, but you still need `workflow init` to write a reviewable local spec.
+- `invalid`: a local spec exists, but it failed validation and needs repair before execution.
+
+Happy path:
+
+```bash
+krail --local workflow list
+krail --local workflow init weekly_literature_refresh
+krail --local workflow execute weekly_literature_refresh --dry-run
+krail --local workflow execute weekly_literature_refresh
+```
+
+Repair path:
+
+```bash
+krail --local workflow execute weekly_literature_refresh --dry-run
+# returns status=not_materialized with:
+#   next_action: krail --local workflow init weekly_literature_refresh
+
+krail --local workflow init weekly_literature_refresh
+krail --local workflow validate weekly_literature_refresh
+krail --local workflow execute weekly_literature_refresh --dry-run
+```
+
+`workflow run` follows the same readiness rules and now points you at
+`workflow init` when only a template is available.
 
 New work orders keep the older compatibility fields and also carry a structured
 session-scope record:

@@ -17,4 +17,4 @@ PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJ
 PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJECT_DIR" think "How does the synthetic employment index differ by region?"
 PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJECT_DIR" graph build
 PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJECT_DIR" graph entities --type Dataset
-PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJECT_DIR" workflow run weekly_research_review --dry-run
+PYTHONPATH="$ROOT_DIR/packages/rail-py" python -m rail.cli --local --path "$PROJECT_DIR" workflow execute weekly_research_review --dry-run

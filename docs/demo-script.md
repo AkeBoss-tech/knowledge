@@ -92,7 +92,7 @@ you can inspect and reuse."
 
 ```bash
 krail --local workflow list
-krail --local workflow run weekly_literature_refresh --runner codex_cli --dry-run
+krail --local workflow execute weekly_research_review --dry-run
 ```
 
 Talking point:

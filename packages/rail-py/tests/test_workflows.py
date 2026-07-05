@@ -911,15 +911,20 @@ def test_pack_workflow_show_guides_materialization(tmp_path: Path):
     listed = runtime.workflow_list()
     shown = runtime.workflow_show("company_profile_refresh")
     execution = runtime.workflow_execute("company_profile_refresh", dry_run=True)
+    run_result = runtime.workflow_run("company_profile_refresh", dry_run=True)
     schedule = runtime.schedule_install("company_profile_refresh", dry_run=True)
     initialized = runtime.workflow_init("company_profile_refresh")
 
     available = {item["id"]: item for item in listed["available"]}
     assert available["company_profile_refresh"]["status"] == "template_available"
-    assert shown["status"] == "template"
+    assert shown["status"] == "template_available"
     assert shown["materialized"] is False
+    assert shown["readiness"] == "init_required"
     assert "workflow init company_profile_refresh" in shown["next_action"]
     assert execution["status"] == "not_materialized"
+    assert "workflow init company_profile_refresh" in execution["message"]
+    assert run_result["status"] == "not_materialized"
+    assert run_result["next_action"] == "krail --local workflow init company_profile_refresh"
     assert schedule["status"] == "not_materialized"
     assert initialized["template"] == "company_profile_refresh"
     assert initialized["workflow"]["steps"][1]["runner"] == "auto"
@@ -955,6 +960,46 @@ def test_mode_workflows_are_discoverable_and_materializable(tmp_path: Path):
     assert initialized["status"] == "written"
     assert initialized["template"] == "triage_inbox"
     assert shown["workflow"]["steps"][1]["run"] == "krail --local inbox list"
+
+
+def test_workflow_list_distinguishes_materialized_templates_and_invalid_specs(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Company Project", slug="company-project")
+    runtime = KnowledgeRuntime(root)
+    runtime.use_pack("company-brain")
+    runtime.workflow_init("company_profile_refresh")
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "broken.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "broken",
+                "steps": [{"id": "bad", "kind": "agent", "runner": "missing_cli"}],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runtime.workflow_list()
+
+    available = {item["id"]: item for item in result["available"]}
+    assert available["company_profile_refresh"]["status"] == "materialized"
+    assert available["company_profile_refresh"]["readiness"] == "ready"
+    assert available["company_profile_refresh"]["next_action"] == "krail --local workflow execute company_profile_refresh --dry-run"
+    assert available["triage_inbox"]["status"] == "template_available"
+    assert available["triage_inbox"]["readiness"] == "init_required"
+    assert available["triage_inbox"]["next_action"] == "krail --local workflow init triage_inbox"
+    assert available["broken"]["status"] == "invalid"
+    assert available["broken"]["source"] == "local"
+    assert available["broken"]["readiness"] == "repair_required"
+    assert available["broken"]["next_action"] == "krail --local workflow validate broken"
+    assert "unknown runner" in "\n".join(available["broken"]["errors"])
+    assert result["summary"]["materialized"] == 1
+    assert result["summary"]["invalid"] == 1
+    assert result["summary"]["declared_only"] == 0
+    assert result["summary"]["template_available"] == len(
+        [item for item in result["available"] if item["status"] == "template_available"]
+    )
 
 
 def test_rich_wiki_generation_workflow_uses_wiki_agent(tmp_path: Path):

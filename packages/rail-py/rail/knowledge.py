@@ -5156,6 +5156,75 @@ krail --local graph check
         template["id"] = workflow_id
         return template_id, template
 
+    def _workflow_init_command(self, workflow_id: str) -> str:
+        return f"krail --local workflow init {workflow_id}"
+
+    def _workflow_execute_command(self, workflow_id: str) -> str:
+        return f"krail --local workflow execute {workflow_id} --dry-run"
+
+    def _workflow_validate_command(self, workflow_id: str) -> str:
+        return f"krail --local workflow validate {workflow_id}"
+
+    def _workflow_readiness(
+        self,
+        workflow_id: str,
+        *,
+        materialized: bool,
+        validation_ok: bool | None = None,
+        template_id: str | None = None,
+        declared: bool = False,
+    ) -> dict[str, Any]:
+        if materialized:
+            if validation_ok is False:
+                return {
+                    "status": "invalid",
+                    "readiness": "repair_required",
+                    "message": "Local workflow spec exists but must be repaired before it can run.",
+                    "next_action": self._workflow_validate_command(workflow_id),
+                }
+            return {
+                "status": "materialized",
+                "readiness": "ready",
+                "message": "Local workflow spec is repo-backed, reviewable, and ready to run.",
+                "next_action": self._workflow_execute_command(workflow_id),
+            }
+        if template_id:
+            return {
+                "status": "template_available",
+                "readiness": "init_required",
+                "message": "Built-in template is available but has not been written under research_plan/workflows yet.",
+                "next_action": self._workflow_init_command(workflow_id),
+            }
+        if declared:
+            return {
+                "status": "declared_only",
+                "readiness": "init_required",
+                "message": "Active pack or mode declares this workflow, but no built-in template exists. Init will scaffold a local spec.",
+                "next_action": self._workflow_init_command(workflow_id),
+            }
+        return {
+            "status": "unknown",
+            "readiness": "unknown",
+            "message": "Workflow is not declared by the active pack or mode and has no local spec.",
+            "next_action": None,
+        }
+
+    def _not_materialized_workflow_result(self, workflow_id: str, shown: dict[str, Any]) -> dict[str, Any]:
+        message = shown.get("message")
+        next_action = shown.get("next_action") or self._workflow_init_command(workflow_id)
+        if not isinstance(message, str) or not message:
+            message = "Run `krail --local workflow init` first so the workflow spec is repo-backed and reviewable."
+        elif "workflow init" not in message:
+            message = f"{message} Run `{next_action}` first."
+        return {
+            "status": "not_materialized",
+            "workflow": workflow_id,
+            "message": message,
+            "next_action": next_action,
+            "template": shown.get("template"),
+            "readiness": shown.get("readiness") or "init_required",
+        }
+
     def _load_workflow_spec_file(self, path: Path) -> dict[str, Any]:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
@@ -5935,28 +6004,37 @@ krail --local graph check
         mode_workflows = [item for item in mode_state["mode"].get("workflows", []) if isinstance(item, str)]
         ignored_pack_items = [item for item in raw_pack_workflows if not isinstance(item, str)]
         spec_workflows = []
-        materialized_ids: set[str] = set()
+        spec_by_id: dict[str, dict[str, Any]] = {}
         for path in sorted(self.workflow_specs_dir.glob("*.yaml")) + sorted(self.workflow_specs_dir.glob("*.yml")):
             try:
                 data = self._load_workflow_spec_file(path)
                 validation = self._validate_workflow_spec(data, path=str(path.relative_to(self.project_path)))
             except Exception as exc:
-                spec_workflows.append({"id": path.stem, "path": str(path.relative_to(self.project_path)), "valid": False, "error": str(exc)})
-                continue
-            materialized_ids.add(str(data.get("id") or path.stem))
-            spec_workflows.append(
-                {
-                    "id": data.get("id") or path.stem,
+                record = {
+                    "id": path.stem,
                     "path": str(path.relative_to(self.project_path)),
-                    "valid": validation["ok"],
-                    "steps": len(data.get("steps") or []),
-                    "schedule": data.get("schedule"),
-                    "errors": validation["errors"],
-                    "warnings": validation["warnings"],
+                    "valid": False,
+                    "errors": [str(exc)],
+                    "warnings": [],
                 }
-            )
+                spec_by_id[path.stem] = record
+                spec_workflows.append(record)
+                continue
+            workflow_key = str(data.get("id") or path.stem)
+            record = {
+                "id": workflow_key,
+                "path": str(path.relative_to(self.project_path)),
+                "valid": validation["ok"],
+                "steps": len(data.get("steps") or []),
+                "schedule": data.get("schedule"),
+                "errors": validation["errors"],
+                "warnings": validation["warnings"],
+            }
+            spec_by_id[workflow_key] = record
+            spec_workflows.append(record)
         available: list[dict[str, Any]] = []
-        available_ids = list(dict.fromkeys([*pack_workflows, *mode_workflows]))
+        available_ids = list(dict.fromkeys([*pack_workflows, *mode_workflows, *spec_by_id.keys()]))
+        summary = {"materialized": 0, "template_available": 0, "invalid": 0, "declared_only": 0}
         for workflow_id in available_ids:
             template = self._workflow_template_for(workflow_id)
             sources = []
@@ -5964,14 +6042,33 @@ krail --local graph check
                 sources.append("pack")
             if workflow_id in mode_workflows:
                 sources.append("mode")
-            entry = {"id": workflow_id, "source": "+".join(sources) or "local", "materialized": workflow_id in materialized_ids}
+            spec_record = spec_by_id.get(workflow_id)
+            entry = {
+                "id": workflow_id,
+                "source": "+".join(sources) or "local",
+                "materialized": spec_record is not None,
+            }
             if template:
                 entry["template"] = template[0]
-                entry["status"] = "materialized" if entry["materialized"] else "template_available"
-                entry["next_action"] = None if entry["materialized"] else f"krail --local workflow init {workflow_id}"
-            else:
-                entry["status"] = "materialized" if entry["materialized"] else "pack_stub"
-                entry["next_action"] = None if entry["materialized"] else f"krail --local workflow init {workflow_id}"
+            if spec_record:
+                entry["path"] = spec_record["path"]
+                entry["valid"] = spec_record["valid"]
+                entry["errors"] = spec_record.get("errors", [])
+                entry["warnings"] = spec_record.get("warnings", [])
+                if "steps" in spec_record:
+                    entry["steps"] = spec_record["steps"]
+                if "schedule" in spec_record:
+                    entry["schedule"] = spec_record["schedule"]
+            readiness = self._workflow_readiness(
+                workflow_id,
+                materialized=entry["materialized"],
+                validation_ok=spec_record.get("valid") if spec_record else None,
+                template_id=template[0] if template else None,
+                declared=bool(sources),
+            )
+            entry.update(readiness)
+            if entry["status"] in summary:
+                summary[entry["status"]] += 1
             available.append(entry)
         result: dict[str, Any] = {
             "workflows": pack_workflows,
@@ -5980,6 +6077,7 @@ krail --local graph check
             "specs": spec_workflows,
             "pack": active.get("id"),
             "mode": mode_id,
+            "summary": summary,
         }
         if ignored_pack_items:
             result["warnings"] = ["active pack has non-string workflow entries; move workflow settings out of the workflows list"]
@@ -6048,25 +6146,41 @@ krail --local graph check
             template = self._workflow_template_for(workflow_id)
             active = self.active_pack().get("active") or {}
             pack_workflows = {item for item in (active.get("workflows") or []) if isinstance(item, str)}
+            mode_workflows = {
+                item
+                for item in (self.active_mode()["mode"].get("workflows") or [])
+                if isinstance(item, str)
+            }
+            declared_workflows = pack_workflows | mode_workflows
             if template:
                 template_id, spec = template
+                readiness = self._workflow_readiness(
+                    workflow_id,
+                    materialized=False,
+                    template_id=template_id,
+                    declared=workflow_id in declared_workflows,
+                )
                 result = {
-                    "status": "template",
+                    "status": readiness["status"],
+                    "readiness": readiness["readiness"],
                     "materialized": False,
                     "path": None,
                     "workflow": spec,
                     "template": template_id,
-                    "next_action": f"krail --local workflow init {workflow_id}",
+                    "message": readiness["message"],
+                    "next_action": readiness["next_action"],
                 }
-            elif workflow_id in pack_workflows:
+            elif workflow_id in declared_workflows:
                 spec = {"id": workflow_id, "steps": []}
+                readiness = self._workflow_readiness(workflow_id, materialized=False, declared=True)
                 result = {
-                    "status": "pack_stub",
+                    "status": readiness["status"],
+                    "readiness": readiness["readiness"],
                     "materialized": False,
                     "path": None,
                     "workflow": spec,
-                    "next_action": f"krail --local workflow init {workflow_id}",
-                    "message": "This pack advertises the workflow, but no local spec or built-in template exists yet.",
+                    "next_action": readiness["next_action"],
+                    "message": readiness["message"],
                 }
             else:
                 raise
@@ -6075,6 +6189,18 @@ krail --local graph check
             result = {"status": "materialized", "materialized": True, "path": str(path.relative_to(self.project_path)), "workflow": spec}
         if validate:
             result["validation"] = self._validate_workflow_spec(spec, path=result["path"])
+            if result.get("materialized"):
+                template = self._workflow_template_for(workflow_id)
+                readiness = self._workflow_readiness(
+                    workflow_id,
+                    materialized=True,
+                    validation_ok=result["validation"]["ok"],
+                    template_id=template[0] if template else None,
+                )
+                result["status"] = readiness["status"]
+                result["readiness"] = readiness["readiness"]
+                result["message"] = readiness["message"]
+                result["next_action"] = readiness["next_action"]
         return result
 
     def mount_workflow_show(self, mount_id: str, workflow_id: str) -> dict[str, Any]:
@@ -7171,13 +7297,7 @@ krail --local graph check
     def workflow_execute(self, workflow_id: str, *, dry_run: bool = False, force: bool = False, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         shown = self.workflow_show(workflow_id)
         if not shown.get("materialized", True):
-            return {
-                "status": "not_materialized",
-                "workflow": workflow_id,
-                "message": "Run `krail --local workflow init` first so the workflow spec is repo-backed and reviewable.",
-                "next_action": shown.get("next_action") or f"krail --local workflow init {workflow_id}",
-                "template": shown.get("template"),
-            }
+            return self._not_materialized_workflow_result(workflow_id, shown)
         return self._execute_workflow_spec(
             workflow_id,
             shown["workflow"],
@@ -7297,10 +7417,12 @@ krail --local graph check
 
     def workflow_run(self, workflow_id: str, *, runner: str = "auto", dry_run: bool = False) -> dict[str, Any]:
         try:
-            self._workflow_spec_path(workflow_id)
+            shown = self.workflow_show(workflow_id)
         except FileNotFoundError:
-            pass
-        else:
+            shown = None
+        if shown is not None:
+            if not shown.get("materialized", True):
+                return self._not_materialized_workflow_result(workflow_id, shown)
             return self.workflow_execute(workflow_id, dry_run=dry_run)
         active = self.active_pack().get("active") or {}
         mode_workflows = self.active_mode()["mode"].get("workflows", [])
