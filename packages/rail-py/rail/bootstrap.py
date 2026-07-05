@@ -43,6 +43,7 @@ def bootstrap_future_project(
         ".ontology/transforms",
         ".rail/workspaces",
         "topics",
+        "topics/inbox",
         "sources",
         "specs",
         "research_plan/graph",

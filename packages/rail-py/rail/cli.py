@@ -97,7 +97,20 @@ def cmd_init(args: argparse.Namespace):
                 result = project.init_workflow(workflow_id)
                 if result.get("status") in {"written", "exists"}:
                     materialized_workflows.append(workflow_id)
-    payload = {"status": "initialized", "path": str(root), "pack": selected_pack, "mode": args.mode, "knowledge_mode": selected_mode["id"]}
+    graph = project.graph_build(write=True)
+    payload = {
+        "status": "initialized",
+        "path": str(root),
+        "pack": selected_pack,
+        "mode": args.mode,
+        "knowledge_mode": selected_mode["id"],
+        "capture_inbox": "topics/inbox",
+        "graph": {
+            "counts": graph.get("counts", {}),
+            "written": graph.get("written", []),
+            "warnings": graph.get("warnings", []),
+        },
+    }
     if materialized_workflows:
         payload["materialized_workflows"] = materialized_workflows
     _print_json(payload)

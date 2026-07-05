@@ -16,6 +16,9 @@ krail init robotics-kb --pack research-intelligence --mode markdown_graph
 cd robotics-kb
 ```
 
+That command now seeds the first repo-backed outputs you want to show right
+away, including `topics/inbox` and `research_plan/graph/*`.
+
 If you want a lower-risk public recording path, use the synthetic fixture:
 
 ```bash
@@ -23,7 +26,7 @@ If you want a lower-risk public recording path, use the synthetic fixture:
 ```
 
 That route uses [examples/minimal-project/README.md](../examples/minimal-project/README.md)
-and avoids creating a fresh workspace during the recording.
+and copies the fixture into a temp workspace before running the full smoke path.
 
 ## Script
 
@@ -43,12 +46,13 @@ the workspace is healthy before the agent touches anything."
 ```bash
 krail --local capture "GCS may be useful as a feasibility layer for LLM task plans"
 echo "Need evidence on recent task-and-motion planning approaches" | krail --local capture --stdin
+krail --local inbox list
 ```
 
 Talking point:
 
 "Raw notes go into a predictable inbox instead of disappearing into prompt
-history."
+history, and you can immediately see the repo-backed capture files."
 
 ### 3. Search local evidence
 

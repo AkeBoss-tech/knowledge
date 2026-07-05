@@ -21,6 +21,9 @@ From the repository root:
 ./scripts/demo-minimal-project.sh
 ```
 
+The script copies this fixture into a temp directory first, so you can run the
+demo without dirtying the checked-in example.
+
 ## Manual Walkthrough
 
 ```bash
@@ -28,12 +31,14 @@ cd examples/minimal-project
 krail --local doctor
 krail --local pack use research-intelligence
 krail --local capture "Synthetic regional employment fixture ready for review"
+krail --local inbox list
 krail --local search "employment index" --explain
+krail --local think "How does the synthetic employment index differ by region?"
 krail --local graph build
 krail --local graph entities --type Dataset
 krail --local graph edges --entity "Synthetic Regional Indicators"
 krail --local workflow list
-krail --local workflow run weekly_literature_refresh --dry-run
+krail --local workflow run weekly_research_review --dry-run
 ```
 
 From the repository root without installing the package:
