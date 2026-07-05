@@ -18,6 +18,8 @@ if "tomllib" not in sys.modules:
 
 MCP_ROOT = Path(__file__).parents[1]
 RAIL_PY_ROOT = Path(__file__).parents[2] / "rail-py"
+README_PATH = MCP_ROOT / "README.md"
+PYPROJECT_PATH = MCP_ROOT / "pyproject.toml"
 if str(MCP_ROOT) not in sys.path:
     sys.path.insert(0, str(MCP_ROOT))
 if str(RAIL_PY_ROOT) not in sys.path:
@@ -78,6 +80,40 @@ def test_mcp_integrity_status_calls_project(monkeypatch):
     payload = json.loads(result)
     assert payload["summary"]["sourceCount"] == 1
     assert payload["agentWorkflow"]["health"]["status"] == "ready"
+
+
+def test_v1_contract_defines_stable_and_experimental_tool_sets():
+    stable_groups = server.STABLE_V1_TOOL_GROUPS
+    assert set(stable_groups) == {
+        "doctor",
+        "search",
+        "think",
+        "capture",
+        "tasks",
+        "workflows",
+        "integrity",
+        "permissions",
+    }
+    stable = set(server.STABLE_V1_TOOLS)
+    experimental = set(server.EXPERIMENTAL_TOOLS)
+    assert {"doctor", "search", "think", "capture", "create_task", "run_workflow", "integrity_status", "permissions_doctor"} <= stable
+    assert stable.isdisjoint(experimental)
+
+
+def test_mcp_readme_lists_stable_and_experimental_tools():
+    readme = README_PATH.read_text(encoding="utf-8")
+
+    assert "## Stable V1 Tools" in readme
+    assert "## Experimental Tools" in readme
+    assert "`doctor`: `doctor`" in readme
+    assert "`tasks`: `create_task`, `list_tasks`, `dispatch_task`" in readme
+    assert "`permissions`: `permissions_doctor`" in readme
+
+
+def test_mcp_pyproject_tracks_current_pre_v1_krail_range():
+    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+
+    assert '"krail>=0.2.3,<0.3"' in pyproject
 
 
 def test_mcp_graph_entities_calls_project(monkeypatch):
@@ -209,6 +245,23 @@ def test_mcp_register_think_result_calls_project(monkeypatch):
     assert payload["title"] == "Weekly synthesis"
 
 
+def test_mcp_doctor_returns_actionable_json_when_project_is_unavailable(monkeypatch):
+    monkeypatch.setattr(server, "_project", None)
+
+    def _raise_project_error():
+        raise RuntimeError("rail.yaml not found in /tmp/demo")
+
+    monkeypatch.setattr(server, "_get_project", _raise_project_error)
+
+    payload = json.loads(server.doctor())
+
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "project_unavailable"
+    assert payload["error"]["tool"] == "doctor"
+    assert "rail.yaml not found" in payload["error"]["message"]
+    assert "RAIL_PROJECT" in payload["error"]["hint"] or "RAIL_PATH" in payload["error"]["hint"]
+
+
 def test_mcp_agent_prompt_calls_project(monkeypatch):
     class _Project:
         def agent_prompt(self, role, *, task=""):
@@ -223,6 +276,43 @@ def test_mcp_agent_prompt_calls_project(monkeypatch):
     assert "check platform" in payload["prompt"]
 
 
+def test_mcp_create_task_calls_project(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["create_task", "write_repo"]))
+    monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["research_plan/tasks"]))
+
+    class _Project:
+        def create_task(self, title, *, description="", runner="codex_cli", role="research"):
+            return {
+                "task_id": "task-123",
+                "title": title,
+                "description": description,
+                "runner": runner,
+                "role": role,
+            }
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.create_task("Review new captures", description="Summarize inbox", runner="codex_cli", role="research")
+
+    payload = json.loads(result)
+    assert payload["task_id"] == "task-123"
+    assert payload["title"] == "Review new captures"
+
+
+def test_mcp_list_tasks_calls_project(monkeypatch):
+    class _Project:
+        def list_tasks(self):
+            return {"tasks": [{"task_id": "task-123", "title": "Review new captures"}]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.list_tasks()
+
+    payload = json.loads(result)
+    assert payload["tasks"][0]["task_id"] == "task-123"
+
+
 def test_mcp_execute_workflow_defaults_to_dry_run(monkeypatch):
     class _Project:
         def execute_workflow(self, workflow_id, *, dry_run=True, force=False):
@@ -234,6 +324,32 @@ def test_mcp_execute_workflow_defaults_to_dry_run(monkeypatch):
 
     payload = json.loads(result)
     assert payload == {"workflow": "weekly_review", "dry_run": True, "force": False}
+
+
+def test_mcp_list_workflows_calls_project(monkeypatch):
+    class _Project:
+        def list_workflows(self):
+            return {"workflows": ["weekly_review", "literature_refresh"]}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.list_workflows()
+
+    payload = json.loads(result)
+    assert payload["workflows"] == ["weekly_review", "literature_refresh"]
+
+
+def test_mcp_run_workflow_defaults_to_dry_run(monkeypatch):
+    class _Project:
+        def run_workflow(self, workflow_id, *, runner="codex_cli", dry_run=True):
+            return {"workflow": workflow_id, "runner": runner, "dry_run": dry_run}
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    result = server.run_workflow("weekly_review")
+
+    payload = json.loads(result)
+    assert payload == {"workflow": "weekly_review", "runner": "codex_cli", "dry_run": True}
 
 
 def test_mcp_init_workflow_passes_template(monkeypatch):
@@ -617,6 +733,15 @@ def test_mcp_integrity_reproducibility_rerun_calls_project(monkeypatch):
     assert payload["status"] == "passed"
     assert payload["outputs"]["artifacts/report.md"] == "stable report\n"
     assert payload["run_id"] == "rerun-001"
+
+
+def test_mcp_integrity_reproducibility_rerun_invalid_json_returns_actionable_error():
+    payload = json.loads(server.integrity_reproducibility_rerun("not-json"))
+
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert payload["error"]["tool"] == "integrity_reproducibility_rerun"
+    assert payload["error"]["details"]["argument"] == "outputs_json"
 
 
 def test_mcp_integrity_freshness_evaluate_calls_project(monkeypatch):
