@@ -370,6 +370,30 @@ def test_mcp_execute_python_allows_runner_scoped_tool(monkeypatch):
     assert payload["timeout"] == 30
 
 
+def test_mcp_execute_python_denies_runner_scoped_tool_in_deny_list(monkeypatch):
+    _clear_scope_env(monkeypatch)
+    monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["execute_python"]))
+    monkeypatch.setenv("KRAIL_DENIED_TOOLS", json.dumps(["execute_python"]))
+
+    class _Project:
+        def __init__(self):
+            self.called = False
+
+        def execute(self, code, timeout=60):
+            self.called = True
+            return {"stdout": code, "timeout": timeout}
+
+    project = _Project()
+    monkeypatch.setattr(server, "_project", project)
+
+    result = server.execute_python("print('hi')")
+
+    payload = json.loads(result)
+    assert payload["status"] == "denied"
+    assert payload["error"]["reason"] == "tool_denied_by_runner_scope"
+    assert project.called is False
+
+
 def test_mcp_capture_denies_path_outside_runner_scope(monkeypatch):
     _clear_scope_env(monkeypatch)
     monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["write_repo"]))

@@ -224,8 +224,11 @@ class PermissionPolicy:
             "decision": decision,
             "reason": reason,
         }
-        if metadata and metadata.get("sensitivity"):
-            record["sensitivity"] = _as_str_list(metadata.get("sensitivity"))
+        if metadata:
+            if metadata.get("sensitivity"):
+                record["sensitivity"] = _as_str_list(metadata.get("sensitivity"))
+            if self._metadata_is_restricted(metadata):
+                record["restricted"] = True
         with (audit_dir / "access.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
@@ -292,6 +295,9 @@ class PermissionPolicy:
             reason=reason,
             audit_required=self._audit_required(action, allowed, resource.metadata),
         )
+
+    def requires_audit(self, action: str, allowed: bool, metadata: dict[str, Any] | None = None) -> bool:
+        return self._audit_required(action, allowed, metadata or {})
 
     def _authorize_read(self, resource: AuthorizationResource) -> tuple[bool, str]:
         read_paths = _as_str_list(resource.metadata.get("read") or resource.metadata.get("allowed_read_paths"))
@@ -367,7 +373,47 @@ class PermissionPolicy:
 
     @staticmethod
     def _audit_required(action: str, allowed: bool, metadata: dict[str, Any]) -> bool:
-        return bool(metadata.get("sensitivity")) or not allowed or action in {"read_secret", "set_secret"}
+        if action in {"read_secret", "set_secret"}:
+            return True
+        if not allowed or metadata.get("sensitivity"):
+            return True
+        return allowed and PermissionPolicy._metadata_is_restricted(metadata)
+
+    @staticmethod
+    def _metadata_is_restricted(metadata: dict[str, Any]) -> bool:
+        visibility = str(metadata.get("visibility") or "").lower()
+        if visibility in RESTRICTED_VISIBILITIES:
+            return True
+        for key in (
+            "owner",
+            "owners",
+            "allowed_roles",
+            "allowed_agents",
+            "allowed_users",
+            "allowed_actors",
+            "denied_roles",
+            "denied_agents",
+            "denied_users",
+            "denied_actors",
+            "deny_actions",
+            "read",
+            "write",
+            "allow",
+            "deny",
+            "allowed_read_paths",
+            "allowed_write_paths",
+            "allowed_workflows",
+            "allowed_tools",
+            "allowed_secrets",
+            "denied_read_paths",
+            "denied_write_paths",
+            "denied_workflows",
+            "denied_tools",
+            "denied_secrets",
+        ):
+            if _as_str_list(metadata.get(key)):
+                return True
+        return False
 
     @staticmethod
     def _deny_targets_for(action: str, resource: AuthorizationResource) -> list[str]:

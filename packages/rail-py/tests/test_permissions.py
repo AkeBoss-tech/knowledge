@@ -48,6 +48,7 @@ def test_private_topic_is_filtered_and_audited_until_actor_role_allowed(tmp_path
     audit = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
     assert audit[-1]["decision"] == "allowed"
     assert audit[-1]["sensitivity"] == ["confidential"]
+    assert audit[-1]["restricted"] is True
 
 
 def test_permissions_doctor_reports_sensitive_topics_without_visibility(tmp_path: Path):
@@ -81,10 +82,18 @@ def test_allowed_roles_restrict_even_without_visibility_flag(tmp_path: Path, mon
 
     denied = KnowledgeRuntime(root).search("rolecodename")
     assert denied["hits"] == []
+    audit_path = root / "research_plan" / "audit" / "access.jsonl"
+    denied_audit = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert denied_audit[-1]["decision"] == "denied"
+    assert denied_audit[-1]["restricted"] is True
 
     monkeypatch.setenv("KRAIL_ROLES", "reviewer")
     allowed = KnowledgeRuntime(root).search("rolecodename")
     assert allowed["hits"][0]["path"] == "topics/role-note.md"
+    allowed_audit = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert allowed_audit[-1]["decision"] == "allowed"
+    assert allowed_audit[-1]["reason"] == "actor_allowed"
+    assert allowed_audit[-1]["restricted"] is True
 
 
 def test_grep_and_files_read_respect_permissions(tmp_path: Path, monkeypatch):

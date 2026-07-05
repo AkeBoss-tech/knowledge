@@ -222,6 +222,8 @@ def _authorize_write(tool_name: str, target_path: str) -> str | None:
     if not allowed:
         policy.audit("write", target, "denied", reason, metadata=metadata)
         return _authorization_failure(tool_name, "write", reason, target=target)
+    if policy.requires_audit("write", True, metadata):
+        policy.audit("write", target, "allowed", reason, metadata=metadata)
     return None
 
 
@@ -255,6 +257,8 @@ def _authorize_execute(
     if not allowed:
         policy.audit("execute", target, "denied", reason, metadata=resolved_metadata)
         return _authorization_failure(tool_name, "execute", reason, target=target)
+    if policy.requires_audit("execute", True, resolved_metadata):
+        policy.audit("execute", target, "allowed", reason, metadata=resolved_metadata)
     return None
 
 
@@ -276,11 +280,14 @@ def _authorize_secret(tool_name: str, *, key: str = "") -> str | None:
     if policy is None:
         return _authorization_failure(tool_name, "read_secret" if tool_name == "list_secrets" else "set_secret", "secret_scope_required", target=target)
     metadata = policy.metadata_for_path(target, {"visibility": "private"})
+    action_name = "read_secret" if tool_name == "list_secrets" else "set_secret"
     check = policy.can_read if tool_name == "list_secrets" else policy.can_write
     allowed, reason = check(target, metadata)
     if not allowed:
-        policy.audit("read_secret" if tool_name == "list_secrets" else "set_secret", target, "denied", reason, metadata=metadata)
-        return _authorization_failure(tool_name, "read_secret" if tool_name == "list_secrets" else "set_secret", reason, target=target)
+        policy.audit(action_name, target, "denied", reason, metadata=metadata)
+        return _authorization_failure(tool_name, action_name, reason, target=target)
+    if policy.requires_audit(action_name, True, metadata):
+        policy.audit(action_name, target, "allowed", reason, metadata=metadata)
     return None
 
 
@@ -1078,15 +1085,16 @@ def query_sql(sql: str) -> str:
 @mcp.tool()
 def execute_python(code: str, timeout: int = 60) -> str:
     """
-    Execute arbitrary Python code in the project's sandbox and return stdout,
-    stderr, any returned dataframes, and figures.
+    Execute arbitrary Python code in a project-scoped subprocess and return
+    stdout, stderr, any returned dataframes, and figures.
 
-    The sandbox has access to pandas, numpy, matplotlib, statsmodels, and
-    a pre-connected DuckDB database via the `db` variable.
+    This helper exposes pandas, numpy, matplotlib, statsmodels, and a
+    pre-connected DuckDB database via the `db` variable. It is KRAIL-mediated
+    execution, not host-level isolation.
 
     Args:
         code: Python source code to execute.
-        timeout: Max seconds before the sandbox kills the process (default 60).
+        timeout: Max seconds before the subprocess is killed (default 60).
     """
     denied = _authorize_execute("execute_python", ".krail/tools/execute_python")
     if denied:

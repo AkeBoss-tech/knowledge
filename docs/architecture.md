@@ -31,7 +31,8 @@ Today that protection is primarily metadata-driven and public-by-default:
 
 - records stay readable unless they opt into restrictive metadata such as
   `visibility: private`, `allowed_roles`, `allowed_agents`, or `owners`
-- sensitive allowed reads and denied reads are audited to
+- denied access and allowed access to restricted or sensitive repo records are
+  audited to
   `research_plan/audit/access.jsonl`
 - permission checks narrow what KRAIL will return or dispatch; they do not
   replace filesystem permissions on the host machine

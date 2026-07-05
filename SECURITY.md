@@ -3,10 +3,32 @@
 KRAIL is pre-1.0. Security fixes should land on the default development branch
 first.
 
+## Security Boundary
+
+KRAIL's v1 security story is intentionally narrow:
+
+- KRAIL can enforce repo-backed access policy when callers go through its CLI,
+  SDK, API, MCP server, workflow runtime, and launched runner adapters.
+- Records are public by default through those surfaces unless they opt into
+  restrictive metadata such as `visibility`, `allowed_*`, `denied_*`, or
+  path/tool/secret scope.
+- Denied access and allowed access to restricted or sensitive repo records are
+  written to `research_plan/audit/access.jsonl` when KRAIL evaluates project
+  policy.
+- MCP/session scope can narrow write paths, tool names, and secret names for a
+  launched runner. That scope is declarative and auditable.
+
+KRAIL does not provide:
+
+- host-level sandboxing, container isolation, or kernel-level policy
+- protection against someone who already has direct shell or filesystem access
+- guarantees that third-party CLIs, scripts, or model outputs are safe to run
+- a managed remote security perimeter
+
 ## Reporting a Vulnerability
 
-Do not open a public issue for secrets, credential exposure, sandbox escapes,
-auth bypasses, or remote execution risks.
+Do not open a public issue for secrets, credential exposure, KRAIL permission
+bypasses, runner-scope bypasses, or remote execution risks.
 
 Report privately to the repository owner through their preferred security
 contact. If GitHub private vulnerability reporting is enabled, use that channel.
@@ -47,7 +69,8 @@ projects as executable code:
 - prefer `--dry-run` before dispatching workers
 - keep `RAIL_EXECUTE_ENABLED=false` unless Python execution is needed
 - do not inject broad secret sets into agent sessions
-- run pilots in a separate working directory
+- run pilots in a separate working directory or VM if you need stronger host
+  isolation than KRAIL itself provides
 
 ## Public Release Checks
 
