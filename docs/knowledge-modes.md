@@ -92,6 +92,12 @@ krail --local graph build
 `research_plan/` is for operations: plans, tasks, work orders, sessions, and
 workflow state. Durable domain knowledge should live under `topics/`.
 
+`krail --local search` uses deterministic hybrid retrieval by default: lexical
+file scoring, Markdown graph boosts, and offline `local_hash` vector signals.
+Use `--no-rag` when you want lexical plus graph ranking only, or rebuild the
+vector index with an explicit model-backed provider if you want that upgrade
+path.
+
 ## Wiki Pages
 
 Topic pages are the editable knowledge source. Wiki pages are generated reader

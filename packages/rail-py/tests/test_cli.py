@@ -131,6 +131,27 @@ def test_cmd_search_uses_federated_search_when_requested(capsys):
     assert payload["hits"][0]["path"] == "child:topics/note.md"
 
 
+def test_cmd_search_defaults_to_hybrid_rag_for_local_projects(capsys):
+    class _Knowledge:
+        def search(self, q, **kwargs):
+            assert q == "robotics"
+            assert kwargs["rag"] is True
+            return {"query": q, "hits": [{"path": "topics/note.md"}]}
+
+    class _Project:
+        class _Backend:
+            knowledge = _Knowledge()
+
+        _backend = _Backend()
+
+    args = argparse.Namespace(query="robotics", limit=10, explain=False, rag=True, federated=False, mount=None)
+
+    rail_cli.cmd_search(_Project(), args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hits"][0]["path"] == "topics/note.md"
+
+
 def test_cmd_think_uses_federated_think_when_requested(capsys):
     class _Project:
         def federated_think(self, q, **kwargs):
