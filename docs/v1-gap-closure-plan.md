@@ -88,6 +88,30 @@ KRAIL is v1-ready when all of these are true:
 - CI covers Python 3.11, 3.12, and 3.13 for `rail-py` and MCP.
 - The repo has a v1 release checklist that includes `twine check`, clean build, and smoke tests.
 
+## Completed In This Integration Pass
+
+- Package versions were aligned on the same `0.2.4` pre-v1 release train.
+- Package metadata and classifiers were updated for both published distributions.
+- Release automation now builds, checks, and publishes both `krail` and `rail-mcp`.
+- The release checklist includes build, `twine check`, and fresh-wheel install smoke steps.
+- Checked-in CI expectations cover Python 3.11, 3.12, and 3.13.
+- The generated `krail ci init` workflow matches the checked-in CI baseline.
+
+## What Remains Experimental
+
+These areas should stay explicitly pre-v1 even if packaging and release
+automation are stable:
+
+- `packages/api/` and `packages/engine/` are still on separate `0.1.x`
+  development tracks and are not part of the PyPI release contract for
+  `krail` and `rail-mcp`.
+- Workflow runner integrations and automation surfaces are useful today, but
+  they do not yet promise long-term compatibility across every external runner.
+- Hosted/runtime deployment stories outside the local-first repo workflow remain
+  secondary to the local CLI and MCP path.
+- Permission enforcement is repo-mediated and auditable, but it is not a
+  substitute for host-level sandboxing.
+
 ## Codex Workstream Goals
 
 Each goal below is suitable as the initial prompt for a separate Codex thread.
@@ -195,8 +219,8 @@ Acceptance tests:
 - `python -m build packages/rail-py`
 - `python -m build packages/mcp-server`
 - `twine check packages/rail-py/dist/* packages/mcp-server/dist/*`
-- fresh virtualenv install from built wheel can run `krail --version`
-- release checklist updated for v1
+- fresh virtualenv install from built wheels can run `krail --version`
+- release checklist updated for the intended tag
 
 ### Goal 9: MCP Stable V1 Contract
 
@@ -263,6 +287,18 @@ Wave 3:
 The integration owner should merge Wave 1 first. Wave 2 can run in parallel
 after the contract language stabilizes. Wave 3 should reconcile with the final
 contract before merge.
+
+## V1 Exit Criteria
+
+Do not bump either published package to `1.0.0` until all of the following are
+true:
+
+- release checklist passes without manual, undocumented steps
+- PyPI install docs are the primary documented install path
+- experimental surfaces above are either stabilized or clearly excluded from the
+  v1 support contract
+- changelog and release notes state the compatibility expectations for `krail`
+  and `rail-mcp`
 
 ## Integration Rules
 

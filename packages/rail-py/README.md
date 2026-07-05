@@ -698,7 +698,21 @@ Build the PyPI package:
 ```bash
 python -m pip install --upgrade build twine
 python -m build packages/rail-py
-python -m twine check packages/rail-py/dist/*
+python -m build packages/mcp-server
+python -m twine check packages/rail-py/dist/* packages/mcp-server/dist/*
+```
+
+Smoke-test a fresh wheel install:
+
+```bash
+python -m venv .venv-release
+. .venv-release/bin/activate
+python -m pip install --upgrade pip
+pip install packages/rail-py/dist/*.whl
+krail --version
+pip install --find-links packages/rail-py/dist packages/mcp-server/dist/*.whl
+rail-mcp --help
+deactivate
 ```
 
 ## Links

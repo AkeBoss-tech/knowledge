@@ -1,10 +1,17 @@
 # Release Checklist
 
-Target: `v1.0.0` local-runtime contract
+Target: `v0.2.4`
 
-This checklist defines the KRAIL v1 release as an honest local-runtime release.
-It is about the repo-backed workflow that works today, not a claim that every
-experimental surface is finished.
+Release train: pre-v1 packaging and automation hardening for `krail` and
+`rail-mcp`.
+
+Do not tag `1.0.0` yet. The release process is intended to be v1-ready, but the
+remaining experimental surfaces are tracked in
+`docs/v1-gap-closure-plan.md`.
+
+The future KRAIL v1 release should be an honest local-runtime release: the
+repo-backed workflow that works today, with unfinished platform surfaces clearly
+excluded from the promise.
 
 ## Contract
 
@@ -38,13 +45,47 @@ The v1 release does not promise:
 These commands should pass from a supported Python 3.11+ environment:
 
 ```bash
+git clone https://github.com/AkeBoss-tech/knowledge.git
+cd knowledge
+python -m pip install --upgrade pip
+pip install krail rail-mcp
+krail --version
 krail init /tmp/krail-v1-smoke --pack research-intelligence --mode markdown_graph
-krail --local --path examples/minimal-project mode active
-krail --local --path examples/minimal-project pack active
+krail --local --path /tmp/krail-v1-smoke mode active
+krail --local --path /tmp/krail-v1-smoke pack active
+krail --local --path /tmp/krail-v1-smoke doctor
 krail --local --path examples/minimal-project doctor
 krail --local --path examples/minimal-project search "employment index" --explain
 krail --local --path examples/minimal-project think "employment index"
 krail --local --path examples/minimal-project workflow list
+krail --local --path examples/minimal-project grep "employment"
+krail --local --path examples/minimal-project files list topics --recursive
+krail --local --path examples/minimal-project graph summary --federated
+rail-mcp --help
+```
+
+## Clean Checkout Build
+
+```bash
+python -m pip install --upgrade build twine
+rm -rf packages/rail-py/dist packages/mcp-server/dist
+python -m build packages/rail-py
+python -m build packages/mcp-server
+twine check packages/rail-py/dist/* packages/mcp-server/dist/*
+```
+
+## Fresh Wheel Install Smoke
+
+```bash
+python -m venv .venv-release
+. .venv-release/bin/activate
+python -m pip install --upgrade pip
+pip install packages/rail-py/dist/*.whl
+krail --version
+pip install --find-links packages/rail-py/dist packages/mcp-server/dist/*.whl
+rail-mcp --help
+deactivate
+rm -rf .venv-release
 ```
 
 The capture-to-topic loop should also remain working against a copied fixture:
@@ -74,9 +115,16 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
   packages/mcp-server/tests/test_server.py
 ```
 
-## Packaging Note
+## CI Expectations
 
-Version numbers, distribution metadata, build artifacts, and final tag names
-must be aligned in the packaging workstream before tagging. This checklist uses
-`v1.0.0` as the intended contract target, not as proof that packaging work is
-already complete.
+- GitHub Actions `CI` passes on Python 3.11, 3.12, and 3.13
+- GitHub Actions `Release Packages` verifies tests on Python 3.11, 3.12, and
+  3.13 before publishing
+- Release workflow builds and publishes both `krail` and `rail-mcp`
+
+## Tag
+
+```bash
+git tag -a v0.2.4 -m "KRAIL v0.2.4"
+git push origin v0.2.4
+```

@@ -772,8 +772,8 @@ def sources_affected(source_ids_json: str = "") -> str:
 
 
 @mcp.tool()
-def ci_init(path: str = ".github/workflows/krail-local-preview.yml") -> str:
-    """Write a GitHub Actions workflow that runs KRAIL local-preview checks."""
+def ci_init(path: str = ".github/workflows/krail-ci.yml") -> str:
+    """Write a GitHub Actions workflow that runs KRAIL package CI checks."""
     denied = _authorize_write("ci_init", path)
     if denied:
         return denied

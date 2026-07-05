@@ -17,7 +17,13 @@ source of truth.
 
 ## Local Usage
 
-Install the package from the repository root:
+Install from PyPI:
+
+```bash
+pip install krail rail-mcp
+```
+
+For local development from a repository checkout:
 
 ```bash
 pip install -e packages/rail-py
@@ -33,6 +39,23 @@ RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 Useful tool families include search, think, capture, local vector search,
 markdown graph inspection, ontology access, workflow dispatch, SQL queries,
 and project health checks.
+
+## Current Status
+
+`rail-mcp` follows the same pre-v1 release train as `krail`.
+
+Ready now:
+
+- local-project search, `find`, and deterministic `think`
+- capture, inbox promotion, topic upserts, and project health checks
+- source dependency, graph, vector, workflow, and task surfaces
+- repo-backed permission checks for MCP-mediated reads and writes
+
+Still experimental:
+
+- hosted API-backed deployments as a stable compatibility target
+- production-grade sandboxing outside repo-mediated permissions
+- long-term compatibility guarantees for workflow/runner integrations
 
 ## Permission Model
 
@@ -69,6 +92,7 @@ The server expects a local KRAIL project with:
 - `krail.yaml` or `rail.yaml`
 - `rail.yaml`
 - `.ontology/`
-- `state/`
+- `research_plan/`
+- `research_plan/state/`
 - `artifacts/`
 - optional `.krail/vector.sqlite` for local vector search

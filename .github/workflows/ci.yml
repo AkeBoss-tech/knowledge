@@ -6,14 +6,18 @@ on:
   pull_request:
 
 jobs:
-  local-preview:
+  packages:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
           cache-dependency-path: |
             packages/rail-py/pyproject.toml
@@ -23,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e packages/rail-py -e packages/mcp-server
           pip install pytest
-      - name: Run local-preview tests
+      - name: Run package tests
         run: |
           PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
             packages/rail-py/tests/test_bootstrap.py \
@@ -48,3 +52,12 @@ jobs:
           krail --local --path examples/minimal-project graph check
           krail --local --path examples/minimal-project vector build
           krail --local --path examples/minimal-project search "employment index" --rag --explain
+          rail-mcp --help >/dev/null
+      - name: Build and check distributions
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m pip install --upgrade build twine
+          rm -rf packages/rail-py/dist packages/mcp-server/dist
+          python -m build packages/rail-py
+          python -m build packages/mcp-server
+          python -m twine check packages/rail-py/dist/* packages/mcp-server/dist/*

@@ -1161,10 +1161,10 @@ def main():
     rchanged.add_argument("--base-ref", help="Optional git base ref to diff against, for example origin/main")
 
     # CI templates
-    ci_parser = subparsers.add_parser("ci", help="Generate local-preview CI templates")
+    ci_parser = subparsers.add_parser("ci", help="Generate GitHub Actions CI templates")
     ci_subs = ci_parser.add_subparsers(dest="ci_command")
-    ci_init = ci_subs.add_parser("init", help="Write a GitHub Actions KRAIL local-preview workflow")
-    ci_init.add_argument("--path", dest="ci_path", default=".github/workflows/krail-local-preview.yml")
+    ci_init = ci_subs.add_parser("init", help="Write a GitHub Actions KRAIL CI workflow")
+    ci_init.add_argument("--path", dest="ci_path", default=".github/workflows/krail-ci.yml")
 
     # Query
     q_parser = subparsers.add_parser("query", help="Query the project knowledge graph")
