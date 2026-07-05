@@ -176,6 +176,40 @@ now, what is stale, what still lacks evidence, and which KRAIL command to run
 next before promotion or release. Use the detail commands to inspect and repair
 the exact record that is blocking trust.
 
+## Retrieval Defaults
+
+`krail --local search` now defaults to deterministic hybrid retrieval:
+
+- lexical scoring over local files
+- local graph boosts from frontmatter relations
+- offline vector similarity using the built-in `local_hash` embedding provider
+
+This keeps retrieval local-first and reproducible. The first hybrid search will
+build `.krail/vector.sqlite` automatically when needed.
+
+Use lexical plus graph only when you want the old behavior:
+
+```bash
+krail --local search "employment index" --no-rag
+```
+
+Model-backed embeddings are an explicit upgrade path, not a requirement:
+
+```bash
+krail --local vector build --provider openai --model text-embedding-3-small
+```
+
+Or use local transformer embeddings by opting into the extra dependency:
+
+```bash
+pip install 'krail[embeddings]'
+krail --local vector build --provider sentence_transformers
+```
+
+If a model-backed provider is misconfigured, KRAIL keeps lexical and graph
+results working and returns a clear error in the JSON response instead of
+failing the whole search.
+
 ## What A Good First Run Looks Like
 
 If KRAIL is working well for you, the first session should feel like this:
@@ -224,8 +258,7 @@ Covered by the current CLI tests, MCP tests, or fixture smoke commands:
 - knowledge pack activation
 - capture inbox
 - inbox promotion and topic upsert
-- deterministic local file search and unified typed `find`
-- optional local-hash vector retrieval
+- deterministic hybrid search defaults with local hash embeddings, plus unified typed `find`
 - deterministic `think` envelope
 - markdown graph build/query/export
 - repo-backed tasks, work orders, and session records

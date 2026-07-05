@@ -782,7 +782,10 @@ def main():
     s_parser.add_argument("query", help="Search query")
     s_parser.add_argument("--limit", type=int, default=10)
     s_parser.add_argument("--explain", action="store_true", help="Explain local ranking signals")
-    s_parser.add_argument("--rag", action="store_true", help="Use the local SQLite vector index for RAG-style retrieval")
+    search_rag = s_parser.add_mutually_exclusive_group()
+    search_rag.add_argument("--rag", dest="rag", action="store_true", help="Use deterministic hybrid retrieval with local vector signals (default)")
+    search_rag.add_argument("--no-rag", dest="rag", action="store_false", help="Disable local vector retrieval and use lexical plus graph ranking only")
+    s_parser.set_defaults(rag=True)
     s_parser.add_argument("--federated", action="store_true", help="Search the local project and configured mounted child projects")
     s_parser.add_argument("--mount", action="append", help="Limit federated search to a specific mount id; repeatable")
 

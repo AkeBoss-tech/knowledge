@@ -49,6 +49,24 @@ class VectorChunk:
     vector: list[float]
 
 
+class EmbeddingProviderError(RuntimeError):
+    def __init__(self, provider: str, code: str, message: str, *, hint: str | None = None):
+        super().__init__(message)
+        self.provider = provider
+        self.code = code
+        self.hint = hint
+
+    def to_dict(self) -> dict[str, str]:
+        payload = {
+            "provider": self.provider,
+            "code": self.code,
+            "message": str(self),
+        }
+        if self.hint:
+            payload["hint"] = self.hint
+        return payload
+
+
 def tokenize(text: str) -> list[str]:
     terms: list[str] = []
     for raw in _TOKEN_RE.findall(text):
@@ -113,6 +131,18 @@ class LocalVectorStore:
         }.get(self.provider, "local-hash-v1")
         self.model = model or os.environ.get("KRAIL_EMBEDDING_MODEL", default_model)
 
+    def _error_result(self, *, query: str | None = None, error: EmbeddingProviderError) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "status": "error",
+            "database": str(self.db_path.relative_to(self.project_path)),
+            "embedding": {"provider": self.provider, "model": self.model},
+            "error": error.to_dict(),
+        }
+        if query is not None:
+            payload["query"] = query
+            payload["hits"] = []
+        return payload
+
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
@@ -147,23 +177,41 @@ class LocalVectorStore:
             return self._embed_openai(texts)
         if self.provider in {"sentence_transformers", "sentence-transformers"}:
             return self._embed_sentence_transformers(texts)
-        raise ValueError(f"Unknown embedding provider: {self.provider}")
+        raise EmbeddingProviderError(
+            self.provider,
+            "unknown_provider",
+            f"Unknown embedding provider: {self.provider}",
+            hint="Use local_hash for offline defaults, or choose openai or sentence_transformers explicitly.",
+        )
 
     def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         import httpx
 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for KRAIL_EMBEDDING_PROVIDER=openai")
+            raise EmbeddingProviderError(
+                self.provider,
+                "missing_api_key",
+                "OPENAI_API_KEY is required for KRAIL_EMBEDDING_PROVIDER=openai",
+                hint="Set OPENAI_API_KEY or switch back to KRAIL_EMBEDDING_PROVIDER=local_hash for offline retrieval.",
+            )
         base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        response = httpx.post(
-            f"{base_url}/embeddings",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"input": texts, "model": self.model, "encoding_format": "float"},
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = httpx.post(
+                f"{base_url}/embeddings",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"input": texts, "model": self.model, "encoding_format": "float"},
+                timeout=60,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError as exc:
+            raise EmbeddingProviderError(
+                self.provider,
+                "request_failed",
+                f"OpenAI embeddings request failed: {exc}",
+                hint="Check OPENAI_BASE_URL and network access, or use local_hash for offline retrieval.",
+            ) from exc
         items = sorted(payload.get("data", []), key=lambda item: item.get("index", 0))
         return [_normalize([float(value) for value in item["embedding"]]) for item in items]
 
@@ -171,8 +219,11 @@ class LocalVectorStore:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
-            raise RuntimeError(
-                "sentence-transformers is required for KRAIL_EMBEDDING_PROVIDER=sentence_transformers"
+            raise EmbeddingProviderError(
+                self.provider,
+                "missing_dependency",
+                "sentence-transformers is required for KRAIL_EMBEDDING_PROVIDER=sentence_transformers",
+                hint="Install the optional embeddings extra with `pip install 'krail[embeddings]'`.",
             ) from exc
         model = SentenceTransformer(self.model)
         vectors = model.encode(texts, normalize_embeddings=True)
@@ -189,7 +240,10 @@ class LocalVectorStore:
             title = title_for(path, text)
             for idx, chunk in enumerate(chunk_text(text)):
                 pending.append((rel, title, idx, chunk))
-        vectors = self._embed_batch([chunk for *_prefix, chunk in pending]) if pending else []
+        try:
+            vectors = self._embed_batch([chunk for *_prefix, chunk in pending]) if pending else []
+        except EmbeddingProviderError as exc:
+            return self._error_result(error=exc)
         rows = [
             VectorChunk(rel, title, idx, chunk, vector)
             for (rel, title, idx, chunk), vector in zip(pending, vectors)
@@ -242,7 +296,11 @@ class LocalVectorStore:
         provider = metadata.get("provider", self.provider)
         model = metadata.get("model", self.model)
         query_store = LocalVectorStore(self.project_path, self.db_path, provider=provider, model=model)
-        query_vector = query_store._embed_batch([query])[0]
+        try:
+            query_vector = query_store._embed_batch([query])[0]
+        except EmbeddingProviderError as exc:
+            conn.close()
+            return query_store._error_result(query=query, error=exc)
         rows = conn.execute("SELECT id, path, title, chunk_index, text, vector_json FROM chunks").fetchall()
         conn.close()
         hits: list[dict[str, Any]] = []

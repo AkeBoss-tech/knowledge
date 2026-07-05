@@ -902,6 +902,50 @@ class KnowledgeRuntime:
             "message": f"{action.replace('_', ' ')} denied for {target}: {reason}",
         }
 
+    def _read_path_metadata(self, rel_path: str) -> dict[str, Any]:
+        path = self.project_path / rel_path
+        if not path.exists():
+            return {}
+        if path.suffix.lower() != ".md":
+            return {}
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return {}
+        metadata, _body = self._split_markdown_frontmatter(text)
+        return metadata
+
+    def _authorize_read_target(
+        self,
+        rel_path: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        policy = self._permission_policy()
+        permission_metadata = policy.metadata_for_path(rel_path, metadata or self._read_path_metadata(rel_path))
+        allowed, reason = policy.can_read(rel_path, permission_metadata)
+        if allowed:
+            if policy.requires_audit("read", True, permission_metadata):
+                policy.audit("read", rel_path, "allowed", reason, metadata=permission_metadata)
+        else:
+            policy.audit("read", rel_path, "denied", reason, metadata=permission_metadata)
+        return allowed, reason, permission_metadata
+
+    def _filter_search_hits_for_permissions(self, hits: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        filtered: list[dict[str, Any]] = []
+        denied = 0
+        for hit in hits:
+            rel_path = str(hit.get("path") or "")
+            if not rel_path:
+                filtered.append(hit)
+                continue
+            allowed, _reason, _metadata = self._authorize_read_target(rel_path)
+            if not allowed:
+                denied += 1
+                continue
+            filtered.append(hit)
+        return filtered, denied
+
     def _authorize_write_target(
         self,
         rel_path: str,
@@ -1124,7 +1168,7 @@ class KnowledgeRuntime:
             return "partially_verified"
         return "needs_evidence"
 
-    def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = False) -> dict[str, Any]:
+    def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict[str, Any]:
         terms = self._terms(query)
         hits: list[SearchHit] = []
         if not terms:
@@ -1137,13 +1181,9 @@ class KnowledgeRuntime:
                 continue
             metadata, _body = self._split_markdown_frontmatter(text) if path.suffix.lower() == ".md" else ({}, text)
             rel = str(path.relative_to(self.project_path))
-            permission_metadata = self._permission_policy().metadata_for_path(rel, metadata)
-            allowed, reason = self._permission_policy().can_read(rel, permission_metadata)
+            allowed, _reason, _permission_metadata = self._authorize_read_target(rel, metadata=metadata)
             if not allowed:
-                self._permission_policy().audit("read", rel, "denied", reason, metadata=permission_metadata)
                 continue
-            if self._permission_policy().requires_audit("read", True, permission_metadata):
-                self._permission_policy().audit("read", rel, "allowed", reason, metadata=permission_metadata)
             lower = text.lower()
             title = self._title_for(path, text)
             title_lower = title.lower()
@@ -1158,28 +1198,50 @@ class KnowledgeRuntime:
             hits.append(SearchHit(rel, title, score, matched, self._snippet(text, terms)))
 
         hits.sort(key=lambda hit: (-hit.score, hit.path))
-        lexical_hits = [hit.to_dict() for hit in hits[:limit]]
-        result: dict[str, Any] = {"query": query, "hits": lexical_hits}
-        if rag:
-            vector = self.vector_search(query, limit=limit)
-            result["vector_hits"] = vector.get("hits", [])
-            result["hits"] = self._merge_search_hits(lexical_hits, vector.get("hits", []), limit=limit)
-            result["rag"] = {"database": vector.get("database"), "embedding": vector.get("embedding"), "status": vector.get("status", "ok")}
+        candidate_limit = max(limit * 5, 25)
+        lexical_hits = [hit.to_dict() for hit in hits[:candidate_limit]]
         graph = self._filter_graph_context_for_permissions(self._graph_context(query, limit=5))
+        graph_boosts = self._graph_boosts(graph) if graph else {}
+        result: dict[str, Any] = {
+            "query": query,
+            "hits": self._merge_search_hits(lexical_hits, [], graph_boosts=graph_boosts, limit=limit),
+        }
+        if rag:
+            vector = self.vector_search(query, limit=candidate_limit)
+            filtered_vector_hits = [
+                hit for hit in vector.get("hits", [])
+                if float(hit.get("score") or 0) >= 0.2
+            ]
+            result["vector_hits"] = filtered_vector_hits
+            result["hits"] = self._merge_search_hits(
+                lexical_hits,
+                filtered_vector_hits,
+                graph_boosts=graph_boosts,
+                limit=limit,
+            )
+            result["rag"] = {
+                "database": vector.get("database"),
+                "embedding": vector.get("embedding"),
+                "status": vector.get("status", "ok"),
+            }
+            if vector.get("error"):
+                result["rag"]["error"] = vector["error"]
+                result["rag"]["fallback"] = "lexical_graph_only"
         if graph:
-            graph_boosts = self._graph_boosts(graph)
-            for hit in result["hits"]:
-                boost = graph_boosts.get(hit["path"], 0)
-                if boost:
-                    hit["graph_score"] = boost
-                    hit["score"] = round(float(hit.get("score") or 0) + boost, 3)
-            result["hits"] = sorted(result["hits"], key=lambda item: (-float(item.get("score") or 0), item["path"]))[:limit]
             result["graph_context"] = graph
         if explain:
             result["explain"] = {
                 "mode": "local_hybrid" if rag else "local_keyword_graph",
-                "signals": ["term_frequency", "title_match", "path_match", "typed_wikilink_count", "markdown_graph_context", "local_vector_cosine" if rag else "vector_optional"],
-                "note": "RAG mode uses a local SQLite vector store with deterministic hashed embeddings. Model-backed embeddings can replace this later.",
+                "signals": [
+                    "term_frequency",
+                    "title_match",
+                    "path_match",
+                    "typed_wikilink_count",
+                    "markdown_graph_context",
+                    "local_vector_cosine" if rag else "vector_optional",
+                ],
+                "ranker": "deterministic_hybrid_v1" if rag else "deterministic_lexical_graph_v1",
+                "note": "Hybrid retrieval defaults to local hashed embeddings plus lexical and graph signals. Model-backed embeddings are an explicit opt-in upgrade path.",
             }
         return result
 
@@ -1906,26 +1968,40 @@ class KnowledgeRuntime:
         return self._permission_policy().doctor()
 
     @staticmethod
-    def _merge_search_hits(lexical_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    def _merge_search_hits(
+        lexical_hits: list[dict[str, Any]],
+        vector_hits: list[dict[str, Any]],
+        *,
+        graph_boosts: dict[str, float] | None = None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
         merged: dict[str, dict[str, Any]] = {}
+        graph_boosts = graph_boosts or {}
         for hit in lexical_hits:
             key = hit["path"]
-            merged[key] = {**hit, "lexical_score": hit.get("score", 0), "vector_score": 0, "score": hit.get("score", 0)}
+            merged[key] = {
+                **hit,
+                "lexical_score": float(hit.get("score") or 0),
+                "vector_score": 0.0,
+            }
         for hit in vector_hits:
             key = hit["path"]
             current = merged.get(key, {"path": key, "title": hit.get("title"), "matched_terms": [], "snippet": hit.get("snippet", "")})
-            lexical_score = float(current.get("lexical_score") or 0)
-            vector_score = float(hit.get("score") or 0)
+            current["lexical_score"] = float(current.get("lexical_score") or 0)
+            current["vector_score"] = max(float(current.get("vector_score") or 0), float(hit.get("score") or 0))
             current.update(
                 {
                     "title": current.get("title") or hit.get("title"),
                     "snippet": current.get("snippet") or hit.get("snippet", ""),
-                    "lexical_score": lexical_score,
-                    "vector_score": vector_score,
-                    "score": round(lexical_score + vector_score * 10, 3),
                 }
             )
             merged[key] = current
+        for item in merged.values():
+            lexical_score = float(item.get("lexical_score") or 0)
+            vector_score = float(item.get("vector_score") or 0)
+            graph_score = float(graph_boosts.get(item["path"], 0))
+            item["graph_score"] = round(graph_score, 3) if graph_score else 0.0
+            item["score"] = round(lexical_score + (vector_score * 4.0) + graph_score, 3)
         return sorted(merged.values(), key=lambda item: (-float(item.get("score") or 0), item["path"]))[:limit]
 
     @staticmethod
@@ -3917,8 +3993,23 @@ boot();
         store = LocalVectorStore(self.project_path)
         result = store.search(query, limit=limit)
         if result.get("status") == "missing_index":
-            self.vector_build()
+            build_result = self.vector_build()
+            if build_result.get("status") != "indexed":
+                return {
+                    "query": query,
+                    "hits": [],
+                    "database": build_result.get("database"),
+                    "embedding": build_result.get("embedding"),
+                    "status": build_result.get("status", "error"),
+                    "error": build_result.get("error"),
+                }
             result = store.search(query, limit=limit)
+        if result.get("status") == "error":
+            return result
+        filtered_hits, denied = self._filter_search_hits_for_permissions(result.get("hits", []))
+        result["hits"] = filtered_hits
+        if denied:
+            result["permission_filter"] = {"denied_hits": denied}
         return result
 
     def sources_validate(self) -> dict[str, Any]:

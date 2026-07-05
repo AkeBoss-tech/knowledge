@@ -44,3 +44,28 @@ PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-p
 
 Use this project for manifest smoke tests, docs examples, and MCP setup. Run a
 hydration pipeline before using ontology or SQL query commands.
+
+## Retrieval Notes
+
+Search defaults to deterministic hybrid retrieval in this fixture:
+
+- lexical matching over repo files
+- graph boosts from Markdown frontmatter relations
+- offline `local_hash` embeddings stored in `.krail/vector.sqlite`
+
+The first hybrid search will build the local vector index automatically. Use
+`--no-rag` if you want lexical plus graph ranking only.
+
+To opt into model-backed embeddings instead of `local_hash`, rebuild the vector
+index explicitly:
+
+```bash
+krail --local vector build --provider openai --model text-embedding-3-small
+```
+
+Or install the optional local embedding dependency:
+
+```bash
+pip install 'krail[embeddings]'
+krail --local vector build --provider sentence_transformers
+```
