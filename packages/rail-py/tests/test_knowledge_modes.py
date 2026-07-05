@@ -50,6 +50,26 @@ def test_capture_promote_updates_topic_and_marks_inbox_item(tmp_path: Path):
     assert inbox_after["unhandled"] == 0
 
 
+def test_promoted_topic_preserves_capture_provenance_and_registers_candidates(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Knowledge Project", slug="knowledge-project")
+    runtime = KnowledgeRuntime(root)
+    captured = runtime.capture(
+        text="Claim: PDDLStream is a useful task and motion planning baseline.\nSource: https://example.com/pddlstream",
+        kind="note",
+    )
+
+    promoted = runtime.inbox_promote(captured["path"], topic="task-and-motion-planning", kind="method")
+    topic_path = root / promoted["topic"]["path"]
+    metadata, body = runtime._split_markdown_frontmatter(topic_path.read_text(encoding="utf-8"))
+
+    assert metadata["source_path"] == captured["path"]
+    assert metadata["source_captures"] == [captured["path"]]
+    assert metadata["source_references"] == ["https://example.com/pddlstream"]
+    assert promoted["topic"]["integrity_candidates"]["claimCandidateCount"] >= 1
+    assert "Source capture:" in body
+    assert "Source: https://example.com/pddlstream" in body
+
+
 def test_topic_upsert_creates_mode_shaped_topic(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Software Project", slug="software-project", knowledge_mode="software")
     runtime = KnowledgeRuntime(root)
