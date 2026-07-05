@@ -4338,11 +4338,11 @@ boot();
             **payload,
         }
 
-    def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict[str, Any]:
+    def ci_init(self, *, path: str = ".github/workflows/krail-ci.yml") -> dict[str, Any]:
         rel = path
         target = self.project_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        content = """name: KRAIL Local Preview
+        content = """name: KRAIL CI
 
 on:
   push:
@@ -4351,18 +4351,22 @@ on:
 jobs:
   krail:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install KRAIL
         run: |
           python -m pip install --upgrade pip
           if [ -d packages/rail-py ]; then
-            pip install -e packages/rail-py
+            pip install -e packages/rail-py -e packages/mcp-server
           else
-            pip install "git+https://github.com/AkeBoss-tech/knowledge.git@future#subdirectory=packages/rail-py"
+            pip install krail rail-mcp
           fi
       - name: Doctor
         run: krail --local doctor
@@ -4380,6 +4384,8 @@ jobs:
         run: krail --local vector build
       - name: RAG smoke test
         run: krail --local search "project" --rag --explain
+      - name: MCP CLI smoke test
+        run: rail-mcp --help >/dev/null
 """
         target.write_text(content, encoding="utf-8")
         return {"status": "written", "path": rel}

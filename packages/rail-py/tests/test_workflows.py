@@ -974,3 +974,17 @@ def test_rich_wiki_generation_workflow_uses_wiki_agent(tmp_path: Path):
     assert agent_step["role"] == "wiki"
     assert shown["validation"]["ok"] is True
     assert any(step["step"].get("run") == "krail --local wiki check" for step in dry_run["steps"] if step["kind"] == "command")
+
+
+def test_ci_init_writes_matrix_ci_template(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+
+    result = runtime.ci_init()
+    content = (root / ".github" / "workflows" / "krail-ci.yml").read_text(encoding="utf-8")
+
+    assert result == {"status": "written", "path": ".github/workflows/krail-ci.yml"}
+    assert 'python-version: ["3.11", "3.12", "3.13"]' in content
+    assert "pip install -e packages/rail-py -e packages/mcp-server" in content
+    assert "pip install krail rail-mcp" in content
+    assert "rail-mcp --help >/dev/null" in content

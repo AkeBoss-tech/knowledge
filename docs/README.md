@@ -14,6 +14,7 @@ Start here:
 - [Launch Tracker](launch-tracker.md)
 - [Listeners And Event Triggers](listeners.md)
 - [Project Layout](project-layout.md)
+- [V1 Gap Closure Plan](v1-gap-closure-plan.md)
 - [API Runtime](api-runtime.md)
 - [Blog Post Draft](blog-post.md)
 - [GBrain Synthesis](gbrain-synthesis.md)

@@ -829,7 +829,7 @@ class Project:
             raise RuntimeError("repo commands require local mode")
         return self._backend.knowledge.repo_changed(path_or_url, base_ref=base_ref)
 
-    def ci_init(self, *, path: str = ".github/workflows/krail-local-preview.yml") -> dict:
+    def ci_init(self, *, path: str = ".github/workflows/krail-ci.yml") -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("ci commands require local mode")
         return self._backend.knowledge.ci_init(path=path)
