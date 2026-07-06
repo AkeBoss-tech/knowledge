@@ -121,6 +121,10 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
 - GitHub Actions `Release Packages` verifies tests on Python 3.11, 3.12, and
   3.13 before publishing
 - Release workflow builds and publishes both `krail` and `rail-mcp`
+- The checked-in repo CI extends generated `krail ci init` project smoke with
+  source-tree package tests, local extras, and distribution checks
+- Manual `workflow_dispatch` runs may verify a ref, but publish jobs only run
+  from `v*` tag refs
 
 ## Tag
 

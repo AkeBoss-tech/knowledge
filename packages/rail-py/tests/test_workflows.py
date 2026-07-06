@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
 import yaml
 
 RAIL_PY_ROOT = Path(__file__).parents[1]
+REPO_ROOT = Path(__file__).parents[3]
 if str(RAIL_PY_ROOT) not in sys.path:
     sys.path.insert(0, str(RAIL_PY_ROOT))
 
@@ -19,6 +21,21 @@ def _set_permissions_rules(root: Path, rules: list[dict]) -> None:
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     manifest["permissions"] = {"rules": rules}
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+
+def _load_workflow(path: Path) -> dict:
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def _run_lines(step: dict) -> list[str]:
+    run = str(step.get("run") or "")
+    return [line.strip() for line in run.splitlines() if line.strip()]
+
+
+def _normalize_ci_command(command: str) -> str:
+    command = command.replace("--path examples/minimal-project ", "")
+    command = re.sub(r'search ".*?" --rag --explain', 'search "<query>" --rag --explain', command)
+    return command
 
 
 def test_krail_agent_scaffold_and_prompt(tmp_path: Path):
@@ -1034,3 +1051,47 @@ def test_ci_init_writes_matrix_ci_template(tmp_path: Path):
     assert "pip install -e packages/rail-py -e packages/mcp-server" in content
     assert "pip install krail rail-mcp" in content
     assert "rail-mcp --help >/dev/null" in content
+
+
+def test_checked_in_ci_keeps_generated_project_smoke_contract(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+
+    runtime.ci_init(path=".github/workflows/generated-ci.yml")
+    generated = _load_workflow(root / ".github" / "workflows" / "generated-ci.yml")
+    checked_in = _load_workflow(REPO_ROOT / ".github" / "workflows" / "ci.yml")
+
+    generated_steps = generated["jobs"]["krail"]["steps"]
+    checked_in_steps = checked_in["jobs"]["packages"]["steps"]
+    checked_in_smoke = next(step for step in checked_in_steps if step.get("name") == "Fresh example smoke")
+    checked_in_install = next(step for step in checked_in_steps if step.get("name") == "Install packages")
+
+    generated_commands = {
+        _normalize_ci_command(step["run"])
+        for step in generated_steps
+        if step.get("name") not in {"Install KRAIL"} and step.get("run")
+    }
+    checked_in_commands = {
+        _normalize_ci_command(line)
+        for line in _run_lines(checked_in_smoke)
+        if line != "krail --version"
+    }
+
+    assert generated["jobs"]["krail"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
+    assert checked_in["jobs"]["packages"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
+    assert "packages/rail-py[local]" in checked_in_install["run"]
+    assert checked_in_commands == generated_commands
+
+
+def test_checked_in_release_workflow_only_publishes_from_version_tags():
+    workflow = _load_workflow(REPO_ROOT / ".github" / "workflows" / "release.yml")
+    verify_steps = workflow["jobs"]["verify"]["steps"]
+    verify_install = next(step for step in verify_steps if step.get("name") == "Install packages")
+
+    assert workflow["jobs"]["verify"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
+    assert "packages/rail-py[local]" in verify_install["run"]
+    assert workflow["jobs"]["build-distributions"]["needs"] == "verify"
+    assert workflow["jobs"]["publish-krail"]["needs"] == "build-distributions"
+    assert workflow["jobs"]["publish-krail"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert workflow["jobs"]["publish-rail-mcp"]["needs"] == "publish-krail"
+    assert workflow["jobs"]["publish-rail-mcp"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
