@@ -57,6 +57,11 @@ the source files, or understand the broader monorepo architecture.
 
 ## V1 Contract
 
+`krail` and `rail-mcp` are still on the `0.2.4` pre-v1 release train. The
+contract below is the future honest local-runtime `1.0.0` target this package
+is documenting and hardening, not a claim that every KRAIL surface is already
+stable today.
+
 KRAIL v1 is the local-runtime contract, not a promise that every experimental
 surface is finished.
 
@@ -485,6 +490,10 @@ RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 MCP clients can then call KRAIL tools for search, think, capture, inbox triage,
 topic updates, task creation, workflow dispatch, mode inspection, pack
 inspection, project health checks, graph queries, and integrity status.
+
+Those broader MCP families are available on the `0.2.4` line, but only the
+stable subset documented in `packages/mcp-server/README.md` is part of the
+future v1 compatibility promise.
 
 In practice, this means an agent can ask KRAIL for evidence before answering,
 capture useful notes into the project inbox, create a repo-backed task, or run a

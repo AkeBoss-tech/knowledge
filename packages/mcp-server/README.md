@@ -17,6 +17,10 @@ source of truth.
 
 ## Stable V1 Tools
 
+`rail-mcp` is still shipping on the `0.2.4` pre-v1 release train. The stable
+tool families below are the future local-runtime v1 compatibility target, not a
+claim that every MCP-exposed surface is already frozen today.
+
 The v1 compatibility promise applies only to the tool families below. These are
 the tools we expect clients to build against for KRAIL v1 readiness.
 
@@ -77,17 +81,18 @@ and project health checks.
 
 `rail-mcp` follows the same pre-v1 release train as `krail`.
 
-Ready now:
+Available now on the `0.2.4` line:
 
 - local-project search, `find`, and deterministic `think`
 - capture, inbox promotion, topic upserts, and project health checks
 - source dependency, graph, vector, workflow, and task surfaces
 - repo-backed permission checks for MCP-mediated reads and writes
 
-Still experimental:
+Only the stable tool families listed above are part of the future v1 contract.
+Everything else remains experimental, including:
 
 - hosted API-backed deployments as a stable compatibility target
-- production-grade sandboxing outside repo-mediated permissions
+- host-level sandboxing or production-grade isolation outside repo-mediated permissions
 - long-term compatibility guarantees for workflow/runner integrations
 
 ## Package Compatibility
@@ -131,8 +136,9 @@ surfaces.
 The server expects a local KRAIL project with:
 
 - `krail.yaml` or `rail.yaml`
-- `rail.yaml`
 - `.ontology/`
+- `topics/`
+- `sources/`
 - `research_plan/`
 - `research_plan/state/`
 - `artifacts/`

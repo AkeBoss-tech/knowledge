@@ -1,11 +1,11 @@
 # KRAIL Docs
 
-This repository's v1 contract is a local-first knowledge runtime. The stable
-docs below define the repo-backed product surface that is covered today.
-Planning notes and launch drafts stay separate so they do not silently become
-the product contract.
+KRAIL is currently shipping the `v0.2.4` pre-v1 release train. The docs below
+define the local-runtime contract KRAIL is hardening for a future honest
+`1.0.0`, while keeping planning notes and launch drafts separate so they do not
+silently become the product contract.
 
-## Stable V1 Docs
+## Local-Runtime Contract Docs
 
 - [Architecture](architecture.md)
 - [Project Layout](project-layout.md)

@@ -57,9 +57,9 @@ krail --local --path /tmp/krail-v1-smoke doctor
 krail --local --path examples/minimal-project doctor
 krail --local --path examples/minimal-project search "employment index" --explain
 krail --local --path examples/minimal-project think "employment index"
+krail --local --path examples/minimal-project permissions doctor
 krail --local --path examples/minimal-project workflow list
-krail --local --path examples/minimal-project grep "employment"
-krail --local --path examples/minimal-project files list topics --recursive
+krail --local --path examples/minimal-project workflow execute source_refresh --dry-run
 krail --local --path examples/minimal-project graph summary --federated
 rail-mcp --help
 ```

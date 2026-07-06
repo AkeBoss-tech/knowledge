@@ -16,7 +16,7 @@
   guarantees.
 - Aligned `krail` and `rail-mcp` on the `0.2.4` pre-v1 release train.
 - Expanded package metadata/classifiers and documented remaining experimental
-  surfaces before a future `1.0.0`
+  surfaces before a future `1.0.0`.
 - Updated CI and release automation to verify Python 3.11, 3.12, and 3.13 and
   to build/publish both PyPI distributions.
 
