@@ -59,7 +59,11 @@ integrity = decide what is ready to trust, verify, or promote
 - MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
 - optional local API adapter for custom clients and interfaces
 
-## V1 Contract
+## Future V1 Contract
+
+`v0.2.4` is the current pre-v1 release candidate. This section documents the
+future local-runtime `1.0.0` contract the release train is hardening, while
+calling out the surfaces that are still experimental or explicitly excluded.
 
 KRAIL's v1 promise is a stable local-first runtime for repo-backed knowledge
 work.
