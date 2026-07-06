@@ -430,8 +430,10 @@ def test_cli_capture_inbox_and_topic_lifecycle_registers_integrity_candidates(tm
     assert any(item["path"] == "topics/task-and-motion-planning.md" for item in topics["topics"])
     assert updated["status"] == "updated"
     assert updated["integrity_candidates"]["claimCandidateCount"] >= 1
+    assert status["summary"]["status"] == "missing_evidence"
     assert status["summary"]["claimCandidateCount"] >= 1
     assert any(gap["kind"] == "claim_candidate" for gap in status["gaps"])
+    assert status["nextCommand"]["command"] == "krail --local integrity source-candidates"
 
 
 def test_cmd_workflow_execute_prints_blocked_permission_result(capsys):

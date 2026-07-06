@@ -3265,10 +3265,12 @@ def test_integrity_status_surfaces_untrusted_topic_candidates_as_gaps(tmp_path):
 
     status = rail.local(str(root)).integrity_status()
 
+    assert status["summary"]["status"] == "missing_evidence"
     assert status["summary"]["claimCandidateCount"] >= 1
     gap = next(item for item in status["gaps"] if item["kind"] == "claim_candidate")
     assert gap["status"] == "unsupported"
     assert "not trusted knowledge yet" in gap["message"] or "unsupported" in gap["message"]
+    assert status["nextCommand"]["command"] == "krail --local integrity claim-candidates"
 
 
 def test_promote_source_candidate_rejects_validated_without_explicit_provenance(tmp_path):

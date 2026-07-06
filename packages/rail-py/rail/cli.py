@@ -669,6 +669,8 @@ def cmd_integrity(project: rail.Project, args: argparse.Namespace):
         _print_json(project.integrity_assumptions())
     elif command == "sources":
         _print_json(project.integrity_sources())
+    elif command == "source-candidates":
+        _print_json(project.integrity_source_candidates())
     elif command == "claims":
         _print_json(project.integrity_claims())
     elif command == "claim-candidates":
@@ -1256,6 +1258,7 @@ def main():
     i_subs.add_parser("status", help="Show integrity status")
     i_subs.add_parser("assumptions", help="List assumptions")
     i_subs.add_parser("sources", help="List sources")
+    i_subs.add_parser("source-candidates", help="List source candidates")
     i_subs.add_parser("claims", help="List claims")
     i_subs.add_parser("claim-candidates", help="List claim candidates")
     i_subs.add_parser("artifacts", help="List artifact lineage records")
