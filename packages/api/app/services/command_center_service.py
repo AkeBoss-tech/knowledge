@@ -21,7 +21,9 @@ TABLE_PREVIEW_ROWS = 25
 INTEGRITY_STATUS_SAMPLE_LIMIT = 3
 INTEGRITY_DETAIL_COMMANDS = {
     "sources": "krail --local integrity sources",
+    "sourceCandidates": "krail --local integrity source-candidates",
     "claims": "krail --local integrity claims",
+    "claimCandidates": "krail --local integrity claim-candidates",
     "artifacts": "krail --local integrity artifacts",
     "staleGraph": "krail --local integrity stale-graph",
     "verificationRuns": "krail --local integrity verification-runs",
@@ -1087,9 +1089,20 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
         payload["trustState"] = _artifact_trust_state(row, verification_status)
         stale_outputs.append(payload)
     gaps: list[dict[str, Any]] = []
+    candidate_review_items: list[dict[str, Any]] = []
     for row in indexes.source_candidates:
         if row.status == "promoted":
             continue
+        candidate_review_items.append(
+            _compact_integrity_item(
+                entity_type="source_candidate",
+                key=row.candidate_key,
+                label=row.title or row.url_or_path,
+                state=row.status,
+                reason="Review this source candidate and promote it before relying on it as trusted evidence.",
+                detail_command=INTEGRITY_DETAIL_COMMANDS["sourceCandidates"],
+            )
+        )
         gaps.append(
             {
                 "kind": "source_candidate",
@@ -1108,6 +1121,20 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
             if path not in set(row.discovered_in_paths)
         ]
         status = "needs_evidence" if row.source_candidate_keys or external_evidence_paths else "unsupported"
+        candidate_review_items.append(
+            _compact_integrity_item(
+                entity_type="claim_candidate",
+                key=row.candidate_key,
+                label=row.claim_text,
+                state=status,
+                reason=(
+                    "Review this claim candidate, link explicit evidence, and promote it before treating it as trusted knowledge."
+                    if status == "needs_evidence"
+                    else "Capture or link explicit evidence for this claim candidate before promotion."
+                ),
+                detail_command=INTEGRITY_DETAIL_COMMANDS["claimCandidates"],
+            )
+        )
         gaps.append(
             {
                 "kind": "claim_candidate",
@@ -1135,6 +1162,24 @@ def list_project_integrity(project: dict) -> dict[str, Any]:
     readiness["summary"]["claimCandidateCount"] = len(indexes.claim_candidates)
     readiness["summary"]["entityCandidateCount"] = len(indexes.entity_candidates)
     readiness["summary"]["gapCount"] = len(gaps)
+    if readiness["summary"]["status"] == "empty" and candidate_review_items:
+        readiness["summary"]["status"] = "missing_evidence"
+        readiness["summary"]["headline"] = (
+            f"{len(candidate_review_items)} candidate evidence item(s) need review before trusted promotion."
+        )
+        readiness["summary"]["missingEvidenceCount"] = len(candidate_review_items)
+    if candidate_review_items:
+        readiness["attention"]["missingEvidence"] = _sample_integrity_items(candidate_review_items)
+    if readiness.get("nextCommand") is None and candidate_review_items:
+        item = candidate_review_items[0]
+        readiness["nextCommand"] = {
+            "command": item["detailCommand"],
+            "reason": item["reason"],
+            "focus": {
+                "entityType": item["entityType"],
+                "key": item["key"],
+            },
+        }
 
     return {
         **readiness,
