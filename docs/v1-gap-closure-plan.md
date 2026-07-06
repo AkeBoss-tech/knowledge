@@ -95,7 +95,9 @@ KRAIL is v1-ready when all of these are true:
 - Release automation now builds, checks, and publishes both `krail` and `rail-mcp`.
 - The release checklist includes build, `twine check`, and fresh-wheel install smoke steps.
 - Checked-in CI expectations cover Python 3.11, 3.12, and 3.13.
-- The generated `krail ci init` workflow matches the checked-in CI baseline.
+- The generated `krail ci init` workflow shares the checked-in CI project-smoke
+  contract, while the repo baseline intentionally adds source-tree package
+  tests, local extras, and distribution checks.
 
 ## What Remains Experimental
 
