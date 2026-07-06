@@ -651,6 +651,7 @@ server package.
 Install from the monorepo during development:
 
 ```bash
+pip install -e 'packages/rail-py[local]'
 pip install -e packages/mcp-server
 ```
 
@@ -743,7 +744,7 @@ Explicitly outside the v1 promise for now:
 From the repository root:
 
 ```bash
-pip install -e packages/rail-py -e packages/mcp-server
+pip install -e 'packages/rail-py[local]' -e packages/mcp-server
 PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q packages/rail-py/tests
 ```
 
