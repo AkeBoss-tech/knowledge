@@ -19,6 +19,7 @@ silently become the product contract.
 - [Growth Plan](growth-plan.md)
 - [Knowledge Ingestion Operating System](ingestion-os.md)
 - [Launch Kit](launch-kit.md)
+- [V1 Readiness Triage](v1-readiness-triage.md)
 - [V1 Gap Closure Plan](v1-gap-closure-plan.md)
 
 ## Draft Launch Material
