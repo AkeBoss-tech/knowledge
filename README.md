@@ -292,7 +292,7 @@ Explicitly outside the v1 promise for now:
 `rail-mcp` exposes a local KRAIL project to MCP-compatible tools.
 
 ```bash
-pip install -e packages/rail-py
+pip install -e 'packages/rail-py[local]'
 pip install -e packages/mcp-server
 RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 ```

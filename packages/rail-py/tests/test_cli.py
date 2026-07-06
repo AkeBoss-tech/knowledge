@@ -263,7 +263,7 @@ def test_cmd_grep_prints_rg_style_matches(capsys):
 
     args = argparse.Namespace(
         pattern="codename",
-        path=None,
+        grep_paths=None,
         glob=None,
         ignore_case=True,
         fixed_strings=False,
@@ -287,11 +287,75 @@ def test_cmd_files_read_prints_content(capsys):
             assert lines == 3
             return {"content": "line a\nline b\n"}
 
-    args = argparse.Namespace(files_command="read", path="topics/public.md", start_line=2, lines=3, json=False)
+    args = argparse.Namespace(files_command="read", file_path="topics/public.md", start_line=2, lines=3, json=False)
 
     rail_cli.cmd_files(_Project(), args)
 
     assert capsys.readouterr().out == "line a\nline b\n"
+
+
+def test_main_local_grep_preserves_project_path(monkeypatch):
+    project = object()
+    captured: dict[str, object] = {}
+
+    def fake_local(*, path):
+        captured["project_path"] = path
+        return project
+
+    def fake_cmd_grep(actual_project, args):
+        captured["command_project"] = actual_project
+        captured["pattern"] = args.pattern
+        captured["grep_paths"] = args.grep_paths
+        captured["local_path_arg"] = args.path
+
+    monkeypatch.setattr(rail_cli.rail, "local", fake_local)
+    monkeypatch.setattr(rail_cli, "cmd_grep", fake_cmd_grep)
+    monkeypatch.setattr(sys, "argv", ["rail", "--local", "--path", "examples/minimal-project", "grep", "employment", "topics"])
+
+    rail_cli.main()
+
+    assert captured == {
+        "project_path": "examples/minimal-project",
+        "command_project": project,
+        "pattern": "employment",
+        "grep_paths": ["topics"],
+        "local_path_arg": "examples/minimal-project",
+    }
+
+
+def test_main_local_files_list_preserves_project_path(monkeypatch):
+    project = object()
+    captured: dict[str, object] = {}
+
+    def fake_local(*, path):
+        captured["project_path"] = path
+        return project
+
+    def fake_cmd_files(actual_project, args):
+        captured["command_project"] = actual_project
+        captured["files_command"] = args.files_command
+        captured["list_paths"] = args.list_paths
+        captured["local_path_arg"] = args.path
+        captured["recursive"] = args.recursive
+
+    monkeypatch.setattr(rail_cli.rail, "local", fake_local)
+    monkeypatch.setattr(rail_cli, "cmd_files", fake_cmd_files)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rail", "--local", "--path", "examples/minimal-project", "files", "list", "topics", "--recursive"],
+    )
+
+    rail_cli.main()
+
+    assert captured == {
+        "project_path": "examples/minimal-project",
+        "command_project": project,
+        "files_command": "list",
+        "list_paths": ["topics"],
+        "local_path_arg": "examples/minimal-project",
+        "recursive": True,
+    }
 
 
 def test_cmd_capture_prints_blocked_permission_result(capsys):

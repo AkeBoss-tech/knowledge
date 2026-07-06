@@ -42,13 +42,15 @@ The v1 release does not promise:
 
 ## Fresh Smoke
 
-These commands should pass from a supported Python 3.11+ environment:
+These commands should pass from a supported Python 3.11+ environment. Use the
+`local` extra so ontology-backed integrity surfaces are available in the same
+environment as the release smokes and focused tests:
 
 ```bash
 git clone https://github.com/AkeBoss-tech/knowledge.git
 cd knowledge
 python -m pip install --upgrade pip
-pip install krail rail-mcp
+pip install 'krail[local]' rail-mcp
 krail --version
 krail init /tmp/krail-v1-smoke --pack research-intelligence --mode markdown_graph
 krail --local --path /tmp/krail-v1-smoke mode active
@@ -104,7 +106,8 @@ krail --local --path "$tmpdir/project" integrity status
 
 ## Focused Test Gate
 
-At minimum, the docs-adjacent and contract-adjacent tests should pass:
+At minimum, the docs-adjacent and contract-adjacent tests should pass from that
+same environment:
 
 ```bash
 PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \

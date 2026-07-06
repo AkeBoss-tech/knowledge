@@ -313,7 +313,7 @@ def cmd_mount(project: rail.Project, args: argparse.Namespace):
 def cmd_grep(project: rail.Project, args: argparse.Namespace):
     result = project.grep(
         args.pattern,
-        paths=args.path,
+        paths=args.grep_paths,
         glob=args.glob,
         ignore_case=args.ignore_case,
         fixed_strings=args.fixed_strings,
@@ -334,7 +334,7 @@ def cmd_grep(project: rail.Project, args: argparse.Namespace):
 def cmd_files(project: rail.Project, args: argparse.Namespace):
     if args.files_command == "list":
         result = project.files_list(
-            paths=args.path,
+            paths=args.list_paths,
             glob=args.glob,
             recursive=args.recursive,
             include_hidden=args.hidden,
@@ -349,7 +349,7 @@ def cmd_files(project: rail.Project, args: argparse.Namespace):
         if summary.get("denied"):
             print(f"\n{summary['denied']} path(s) hidden by permissions")
     elif args.files_command == "read":
-        result = project.files_read(args.path, start_line=args.start_line, lines=args.lines)
+        result = project.files_read(args.file_path, start_line=args.start_line, lines=args.lines)
         if args.json:
             _print_json(result)
             return
@@ -358,7 +358,7 @@ def cmd_files(project: rail.Project, args: argparse.Namespace):
             return
         sys.stdout.write(result.get("content", ""))
     elif args.files_command == "stat":
-        _print_json(project.files_stat(args.path))
+        _print_json(project.files_stat(args.target_path))
 
 def cmd_agent(project: rail.Project, args: argparse.Namespace):
     if args.agent_command == "list":
@@ -828,7 +828,7 @@ def main():
 
     grep_parser = subparsers.add_parser("grep", help="Permission-aware grep across readable project files")
     grep_parser.add_argument("pattern", help="Regex pattern to search")
-    grep_parser.add_argument("path", nargs="*", help="Optional repo-relative file or directory roots")
+    grep_parser.add_argument("grep_paths", nargs="*", help="Optional repo-relative file or directory roots")
     grep_parser.add_argument("--glob", action="append", help="Limit searched files to glob patterns")
     grep_parser.add_argument("--ignore-case", action="store_true", help="Ignore case distinctions")
     grep_parser.add_argument("--fixed-strings", action="store_true", help="Treat pattern as a literal string")
@@ -839,18 +839,18 @@ def main():
     files_parser = subparsers.add_parser("files", help="Permission-aware file inspection tools")
     files_subs = files_parser.add_subparsers(dest="files_command")
     files_list = files_subs.add_parser("list", help="List readable files and directories")
-    files_list.add_argument("path", nargs="*", help="Optional repo-relative file or directory roots")
+    files_list.add_argument("list_paths", nargs="*", help="Optional repo-relative file or directory roots")
     files_list.add_argument("--glob", action="append", help="Filter returned paths by glob")
     files_list.add_argument("--recursive", action="store_true", help="Walk directories recursively")
     files_list.add_argument("--hidden", action="store_true", help="Include hidden dot-paths")
     files_list.add_argument("--json", action="store_true", help="Print the full JSON envelope")
     files_read = files_subs.add_parser("read", help="Read a permitted file")
-    files_read.add_argument("path", help="Repo-relative file path")
+    files_read.add_argument("file_path", help="Repo-relative file path")
     files_read.add_argument("--start-line", type=int, default=1, help="1-based starting line")
     files_read.add_argument("--lines", type=int, help="Maximum number of lines to print")
     files_read.add_argument("--json", action="store_true", help="Print the full JSON envelope")
     files_stat = files_subs.add_parser("stat", help="Show metadata for a permitted path")
-    files_stat.add_argument("path", help="Repo-relative file or directory path")
+    files_stat.add_argument("target_path", help="Repo-relative file or directory path")
 
     # Think
     t_parser = subparsers.add_parser("think", help="Return the KRAIL think v1 evidence envelope or prepare runner-backed synthesis traces")

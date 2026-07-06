@@ -53,13 +53,13 @@ removed before a broader post-v1 contract is declared.
 Install from PyPI:
 
 ```bash
-pip install krail rail-mcp
+pip install 'krail[local]' rail-mcp
 ```
 
 For local development from a repository checkout:
 
 ```bash
-pip install -e packages/rail-py
+pip install -e 'packages/rail-py[local]'
 pip install -e packages/mcp-server
 ```
 
