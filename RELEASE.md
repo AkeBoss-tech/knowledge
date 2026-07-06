@@ -58,6 +58,7 @@ krail --local --path examples/minimal-project doctor
 krail --local --path examples/minimal-project search "employment index" --explain
 krail --local --path examples/minimal-project think "employment index"
 krail --local --path examples/minimal-project workflow list
+krail --local --path examples/minimal-project workflow execute weekly_research_review --dry-run
 krail --local --path examples/minimal-project grep "employment"
 krail --local --path examples/minimal-project files list topics --recursive
 krail --local --path examples/minimal-project graph summary --federated
