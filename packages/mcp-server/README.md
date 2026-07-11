@@ -24,6 +24,7 @@ claim that every MCP-exposed surface is already frozen today.
 The v1 compatibility promise applies only to the tool families below. These are
 the tools we expect clients to build against for KRAIL v1 readiness.
 
+- `contract`: `mcp_contract`
 - `doctor`: `doctor`
 - `search`: `search`, `find`
 - `think`: `think`, `register_think_result`, `think_sessions`, `think_session_status`
@@ -36,6 +37,12 @@ the tools we expect clients to build against for KRAIL v1 readiness.
 Stable tools return JSON on success and should return actionable JSON error
 payloads for invalid input, project/configuration problems, permission denials,
 and common runtime failures instead of raw Python tracebacks where feasible.
+
+Clients can discover this boundary at runtime by calling `mcp_contract`. The
+tool does not require a project to be loaded and returns the stable groups and
+tool names, the currently exposed experimental tool names, and the stable JSON
+error shape. Pass `contract_version="v1"` (the default); unsupported versions
+also return an actionable JSON error payload.
 
 ## Experimental Tools
 

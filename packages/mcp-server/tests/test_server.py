@@ -32,10 +32,11 @@ if "mcp.server.fastmcp" not in sys.modules:
 
     class _FastMCP:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.registered_tools = {}
 
         def tool(self):
             def _decorator(fn):
+                self.registered_tools[fn.__name__] = fn
                 return fn
 
             return _decorator
@@ -85,6 +86,7 @@ def test_mcp_integrity_status_calls_project(monkeypatch):
 def test_v1_contract_defines_stable_and_experimental_tool_sets():
     stable_groups = server.STABLE_V1_TOOL_GROUPS
     assert set(stable_groups) == {
+        "contract",
         "doctor",
         "search",
         "think",
@@ -100,11 +102,47 @@ def test_v1_contract_defines_stable_and_experimental_tool_sets():
     assert stable.isdisjoint(experimental)
 
 
+def test_mcp_contract_exposes_runtime_discoverable_v1_boundary():
+    payload = json.loads(server.mcp_contract())
+
+    assert payload["contract"] == "krail.mcp.v1"
+    assert payload["contract_version"] == "v1"
+    assert payload["stable"]["tool_groups"] == {
+        group: list(tool_names)
+        for group, tool_names in server.STABLE_V1_TOOL_GROUPS.items()
+    }
+    assert payload["stable"]["tools"] == list(server.STABLE_V1_TOOLS)
+    assert payload["experimental"]["tools"] == list(server.EXPERIMENTAL_TOOLS)
+    assert payload["experimental"]["compatibility_guaranteed"] is False
+    assert "graph_build" in payload["experimental"]["tools"]
+    assert "mcp_contract" in payload["stable"]["tools"]
+
+
+def test_mcp_contract_classifies_every_registered_tool_without_hiding_broad_surface():
+    payload = json.loads(server.mcp_contract())
+    classified_tools = set(payload["stable"]["tools"]) | set(payload["experimental"]["tools"])
+
+    assert classified_tools == set(server.mcp.registered_tools)
+    assert {"search", "graph_build", "execute_python", "set_secret"} <= set(server.mcp.registered_tools)
+
+
+def test_mcp_contract_rejects_unknown_version_with_actionable_json_error():
+    payload = json.loads(server.mcp_contract("v2"))
+
+    assert payload["ok"] is False
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert payload["error"]["tool"] == "mcp_contract"
+    assert payload["error"]["details"] == {"argument": "contract_version"}
+    assert "Use `v1`" in payload["error"]["hint"]
+
+
 def test_mcp_readme_lists_stable_and_experimental_tools():
     readme = README_PATH.read_text(encoding="utf-8")
 
     assert "## Stable V1 Tools" in readme
     assert "## Experimental Tools" in readme
+    assert "`mcp_contract`" in readme
     assert "`doctor`: `doctor`" in readme
     assert "`tasks`: `create_task`, `list_tasks`, `dispatch_task`" in readme
     assert "`permissions`: `permissions_doctor`" in readme

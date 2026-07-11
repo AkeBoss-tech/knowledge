@@ -25,6 +25,7 @@ mcp = FastMCP("KRAIL")
 _original_mcp_tool = mcp.tool
 
 STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
+    "contract": ("mcp_contract",),
     "doctor": ("doctor",),
     "search": ("search", "find"),
     "think": (
@@ -235,6 +236,47 @@ def _safe_mcp_tool(*tool_args, **tool_kwargs):
 
 
 mcp.tool = _safe_mcp_tool
+
+
+@mcp.tool()
+def mcp_contract(contract_version: str = "v1") -> str:
+    """Describe the stable v1 MCP contract and the currently experimental tools."""
+    if contract_version != "v1":
+        raise ToolInputError(
+            "contract_version",
+            f"Unsupported MCP contract version: {contract_version}.",
+            hint="Use `v1`; it is the only contract version currently exposed.",
+        )
+
+    return _json(
+        {
+            "contract": "krail.mcp.v1",
+            "contract_version": "v1",
+            "release_status": "pre-v1 compatibility target",
+            "stable": {
+                "tool_groups": {
+                    group: list(tool_names)
+                    for group, tool_names in STABLE_V1_TOOL_GROUPS.items()
+                },
+                "tools": list(STABLE_V1_TOOLS),
+                "error_shape": {
+                    "format": "json",
+                    "required_fields": [
+                        "ok",
+                        "status",
+                        "error.code",
+                        "error.tool",
+                        "error.message",
+                    ],
+                    "actionable_fields": ["error.hint", "error.details"],
+                },
+            },
+            "experimental": {
+                "tools": list(EXPERIMENTAL_TOOLS),
+                "compatibility_guaranteed": False,
+            },
+        }
+    )
 
 # ---------------------------------------------------------------------------
 # Lazy project singleton — resolved on first tool call
