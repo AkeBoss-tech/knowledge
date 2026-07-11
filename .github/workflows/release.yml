@@ -68,6 +68,10 @@ jobs:
         if: matrix.python-version == '3.11'
         run: bash scripts/trust-lifecycle-smoke.sh
 
+      - name: Nested-project smoke
+        if: matrix.python-version == '3.11'
+        run: bash scripts/nested-project-smoke.sh
+
   build-distributions:
     needs: verify
     runs-on: ubuntu-latest

@@ -102,6 +102,18 @@ pending-evidence gate:
 bash scripts/trust-lifecycle-smoke.sh
 ```
 
+Run the separate offline nested-project smoke to verify parent/child init,
+healthy mount resolution, federated search/find/think provenance, mount access
+result shaping, mounted workflow dry-runs, and mounted child Codex CLI task
+dispatch dry-runs:
+
+```bash
+bash scripts/nested-project-smoke.sh
+```
+
+The mount access checks cover KRAIL retrieval and proxy behavior only. They do
+not claim host-level filesystem or process sandbox isolation.
+
 ## Focused Test Gate
 
 At minimum, the docs-adjacent and contract-adjacent tests should pass from that
