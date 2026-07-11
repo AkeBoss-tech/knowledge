@@ -93,18 +93,13 @@ deactivate
 rm -rf .venv-release
 ```
 
-The capture-to-topic loop should also remain working against a copied fixture:
+Run the offline end-to-end trust-lifecycle smoke from the repository root. It
+creates a temporary project and proves `init -> capture -> inbox promote/topic
+update -> think registration -> integrity status`, including the expected
+pending-evidence gate:
 
 ```bash
-tmpdir="$(mktemp -d)"
-cp -R examples/minimal-project "$tmpdir/project"
-krail --local --path "$tmpdir/project" capture "PDDLStream is useful for task and motion planning baselines." --topic robotics --entity PDDLStream --entity-type Package
-krail --local --path "$tmpdir/project" inbox list
-krail --local --path "$tmpdir/project" inbox promote topics/inbox/<capture>.md --topic task-and-motion-planning --type method
-krail --local --path "$tmpdir/project" topic upsert task-and-motion-planning --content "Reviewed update with evidence."
-krail --local --path "$tmpdir/project" graph build
-krail --local --path "$tmpdir/project" vector build
-krail --local --path "$tmpdir/project" integrity status
+bash scripts/trust-lifecycle-smoke.sh
 ```
 
 ## Focused Test Gate

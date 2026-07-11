@@ -64,6 +64,10 @@ jobs:
           krail --local --path examples/minimal-project search "employment index" --rag --explain
           rail-mcp --help >/dev/null
 
+      - name: Trust lifecycle smoke
+        if: matrix.python-version == '3.11'
+        run: bash scripts/trust-lifecycle-smoke.sh
+
   build-distributions:
     needs: verify
     runs-on: ubuntu-latest

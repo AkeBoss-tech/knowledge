@@ -298,6 +298,63 @@ def test_cli_first_run_smoke_path_surfaces_fresh_capture(tmp_path):
     assert inbox_payload["unhandled"] == 1
     assert inbox_payload["captures"][0]["path"] == capture_path
 
+    promote_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "--local",
+            "--path",
+            str(target),
+            "inbox",
+            "promote",
+            capture_path,
+            "--topic",
+            "task-and-motion-planning",
+            "--type",
+            "method",
+            "--entity",
+            "PDDLStream",
+            "--entity-type",
+            "Package",
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert promote_result.returncode == 0, promote_result.stdout + promote_result.stderr
+    promote_payload = json.loads(promote_result.stdout)
+    assert promote_payload["status"] == "promoted"
+    assert promote_payload["topic"]["path"] == "topics/task-and-motion-planning.md"
+
+    topic_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "--local",
+            "--path",
+            str(target),
+            "topic",
+            "upsert",
+            "task-and-motion-planning",
+            "--content",
+            "Reviewed PDDLStream evidence for task and motion planning.",
+            "--source-path",
+            capture_path,
+        ],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert topic_result.returncode == 0, topic_result.stdout + topic_result.stderr
+    topic_payload = json.loads(topic_result.stdout)
+    assert topic_payload["status"] == "updated"
+
     search_result = subprocess.run(
         [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "search", "PDDLStream feasibility", "--explain"],
         cwd=RAIL_PY_ROOT,
@@ -308,10 +365,24 @@ def test_cli_first_run_smoke_path_surfaces_fresh_capture(tmp_path):
     )
     assert search_result.returncode == 0, search_result.stdout + search_result.stderr
     search_payload = json.loads(search_result.stdout)
-    assert search_payload["hits"][0]["path"] == capture_path
+    assert any(hit["path"] == capture_path for hit in search_payload["hits"])
 
     think_result = subprocess.run(
-        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "think", "What do we know about PDDLStream feasibility?"],
+        [
+            sys.executable,
+            "-m",
+            "rail.cli",
+            "--local",
+            "--path",
+            str(target),
+            "think",
+            "What do we know about PDDLStream feasibility?",
+            "--output",
+            str(target / "artifacts" / "pddlstream-think.json"),
+            "--register-integrity",
+            "--title",
+            "PDDLStream lifecycle smoke",
+        ],
         cwd=RAIL_PY_ROOT,
         text=True,
         capture_output=True,
@@ -320,7 +391,24 @@ def test_cli_first_run_smoke_path_surfaces_fresh_capture(tmp_path):
     )
     assert think_result.returncode == 0, think_result.stdout + think_result.stderr
     think_payload = json.loads(think_result.stdout)
-    assert think_payload["evidence"][0]["path"] == capture_path
+    assert any(item["path"] == capture_path for item in think_payload["evidence"])
+    assert think_payload["integrity"]["status"] == "registered"
+    assert think_payload["integrity"]["verification_run"]["status"] == "passed"
+
+    integrity_result = subprocess.run(
+        [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "integrity", "status"],
+        cwd=RAIL_PY_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(RAIL_PY_ROOT)},
+    )
+    assert integrity_result.returncode == 0, integrity_result.stdout + integrity_result.stderr
+    integrity_payload = json.loads(integrity_result.stdout)
+    assert integrity_payload["summary"]["artifactCount"] == 1
+    assert integrity_payload["summary"]["verificationRunCount"] == 1
+    assert integrity_payload["summary"]["claimCandidateCount"] >= 1
+    assert integrity_payload["summary"]["status"] == "missing_evidence"
 
     workflow_result = subprocess.run(
         [sys.executable, "-m", "rail.cli", "--local", "--path", str(target), "workflow", "run", "weekly_literature_refresh", "--dry-run"],

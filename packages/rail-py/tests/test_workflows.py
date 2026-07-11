@@ -1065,6 +1065,7 @@ def test_checked_in_ci_keeps_generated_project_smoke_contract(tmp_path: Path):
     checked_in_steps = checked_in["jobs"]["packages"]["steps"]
     checked_in_smoke = next(step for step in checked_in_steps if step.get("name") == "Fresh example smoke")
     checked_in_install = next(step for step in checked_in_steps if step.get("name") == "Install packages")
+    lifecycle_smoke = next(step for step in checked_in_steps if step.get("name") == "Trust lifecycle smoke")
 
     generated_commands = {
         _normalize_ci_command(step["run"])
@@ -1080,6 +1081,8 @@ def test_checked_in_ci_keeps_generated_project_smoke_contract(tmp_path: Path):
     assert generated["jobs"]["krail"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
     assert checked_in["jobs"]["packages"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
     assert "packages/rail-py[local]" in checked_in_install["run"]
+    assert lifecycle_smoke["if"] == "matrix.python-version == '3.11'"
+    assert lifecycle_smoke["run"] == "bash scripts/trust-lifecycle-smoke.sh"
     assert checked_in_commands == generated_commands
 
 
@@ -1087,9 +1090,12 @@ def test_checked_in_release_workflow_only_publishes_from_version_tags():
     workflow = _load_workflow(REPO_ROOT / ".github" / "workflows" / "release.yml")
     verify_steps = workflow["jobs"]["verify"]["steps"]
     verify_install = next(step for step in verify_steps if step.get("name") == "Install packages")
+    lifecycle_smoke = next(step for step in verify_steps if step.get("name") == "Trust lifecycle smoke")
 
     assert workflow["jobs"]["verify"]["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13"]
     assert "packages/rail-py[local]" in verify_install["run"]
+    assert lifecycle_smoke["if"] == "matrix.python-version == '3.11'"
+    assert lifecycle_smoke["run"] == "bash scripts/trust-lifecycle-smoke.sh"
     assert workflow["jobs"]["build-distributions"]["needs"] == "verify"
     assert workflow["jobs"]["publish-krail"]["needs"] == "build-distributions"
     assert workflow["jobs"]["publish-krail"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
