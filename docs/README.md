@@ -1,9 +1,9 @@
 # KRAIL Docs
 
-KRAIL is currently shipping the `v0.2.4` pre-v1 release train. The docs below
-define the local-runtime contract KRAIL is hardening for a future honest
-`1.0.0`, while keeping planning notes and launch drafts separate so they do not
-silently become the product contract.
+KRAIL 1.0.0 ships an honest local-runtime contract. The docs below define that
+supported boundary while keeping planning notes and launch drafts separate so
+they do not silently become the product contract. The hosted API and engine
+packages remain outside the v1 release.
 
 ## Local-Runtime Contract Docs
 

@@ -90,7 +90,7 @@ KRAIL is v1-ready when all of these are true:
 
 ## Completed In This Integration Pass
 
-- Package versions were aligned on the same `0.2.4` pre-v1 release train.
+- Package versions are aligned on the same `1.0.0` local-runtime release.
 - Package metadata and classifiers were updated for both published distributions.
 - Release automation now builds, checks, and publishes both `krail` and `rail-mcp`.
 - The release checklist includes build, `twine check`, and fresh-wheel install smoke steps.
@@ -101,8 +101,8 @@ KRAIL is v1-ready when all of these are true:
 
 ## What Remains Experimental
 
-These areas should stay explicitly pre-v1 even if packaging and release
-automation are stable:
+These areas remain experimental or out of scope even though the local-runtime
+packages are stable:
 
 - `packages/api/` and `packages/engine/` are still on separate `0.1.x`
   development tracks and are not part of the PyPI release contract for

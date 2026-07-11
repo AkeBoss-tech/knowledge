@@ -17,9 +17,9 @@ source of truth.
 
 ## Stable V1 Tools
 
-`rail-mcp` is still shipping on the `0.2.4` pre-v1 release train. The stable
-tool families below are the future local-runtime v1 compatibility target, not a
-claim that every MCP-exposed surface is already frozen today.
+`rail-mcp` 1.0.0 provides the stable local-runtime v1 tool contract below. This
+is not a claim that every MCP-exposed surface is frozen; unlisted tools remain
+experimental and the hosted API and engine packages are outside this contract.
 
 The v1 compatibility promise applies only to the tool families below. These are
 the tools we expect clients to build against for KRAIL v1 readiness.
@@ -86,16 +86,16 @@ and project health checks.
 
 ## Current Status
 
-`rail-mcp` follows the same pre-v1 release train as `krail`.
+`rail-mcp` follows the same 1.x local-runtime release line as `krail`.
 
-Available now on the `0.2.4` line:
+Available in 1.0.0:
 
 - local-project search, `find`, and deterministic `think`
 - capture, inbox promotion, topic upserts, and project health checks
 - source dependency, graph, vector, workflow, and task surfaces
 - repo-backed permission checks for MCP-mediated reads and writes
 
-Only the stable tool families listed above are part of the future v1 contract.
+Only the stable tool families listed above are part of the v1 contract.
 Everything else remains experimental, including:
 
 - hosted API-backed deployments as a stable compatibility target
@@ -104,10 +104,9 @@ Everything else remains experimental, including:
 
 ## Package Compatibility
 
-`rail-mcp` should track the same pre-v1 KRAIL line as the repo-backed engine it
-adapts. Until the core package reaches `1.0`, this package intentionally
-depends on the current `0.2.x` line rather than claiming a `1.x` contract it
-cannot yet guarantee independently.
+`rail-mcp` tracks the same major KRAIL line as the local runtime it adapts. The
+1.0.0 package therefore depends on `krail>=1.0.0,<2.0.0`; a future incompatible
+local-runtime contract requires a new major dependency range.
 
 ## Permission Model
 

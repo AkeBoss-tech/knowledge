@@ -57,10 +57,9 @@ the source files, or understand the broader monorepo architecture.
 
 ## V1 Contract
 
-`krail` and `rail-mcp` are still on the `0.2.4` pre-v1 release train. The
-contract below is the future honest local-runtime `1.0.0` target this package
-is documenting and hardening, not a claim that every KRAIL surface is already
-stable today.
+`krail` 1.0.0 defines an honest local-runtime contract. It is not a claim that
+every KRAIL surface is stable: the hosted API and engine packages, along with
+the experimental capabilities called out below, remain outside this contract.
 
 KRAIL v1 is the local-runtime contract, not a promise that every experimental
 surface is finished.
@@ -491,9 +490,9 @@ MCP clients can then call KRAIL tools for search, think, capture, inbox triage,
 topic updates, task creation, workflow dispatch, mode inspection, pack
 inspection, project health checks, graph queries, and integrity status.
 
-Those broader MCP families are available on the `0.2.4` line, but only the
-stable subset documented in `packages/mcp-server/README.md` is part of the
-future v1 compatibility promise.
+Those broader MCP families are available in 1.0.0, but only the stable subset
+documented in `packages/mcp-server/README.md` is part of the v1 compatibility
+promise.
 
 In practice, this means an agent can ask KRAIL for evidence before answering,
 capture useful notes into the project inbox, create a repo-backed task, or run a
@@ -522,6 +521,10 @@ print(answer["answer"])
 ```
 
 ### API mode
+
+The hosted API adapter and `packages/api/` are experimental and are not part of
+the 1.0.0 local-runtime compatibility promise. The following example is kept
+for development and evaluation of that separate surface.
 
 ```python
 import rail

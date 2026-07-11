@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "krail"
-version = "0.2.4"
+version = "1.0.0"
 description = "Local-first memory and workflows for serious AI agent projects"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,7 @@ keywords = [
     "rag",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",

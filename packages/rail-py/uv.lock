@@ -561,7 +561,7 @@ wheels = [
 
 [[package]]
 name = "krail"
-version = "0.2.2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

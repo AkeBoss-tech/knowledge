@@ -59,11 +59,11 @@ integrity = decide what is ready to trust, verify, or promote
 - MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
 - optional local API adapter for custom clients and interfaces
 
-## Future V1 Contract
+## V1 Contract
 
-`v0.2.4` is the current pre-v1 release candidate. This section documents the
-future local-runtime `1.0.0` contract the release train is hardening, while
-calling out the surfaces that are still experimental or explicitly excluded.
+KRAIL 1.0.0 is an honest local-runtime release. This contract covers the
+repo-backed workflow described below; experimental surfaces and the hosted API
+and engine packages are explicitly excluded.
 
 KRAIL's v1 promise is a stable local-first runtime for repo-backed knowledge
 work.
@@ -334,7 +334,8 @@ Optional agent CLI setup:
 
 ## Contributing
 
-KRAIL is early and local-first. The most useful contributions are:
+KRAIL is local-first, with a stable v1 contract and evolving experimental
+surfaces. The most useful contributions are:
 
 - install and onboarding fixes
 - tighter docs and examples

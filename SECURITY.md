@@ -1,7 +1,10 @@
 # Security Policy
 
-KRAIL is pre-1.0. Security fixes should land on the default development branch
-first.
+KRAIL 1.x security fixes should land on the default development branch first.
+The supported v1 boundary covers the published `krail` and `rail-mcp` local
+runtime packages on Python 3.11 and newer. `packages/api/`, `packages/engine/`,
+hosted deployments, and experimental tools are not part of the v1 security
+support promise.
 
 ## Security Boundary
 

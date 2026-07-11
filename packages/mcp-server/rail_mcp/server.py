@@ -252,7 +252,7 @@ def mcp_contract(contract_version: str = "v1") -> str:
         {
             "contract": "krail.mcp.v1",
             "contract_version": "v1",
-            "release_status": "pre-v1 compatibility target",
+            "release_status": "stable local-runtime v1 contract",
             "stable": {
                 "tool_groups": {
                     group: list(tool_names)

@@ -1,17 +1,13 @@
 # Release Checklist
 
-Target: `v0.2.4`
+Target: `v1.0.0`
 
-Release train: pre-v1 packaging and automation hardening for `krail` and
-`rail-mcp`.
+Release train: stable local-runtime v1 for `krail` and `rail-mcp`.
 
-Do not tag `1.0.0` yet. The release process is intended to be v1-ready, but the
-remaining experimental surfaces are tracked in
-`docs/v1-gap-closure-plan.md`.
-
-The future KRAIL v1 release should be an honest local-runtime release: the
-repo-backed workflow that works today, with unfinished platform surfaces clearly
-excluded from the promise.
+KRAIL v1 is an honest local-runtime release: the repo-backed workflow that
+works today, with unfinished platform surfaces clearly excluded from the
+promise. `packages/api/` and `packages/engine/` retain their independent
+development versions and are not published or supported by this checklist.
 
 ## Contract
 
@@ -42,9 +38,11 @@ The v1 release does not promise:
 
 ## Fresh Smoke
 
-These commands should pass from a supported Python 3.11+ environment. Use the
-`local` extra so ontology-backed integrity surfaces are available in the same
-environment as the release smokes and focused tests:
+The packages require Python 3.11 or newer. The release gate explicitly tests
+Python 3.11, 3.12, and 3.13; newer compatible interpreters may be used but are
+not part of this release's CI matrix. Use the `local` extra so ontology-backed
+integrity surfaces are available in the same environment as the release smokes
+and focused tests:
 
 ```bash
 git clone https://github.com/AkeBoss-tech/knowledge.git
@@ -142,6 +140,6 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
 ## Tag
 
 ```bash
-git tag -a v0.2.4 -m "KRAIL v0.2.4"
-git push origin v0.2.4
+git tag -a v1.0.0 -m "KRAIL v1.0.0"
+git push origin v1.0.0
 ```

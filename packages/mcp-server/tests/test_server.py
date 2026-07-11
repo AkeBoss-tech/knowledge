@@ -107,6 +107,7 @@ def test_mcp_contract_exposes_runtime_discoverable_v1_boundary():
 
     assert payload["contract"] == "krail.mcp.v1"
     assert payload["contract_version"] == "v1"
+    assert payload["release_status"] == "stable local-runtime v1 contract"
     assert payload["stable"]["tool_groups"] == {
         group: list(tool_names)
         for group, tool_names in server.STABLE_V1_TOOL_GROUPS.items()
@@ -148,10 +149,10 @@ def test_mcp_readme_lists_stable_and_experimental_tools():
     assert "`permissions`: `permissions_doctor`" in readme
 
 
-def test_mcp_pyproject_tracks_current_pre_v1_krail_range():
+def test_mcp_pyproject_tracks_compatible_v1_krail_range():
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    assert '"krail>=0.2.4,<0.3.0"' in pyproject
+    assert '"krail>=1.0.0,<2.0.0"' in pyproject
 
 
 def test_mcp_graph_entities_calls_project(monkeypatch):
