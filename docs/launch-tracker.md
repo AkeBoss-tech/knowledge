@@ -2,6 +2,14 @@
 
 Use this as the working checklist for the first KRAIL adoption push.
 
+## Release Readiness
+
+- [x] Complete the stable local-runtime `1.0.0` contract
+- [x] Pass the package, lifecycle, nested-project, and MCP release gates
+- [ ] Push the reviewed release branch
+- [ ] Create and push the `v1.0.0` tag
+- [ ] Confirm the GitHub release workflow publishes `krail` and `rail-mcp`
+
 ## Conversion Surface
 
 - [x] Rewrite the README around a user-facing outcome

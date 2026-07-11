@@ -1,7 +1,7 @@
 # Contributing to KRAIL
 
-KRAIL is early and intentionally local-first. Small, well-scoped changes are
-the most useful.
+KRAIL is a stable, intentionally local-first runtime. Small, well-scoped
+changes that preserve the documented v1 boundary are the most useful.
 
 ## Good Contributions
 
@@ -60,7 +60,9 @@ example project instead of treating the repo root as a KRAIL workspace:
 
 ```bash
 PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project doctor
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project workflow run weekly_literature_refresh --dry-run
+PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project workflow execute weekly_research_review --dry-run
+PYTHON_BIN=python3 bash scripts/trust-lifecycle-smoke.sh
+PYTHON_BIN=python3 bash scripts/nested-project-smoke.sh
 tmp=$(mktemp -d)
 PYTHONPATH=packages/rail-py python -m rail.cli init "$tmp/krail-smoke" --pack research-intelligence
 cd "$tmp/krail-smoke"

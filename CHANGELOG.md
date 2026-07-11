@@ -24,6 +24,8 @@
 - Added offline release smokes for the trust lifecycle and nested mounted
   projects, plus a runtime `mcp_contract` tool for auditing the stable MCP
   subset.
+- Added a supported-use-cases guide and removed completed pre-v1 planning
+  artifacts that no longer described current work.
 
 ## v0.2.3-local-preview
 

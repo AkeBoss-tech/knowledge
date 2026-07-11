@@ -242,20 +242,10 @@ mediated surfaces.
 
 ## Primary Use Cases
 
-### Research workspaces
-
-Track papers, methods, claims, gaps, and follow-up work in a durable local
-project instead of scattered notes and ad hoc prompts.
-
-### Software knowledge bases
-
-Give coding agents a repo-backed memory layer with notes, decisions, prompts,
-tasks, workflow history, and deterministic repo inventory.
-
-### Private company or document brains
-
-Keep internal sources, policy notes, owners, and stale-doc reviews local and
-auditable.
+KRAIL supports research workspaces, company brains, software architecture
+maps, auditable Codex work, parent/child project programs, static knowledge
+sites, and queue-based ingestion. See [Supported Use Cases](docs/use-cases.md)
+for the concrete workflows, shipped examples, and operating boundaries.
 
 ## Local Runtime Status
 
@@ -323,6 +313,7 @@ Optional agent CLI setup:
 ## Documentation
 
 - [Docs Index](docs/README.md)
+- [Supported Use Cases](docs/use-cases.md)
 - [Architecture](docs/architecture.md)
 - [Knowledge Modes](docs/knowledge-modes.md)
 - [Project Layout](docs/project-layout.md)

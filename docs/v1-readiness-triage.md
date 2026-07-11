@@ -1,6 +1,6 @@
 # KRAIL v1 Readiness Triage
 
-Date: 2026-07-05
+Date: 2026-07-11
 
 ## Decision
 
@@ -13,7 +13,6 @@ matches the supported boundary.
 
 Repo/docs/tests reviewed:
 
-- `docs/v1-gap-closure-plan.md`
 - `README.md`
 - `packages/rail-py/README.md`
 - `packages/mcp-server/README.md`
@@ -45,7 +44,7 @@ Result summary:
 
 - example-project local smoke commands passed
 - `scripts/demo-minimal-project.sh` exited zero
-- focused contract-adjacent test suite passed: `109 passed`
+- full checked-in CLI, workflow, and MCP suite passed: `154 passed`
 - both distributable packages built successfully
 - `twine check` passed for both sdists and wheels
 - fresh-wheel install smoke passed
@@ -70,83 +69,18 @@ All original release-blocking workstreams are closed. Remaining items below are
 non-blocking polish or explicitly experimental surfaces outside the v1
 contract.
 
-## Closed 1.0 Blockers
+## Release Closeout
 
-### Must-fix contract blockers
+The original three release blockers are closed:
 
-1. The release train and dependency metadata now identify the stable 1.0.0
-   local-runtime contract.
+1. Package metadata and dependency ranges identify `krail` and `rail-mcp` as
+   `1.0.0` local-runtime packages.
+2. MCP clients can inspect stable and experimental tool sets through
+   `mcp_contract`.
+3. CI release-gates offline trust-lifecycle and nested-project smoke scripts.
 
-2. MCP clients can inspect the stable and experimental sets through the
-   runtime `mcp_contract` tool.
-
-3. Release gates now include offline trust-lifecycle and nested-project smoke
-   scripts.
-
-### Nice-to-have polish
-
-1. Mark experimental CLI surfaces more visibly in help/docs so the top-level
-   `krail --help` output does not look like one undifferentiated compatibility
-   promise.
-
-2. Consolidate demo and release smoke language so README, `RELEASE.md`, and
-   `docs/demo-script.md` point at the same shortest happy path.
-
-3. Add a small contributor-facing "what is actually in v1" page or section so
-   future docs changes have one canonical contract checklist to diff against.
-
-## Recommended Next Codex Workstreams
-
-### Workstream A: 1.0 release-contract flip
-
-Scope:
-
-- bump `krail` and `rail-mcp` to `1.0.0`
-- update dependency ranges, changelog, release checklist, and security-policy
-  wording
-- keep `packages/api/` and `packages/engine/` explicitly out of the PyPI
-  support promise unless intentionally promoted too
-
-Acceptance tests:
-
-- `rg -n "1\\.0\\.0|krail>=1\\.0\\.0,<2\\.0\\.0" README.md packages/rail-py/README.md packages/mcp-server/README.md RELEASE.md CHANGELOG.md SECURITY.md packages/rail-py/pyproject.toml packages/mcp-server/pyproject.toml`
-- `python -m build packages/rail-py`
-- `python -m build packages/mcp-server`
-- `python -m twine check packages/rail-py/dist/* packages/mcp-server/dist/*`
-- fresh-wheel install smoke for `krail --version` and `rail-mcp --help`
-
-### Workstream B: MCP contract surfacing
-
-Scope:
-
-- expose the stable-vs-experimental MCP boundary in a way clients can inspect
-  without relying only on README prose
-- keep the current broad tool surface available, but make the v1 promise
-  auditable and hard to misread
-
-Acceptance tests:
-
-- MCP tests assert the stable subset is exposed by the chosen runtime mechanism
-- README still lists stable vs experimental tools
-- tool errors continue returning JSON payloads rather than raw tracebacks
-
-### Workstream C: Release-gated trust-lifecycle smoke
-
-Scope:
-
-- add one documented smoke path that proves
-  `init -> capture -> inbox promote/topic update -> think or register_think_result -> integrity status`
-- keep it fixture-based and offline by default
-
-Acceptance tests:
-
-- one CLI or script-based smoke command exits zero from repo root
-- CI runs that smoke on at least one Python version
-- `RELEASE.md` points at the exact command sequence
-
-## If We Shipped 1.0.0 Today
-
-The product would likely work for early adopters, but the biggest risk would
-not be runtime failure. The risk would be ambiguity: users and MCP clients
-could still misread which surfaces are truly covered by the long-term
-compatibility promise.
+The remaining release-owner actions are operational, not implementation work:
+run the checklist in [`RELEASE.md`](../RELEASE.md), push the reviewed branch,
+create the `v1.0.0` tag, and publish through the configured release workflow.
+Future work should start from an issue or a new design note rather than this
+closed pre-v1 plan.

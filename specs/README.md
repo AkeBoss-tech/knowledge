@@ -1,23 +1,15 @@
 # Specs
 
-Detailed legacy specs were removed during the local-first cleanup because they
-described the old hosted platform and UI assumptions.
+There are no active implementation specs in this directory for the 1.0.0
+local-runtime release. The completed permission work orders and pre-v1 plans
+were removed because they described already-landed work and would mislead new
+contributors.
 
-Use `docs/` for the current architecture notes. Reintroduce specs only when they
-describe implemented local-first behavior.
+Use the current docs instead:
 
-The first new implemented spec is the local brain UX skeleton:
+- `../README.md` for the supported product contract and quick start
+- `../docs/architecture.md` for component boundaries
+- `../docs/use-cases.md` for supported workflows
+- `../RELEASE.md` for release verification
 
-- `search`: deterministic repo-file evidence retrieval
-- `think`: deterministic answer envelope with evidence/gaps/conflicts
-- `capture`: writes notes into `topics/inbox`
-- `pack`: activates local knowledge pack metadata in `.krail/pack.yaml`
-- `doctor`: checks manifest, core paths, pack, and capture inbox readiness
-- `agent`: lists and launches local CLI agents as workers
-- `task`: creates repo-backed task and work-order records
-- `workflow`: turns active-pack workflow IDs into auditable tasks
-
-Current implementation planning specs:
-
-- `permissions-implementation-plan.md`
-- `permission-work-orders/`
+Add a new spec only for a proposed, bounded change that is not yet implemented.
