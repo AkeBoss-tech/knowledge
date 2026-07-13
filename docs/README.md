@@ -15,6 +15,16 @@ packages remain outside the v1 release.
 - [API Runtime](api-runtime.md)
 - [Release Checklist](../RELEASE.md)
 
+## Integration Guides
+
+- [Integration Guide Index](integrations/README.md)
+- [KRAIL + Codex](integrations/codex.md)
+- [KRAIL + Claude Code](integrations/claude-code.md)
+- [KRAIL + Cursor](integrations/cursor.md)
+- [KRAIL MCP Server](integrations/mcp-server.md)
+- [KRAIL For Literature Reviews](integrations/literature-reviews.md)
+- [KRAIL For Software Architecture Memory](integrations/software-architecture-memory.md)
+
 ## Planning And Roadmap
 
 - [Growth Plan](growth-plan.md)

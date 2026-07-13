@@ -61,10 +61,13 @@ removed before a broader post-v1 contract is declared.
 
 ## Local Usage
 
-Install from PyPI:
+Install the local KRAIL runtime from PyPI, then install the MCP adapter from
+the released GitHub source. `rail-mcp` is not yet a separately published PyPI
+project:
 
 ```bash
-pip install 'krail[local]' rail-mcp
+pip install 'krail[local]'
+pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.0.0#subdirectory=packages/mcp-server'
 ```
 
 For local development from a repository checkout:
@@ -79,6 +82,8 @@ Run the server against a local project:
 ```bash
 RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
 ```
+
+For ready-to-copy client configuration, see the [KRAIL integration guides](../../docs/integrations/README.md).
 
 Useful tool families include search, think, capture, local vector search,
 markdown graph inspection, ontology access, workflow dispatch, SQL queries,
