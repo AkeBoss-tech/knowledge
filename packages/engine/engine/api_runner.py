@@ -7,6 +7,7 @@ import json
 import os
 import re
 import hashlib
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -172,9 +173,15 @@ def _apply_fields(df, fields_spec):
             continue
         alias = field["alias"]
         template = field["computed"]
-        result[alias] = partial.apply(
-            lambda row, t=template: t.format(**row.to_dict()), axis=1
-        )
+        if isinstance(template, str):
+            result[alias] = partial.apply(
+                lambda row, t=template: t.format(**row.to_dict()), axis=1
+            )
+        else:
+            # YAML may deserialize constants such as dates as Python scalars.
+            # Only strings support row-placeholder formatting; scalar values
+            # should be copied unchanged as their string representation.
+            result[alias] = str(template)
 
     return pd.DataFrame(result)
 
@@ -182,7 +189,13 @@ def _apply_fields(df, fields_spec):
 # --- Source Handlers ---
 
 def _handle_csv(api_name, spec, resolved_data):
-    df = pd.read_csv(spec["path"])
+    path = spec["path"]
+    if str(path).startswith(("http://", "https://")):
+        response = requests.get(path, timeout=30)
+        response.raise_for_status()
+        df = pd.read_csv(StringIO(response.text))
+    else:
+        df = pd.read_csv(path)
     if "fields" in spec:
         df = _apply_fields(df, spec["fields"])
     return df
@@ -324,6 +337,14 @@ def _handle_api(api_name, spec, resolved_data):
                 rows.extend(chunk_rows)
 
             df = _to_dataframe(rows, response_format, None)
+        elif response_format == "csv":
+            params = spec.get("params", {})
+            request_kwargs = {"timeout": 30}
+            if params:
+                request_kwargs["params"] = params
+            response = requests.get(spec["url"], **request_kwargs)
+            response.raise_for_status()
+            df = pd.read_csv(StringIO(response.text))
         else:
             raw = _http_fetch(spec)
             df = _to_dataframe(raw, response_format, response_path)

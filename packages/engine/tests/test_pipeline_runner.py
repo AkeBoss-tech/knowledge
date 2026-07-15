@@ -334,7 +334,7 @@ def test_run_pipeline_with_remote_csv_api_source(tmp_path, monkeypatch):
     response.text = "name,code\nAjax,AJX\nBenfica,SLB\n"
     response.raise_for_status.return_value = None
 
-    with patch("engine.api_runner.requests.request", return_value=response):
+    with patch("engine.api_runner.requests.get", return_value=response):
         run_pipeline(str(pipeline_yaml))
 
     w = _open_db(db_path)
@@ -413,11 +413,13 @@ def test_run_pipeline_with_javascript_scrape_source(tmp_path, monkeypatch):
 
     output_owl = str(tmp_path / "out.owl")
     db_path = str(tmp_path / "onto.db")
+    duckdb_path = str(tmp_path / "onto.duckdb")
     pipeline_yaml = tmp_path / "pipeline.yaml"
     pipeline_yaml.write_text(MINIMAL_PIPELINE.format(
         onto_path=str(onto_path),
         output_owl=output_owl,
         db_path=db_path,
+        duckdb_path=duckdb_path,
     ))
 
     monkeypatch.setenv("RAIL_API_CONFIG_DIR", str(api_dir))
@@ -446,11 +448,13 @@ def test_run_pipeline_with_pdf_source(tmp_path, monkeypatch):
 
     output_owl = str(tmp_path / "out.owl")
     db_path = str(tmp_path / "onto.db")
+    duckdb_path = str(tmp_path / "onto.duckdb")
     pipeline_yaml = tmp_path / "pipeline.yaml"
     pipeline_yaml.write_text(MINIMAL_PIPELINE.format(
         onto_path=str(onto_path),
         output_owl=output_owl,
         db_path=db_path,
+        duckdb_path=duckdb_path,
     ))
 
     monkeypatch.setenv("RAIL_API_CONFIG_DIR", str(api_dir))
