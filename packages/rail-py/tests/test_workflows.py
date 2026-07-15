@@ -52,6 +52,52 @@ def test_krail_agent_scaffold_and_prompt(tmp_path: Path):
     assert "Check workflow health" in prompt["prompt"]
 
 
+def test_work_order_uses_role_scope_and_runtime_limits(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    agents = root / "agents"
+    agents.mkdir(parents=True, exist_ok=True)
+    (agents / "contact_discovery.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "role": "contact_discovery",
+                "runner": {
+                    "default": "codex_cli",
+                    "approval_required": False,
+                    "timeout_minutes": 12,
+                    "bash_access": False,
+                },
+                "permissions": {
+                    "read": ["research_plan"],
+                    "write": ["research_plan/runs/discovery"],
+                    "deny": ["artifacts", ".git"],
+                },
+                "tools": {"allow": ["web_research", "write_repo"], "deny": ["send_email"]},
+                "secrets": {"allow": []},
+                "completion": {"requires": ["summary", "changed_files", "evidence"]},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    created = runtime.create_task("Discover contacts", role="contact_discovery")
+
+    result = runtime.dispatch_task(created["task"]["id"], dry_run=True)
+    work_order = json.loads((root / result["work_order"]).read_text(encoding="utf-8"))
+    prompt = result["command"][-1]
+
+    assert work_order["allowed_paths"] == ["research_plan/runs/discovery"]
+    assert work_order["denied_paths"] == ["artifacts", ".git"]
+    assert work_order["allowed_tools"] == ["web_research", "write_repo"]
+    assert work_order["denied_tools"] == ["send_email"]
+    assert work_order["bash_access"] is False
+    assert work_order["timeout_minutes"] == 12
+    assert work_order["outputs_required"] == ["summary", "changed_files", "evidence"]
+    assert "Shell execution is disabled" in prompt
+    assert "research_plan/runs/discovery" in prompt
+    assert "--search" in result["command"]
+
+
 def test_workflow_init_show_and_dry_run(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
     runtime = KnowledgeRuntime(root)
@@ -201,6 +247,34 @@ def test_workflow_execute_command_steps(tmp_path: Path):
     assert runs["runs"][0]["run_id"] == result["run_id"]
     status = runtime.workflow_status(result["run_id"])
     assert status["status"] == "done"
+
+
+def test_workflow_agent_prompt_interpolates_inputs(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    captured: dict[str, str] = {}
+
+    def fake_create_task(title, *, description="", runner="auto", workflow=None, role="research"):
+        captured["description"] = description
+        return {"task": {"id": "task-test"}}
+
+    def fake_dispatch(task_id, *, runner=None, dry_run=False):
+        return {"status": "done", "task": {"session_result": {"summary": "ok"}}}
+
+    monkeypatch.setattr(runtime, "create_task", fake_create_task)
+    monkeypatch.setattr(runtime, "dispatch_task", fake_dispatch)
+    result = runtime._execute_workflow_leaf_step(
+        "test_workflow",
+        {"id": "discover", "kind": "agent", "role": "research", "prompt": "Read runs/${{ inputs.run_id }}/prompt.md"},
+        spec={},
+        dry_run=False,
+        run_dir=root / "research_plan",
+        log_prefix="01-discover",
+        context={"inputs": {"run_id": "pilot-123"}, "vars": {}, "steps": {}, "workflow": {}},
+    )
+
+    assert result["status"] == "done"
+    assert captured["description"] == "Read runs/pilot-123/prompt.md"
 
 
 def test_workflow_execute_dry_run_denial_is_blocked_and_audited(tmp_path: Path):
