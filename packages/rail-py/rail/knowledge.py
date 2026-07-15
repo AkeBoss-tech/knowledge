@@ -5012,6 +5012,17 @@ krail --local graph check
         role = task.get("role") or "research"
         role_prompt = self.agent_prompt(role, task=task.get("description") or task["title"]).get("prompt", "")
         resolved = self.resolve_runner(str(task.get("runner") or task.get("requested_runner") or "auto"))
+        role_config_path = self.project_path / "agents" / f"{role}.yaml"
+        role_config: dict[str, Any] = {}
+        if role_config_path.exists():
+            loaded = yaml.safe_load(role_config_path.read_text(encoding="utf-8")) or {}
+            if isinstance(loaded, dict):
+                role_config = loaded
+        permissions = role_config.get("permissions") if isinstance(role_config.get("permissions"), dict) else {}
+        tools = role_config.get("tools") if isinstance(role_config.get("tools"), dict) else {}
+        secrets = role_config.get("secrets") if isinstance(role_config.get("secrets"), dict) else {}
+        runner_policy = role_config.get("runner") if isinstance(role_config.get("runner"), dict) else {}
+        completion = role_config.get("completion") if isinstance(role_config.get("completion"), dict) else {}
         return {
             "work_order_id": wo_id,
             "task_id": task["id"],
@@ -5022,10 +5033,18 @@ krail --local graph check
             "runner_resolution": resolved,
             "role": role,
             "workflow": task.get("workflow"),
-            "allowed_paths": ["topics", "docs", "research_plan", "artifacts", "agents", "skills", "specs"],
-            "outputs_required": ["summary", "changed_files", "blockers_or_gaps"],
+            "allowed_paths": list(permissions.get("write") or []),
+            "denied_paths": list(permissions.get("deny") or []),
+            "allowed_tools": list(tools.get("allow") or []),
+            "denied_tools": list(tools.get("deny") or []),
+            "allowed_secret_names": list(secrets.get("allow") or []),
+            "bash_access": bool(runner_policy.get("bash_access", True)),
+            "timeout_minutes": runner_policy.get("timeout_minutes"),
+            "approval_required": bool(runner_policy.get("approval_required", True)),
+            "outputs_required": list(completion.get("requires") or ["summary", "changed_files", "blockers_or_gaps"]),
             "trust": "candidate_until_reviewed",
             "role_prompt": role_prompt,
+            "role_config_path": str(role_config_path.relative_to(self.project_path)) if role_config_path.exists() else None,
             "created_at": _dt.datetime.now(_dt.UTC).isoformat(),
         }
 
@@ -5037,14 +5056,15 @@ krail --local graph check
         path.write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
         return {"status": "created", "work_order": work_order, "path": str(path.relative_to(self.project_path))}
 
-    def _runner_command(self, runner: str, prompt: str) -> list[str]:
+    def _runner_command(self, runner: str, prompt: str, work_order: dict[str, Any] | None = None) -> list[str]:
         if runner not in LOCAL_RUNNERS:
             raise ValueError(f"Unknown runner: {runner}")
         meta = LOCAL_RUNNERS[runner]
         base = os.environ.get(meta["command_env"], meta["default_command"])
         parts = shlex.split(base)
         if runner == "codex_cli":
-            return [*parts, "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
+            search_args = ["--search"] if "web_research" in ((work_order or {}).get("allowed_tools") or []) else []
+            return [*parts, *search_args, "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
         if runner == "claude_code":
             return [*parts, "--print", "--permission-mode", "bypassPermissions", prompt]
         if runner == "gemini_cli":
@@ -5056,6 +5076,15 @@ krail --local graph check
         return [*parts, prompt]
 
     def _prompt_for_work_order(self, work_order: dict[str, Any]) -> str:
+        allowed_paths = work_order.get("allowed_paths") or []
+        denied_paths = work_order.get("denied_paths") or []
+        allowed_tools = work_order.get("allowed_tools") or []
+        denied_tools = work_order.get("denied_tools") or []
+        bash_rule = (
+            "- Shell execution is disabled for this role. Do not invoke shell commands or subprocesses.\n"
+            if not work_order.get("bash_access", True)
+            else "- Shell execution is permitted only when it is necessary for this task.\n"
+        )
         return (
             "You are a local KRAIL workflow worker.\n\n"
             f"Project root: {self.project_path}\n"
@@ -5065,6 +5094,11 @@ krail --local graph check
             f"Role guidance:\n{work_order.get('role_prompt') or 'Use the project role prompt and checklist if available.'}\n\n"
             "Rules:\n"
             "- Work only inside this project repository.\n"
+            f"- You may write only under these paths: {allowed_paths or ['(none; return findings in the final result only)']}.\n"
+            f"- You must not modify these paths: {denied_paths or ['(no additional path denies)']}.\n"
+            f"- Allowed KRAIL tools: {allowed_tools or ['(none explicitly allowed)']}.\n"
+            f"- Denied tools: {denied_tools or ['(none explicitly denied)']}.\n"
+            + bash_rule +
             "- Start by running or mentally following `krail --local doctor`, `krail --local mode active`, and relevant `krail --local search` commands.\n"
             "- Use `krail --local capture` for raw notes, `krail --local inbox promote` for triage, and `krail --local topic upsert` for durable knowledge updates.\n"
             "- Prefer evidence files, captures, and integrity records over unsupported claims.\n"
@@ -5074,6 +5108,40 @@ krail --local graph check
             f"- Before exiting, write a JSON result to `{work_order.get('session_result_path', 'session_result.json')}` with keys: summary, changed_files, evidence, blockers_or_gaps, suggested_next_actions, outcome, verification_requested.\n"
             "- Do not promote generated claims as verified without evidence.\n"
         )
+
+    def _git_status_paths(self) -> set[str]:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all", "-z"],
+            cwd=self.project_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return set()
+        records = completed.stdout.split("\0")
+        paths: set[str] = set()
+        index = 0
+        while index < len(records):
+            record = records[index]
+            index += 1
+            if not record:
+                continue
+            status = record[:2]
+            path = record[3:] if len(record) > 3 else ""
+            if path:
+                paths.add(path.replace("\\", "/"))
+            if ("R" in status or "C" in status) and index < len(records):
+                renamed_path = records[index]
+                index += 1
+                if renamed_path:
+                    paths.add(renamed_path.replace("\\", "/"))
+        return paths
+
+    @staticmethod
+    def _path_in_scopes(path: str, scopes: list[str]) -> bool:
+        normalized = path.strip("/")
+        return any(normalized == scope.strip("/") or normalized.startswith(scope.strip("/") + "/") for scope in scopes)
 
     def dispatch_task(self, task_id: str, *, runner: str | None = None, dry_run: bool = False) -> dict[str, Any]:
         task_path, task = self._load_task(task_id)
@@ -5103,7 +5171,7 @@ krail --local graph check
         work_order["session_path"] = str(session_dir.relative_to(self.project_path))
         work_order["session_result_path"] = str((session_dir / "session_result.json").relative_to(self.project_path))
         prompt = self._prompt_for_work_order(work_order)
-        command = self._runner_command(work_order["runner"], prompt)
+        command = self._runner_command(work_order["runner"], prompt, work_order)
         (session_dir / "work_order.json").write_text(json.dumps(work_order, indent=2) + "\n", encoding="utf-8")
         (session_dir / "command.json").write_text(json.dumps({"command": command}, indent=2) + "\n", encoding="utf-8")
         (session_dir / "session_result.template.json").write_text(
@@ -5150,19 +5218,42 @@ krail --local graph check
         task["session_id"] = session_id
         self._write_task(task_path, task)
         started = _dt.datetime.now(_dt.UTC)
+        status_before = self._git_status_paths()
         try:
             completed = subprocess.run(
                 command,
                 cwd=self.project_path,
                 capture_output=True,
                 text=True,
-                timeout=None,
+                timeout=(float(work_order["timeout_minutes"]) * 60 if work_order.get("timeout_minutes") else None),
             )
             (session_dir / "stdout.log").write_text(completed.stdout or "", encoding="utf-8")
             (session_dir / "stderr.log").write_text(completed.stderr or "", encoding="utf-8")
             (session_dir / "exit_code.txt").write_text(str(completed.returncode), encoding="utf-8")
             task["status"] = "done" if completed.returncode == 0 else "failed"
             task["exit_code"] = completed.returncode
+            status_after = self._git_status_paths()
+            agent_changed_paths = sorted(status_after - status_before)
+            allowed_paths = list(work_order.get("allowed_paths") or [])
+            allowed_runtime_paths = [
+                *allowed_paths,
+                str(session_dir.relative_to(self.project_path)).replace("\\", "/"),
+            ]
+            scope_violations = [
+                path for path in agent_changed_paths
+                if not self._path_in_scopes(path, allowed_runtime_paths)
+            ]
+            task["agent_changed_paths"] = agent_changed_paths
+            task["scope_violations"] = scope_violations
+            if scope_violations:
+                task["status"] = "failed"
+                task["blocker"] = "runner changed paths outside the role write scope"
+        except subprocess.TimeoutExpired as exc:
+            task["status"] = "failed"
+            task["blocker"] = f"runner exceeded timeout of {work_order.get('timeout_minutes')} minute(s)"
+            (session_dir / "stdout.log").write_text(exc.stdout or "", encoding="utf-8")
+            (session_dir / "stderr.log").write_text(exc.stderr or "", encoding="utf-8")
+            (session_dir / "exit_code.txt").write_text("timeout", encoding="utf-8")
         except FileNotFoundError as exc:
             task["status"] = "blocked"
             task["blocker"] = str(exc)
@@ -6914,10 +7005,10 @@ krail --local graph check
             return self._execute_workflow_child_step(step, step_id=step_id, dry_run=dry_run, context=context, path=tuple(log_prefix.split("-")))
         if kind == "agent":
             attempts = int(step.get("retry", 0)) + 1
-            prompt = str(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.")
-            runner = str(step.get("runner") or spec.get("runner") or "auto")
+            prompt = str(self._interpolate_workflow_value(step.get("prompt") or step.get("description") or f"Run workflow step {step_id}.", context))
+            runner = str(self._interpolate_workflow_value(step.get("runner") or spec.get("runner") or "auto", context))
             resolved_runner = self.resolve_runner(runner)["runner"]
-            role = str(step.get("role") or "research")
+            role = str(self._interpolate_workflow_value(step.get("role") or "research", context))
             dispatch: dict[str, Any] = {"status": "failed"}
             created: dict[str, Any] = {"task": {"id": ""}}
             for _attempt in range(1, attempts + 1):
