@@ -51,6 +51,26 @@ def test_private_topic_is_filtered_and_audited_until_actor_role_allowed(tmp_path
     assert audit[-1]["restricted"] is True
 
 
+def test_graph_only_retrieval_does_not_leak_private_topic(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Permission Project", slug="permission-project")
+    (root / "topics" / "public-link.md").write_text(
+        "---\ntitle: Public Link\nentities:\n  - MeridianSecret\n---\n\n# Public Link\n",
+        encoding="utf-8",
+    )
+    (root / "topics" / "private-graph.md").write_text(
+        "---\ntitle: Restricted Detail\nvisibility: private\nentities:\n  - MeridianSecret\n---\n\n"
+        "# Restricted Detail\n\nThe private launch code is violet.\n",
+        encoding="utf-8",
+    )
+    runtime = KnowledgeRuntime(root)
+    runtime.graph_build(write=True)
+
+    result = runtime.search("MeridianSecret", rag=False)
+
+    assert "topics/private-graph.md" not in {hit["path"] for hit in result["hits"]}
+    assert "violet" not in json.dumps(result)
+
+
 def test_permissions_doctor_reports_sensitive_topics_without_visibility(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Permission Project", slug="permission-project")
     (root / "topics" / "sensitive.md").write_text(

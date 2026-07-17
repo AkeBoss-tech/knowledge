@@ -7,6 +7,7 @@ import fnmatch
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import shlex
@@ -21,6 +22,7 @@ from typing import Any
 
 import yaml
 
+from rail.actions import ActionDefinition, ActionRegistry
 from rail.modes import DEFAULT_MODES, get_mode
 from rail.markdown_graph import (
     build_markdown_graph,
@@ -37,6 +39,17 @@ from rail.manifest import load_manifest
 from rail.mounts import MountRegistry
 from rail.permissions import PermissionPolicy
 from rail.queues import QueueEngine
+from rail.retrieval import (
+    EVIDENCE_PACKET_SCHEMA_VERSION,
+    RANKER_VERSION,
+    DeterministicQueryPlanner,
+    EvidencePacket,
+    RetrieverDefinition,
+    classify_record,
+    expand_markdown_context,
+    reciprocal_rank_fusion,
+    retrieval_trace,
+)
 from rail.source_dependencies import (
     affected_documents,
     changed_sources,
@@ -828,6 +841,69 @@ class KnowledgeRuntime:
 
     def __init__(self, project_path: str | Path):
         self.project_path = Path(project_path).resolve()
+        self._actions: ActionRegistry | None = None
+
+    def action_registry(self) -> ActionRegistry:
+        if self._actions is not None:
+            return self._actions
+        registry = ActionRegistry()
+        registry.register(
+            ActionDefinition(
+                id="search-project",
+                description="Search permission-filtered local project evidence.",
+                input_schema={
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer"},
+                        "rag": {"type": "boolean"},
+                    },
+                },
+                output_schema={"type": "object", "required": ["query", "hits", "evidence_packet"]},
+                effect="read",
+                capabilities=("read_repo",),
+            ),
+            lambda payload: self.search(
+                str(payload["query"]),
+                limit=int(payload.get("limit") or 10),
+                rag=bool(payload.get("rag", True)),
+                explain=True,
+            ),
+        )
+        registry.register(
+            ActionDefinition(
+                id="capture-note",
+                description="Capture untrusted material into topics/inbox for later review.",
+                input_schema={
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "type": {"type": "string"},
+                    },
+                },
+                output_schema={"type": "object", "required": ["status"]},
+                effect="local_write",
+                capabilities=("write_repo",),
+                idempotency="caller_supplied",
+            ),
+            lambda payload: self.capture(
+                text=str(payload["text"]),
+                kind=str(payload.get("type") or "note"),
+            ),
+        )
+        self._actions = registry
+        return registry
+
+    def action_list(self) -> dict[str, Any]:
+        return {"schema_version": "krail.action/v1", "actions": self.action_registry().list()}
+
+    def action_show(self, action_id: str) -> dict[str, Any]:
+        return self.action_registry().describe(action_id)
+
+    def action_execute(self, action_id: str, inputs: dict[str, Any] | None = None, *, dry_run: bool = True) -> dict[str, Any]:
+        return self.action_registry().execute(action_id, inputs, dry_run=dry_run)
 
     @property
     def krail_dir(self) -> Path:
@@ -1197,58 +1273,327 @@ class KnowledgeRuntime:
             return "partially_verified"
         return "needs_evidence"
 
-    def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict[str, Any]:
-        terms = self._terms(query)
-        hits: list[SearchHit] = []
-        if not terms:
-            return {"query": query, "hits": [], "explain": "No searchable terms found." if explain else None}
+    def retriever_list(self) -> dict[str, Any]:
+        definitions = [
+            RetrieverDefinition("lexical", "Term-frequency and inverse-document-frequency retrieval."),
+            RetrieverDefinition("vector", "Local or configured-provider semantic vector retrieval."),
+            RetrieverDefinition("graph", "Typed Markdown topic and entity relationship retrieval."),
+            RetrieverDefinition("exact_code", "Exact term retrieval over source-code files.", source_types=("code",)),
+            RetrieverDefinition("recency", "Freshness-oriented ranking over already relevant records."),
+            RetrieverDefinition("ownership", "Permission-filtered owner and author metadata retrieval."),
+        ]
+        return {"schema_version": "krail.retriever/v1", "retrievers": [item.to_dict() for item in definitions]}
 
+    def plan_query(self, query: str, *, rag: bool = True) -> dict[str, Any]:
+        return DeterministicQueryPlanner().plan(query, vector_enabled=rag, graph_enabled=True).to_dict()
+
+    def expand_context(self, path: str, query: str) -> dict[str, Any]:
+        target = self._resolve_repo_path(path)
+        allowed, reason, rel, _metadata = self._authorize_repo_path(target)
+        if not allowed:
+            return self._permission_blocked_result(action="read", target=rel, reason=reason)
+        if target.suffix.lower() != ".md":
+            text = target.read_text(encoding="utf-8", errors="ignore")
+            return {"path": rel, "context": {"kind": "document_excerpt", "text": self._snippet(text, self._terms(query))}}
+        return {
+            "path": rel,
+            "context": expand_markdown_context(
+                target.read_text(encoding="utf-8", errors="ignore"),
+                self._terms(query),
+            ),
+        }
+
+    def _lexical_retrieval(self, terms: list[str], *, candidate_limit: int) -> tuple[list[dict[str, Any]], int]:
+        documents: list[tuple[Path, str, str, dict[str, Any], str, set[str]]] = []
+        document_frequency = {term: 0 for term in terms}
+        denied = 0
         for path in self._iter_docs():
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 continue
             metadata, _body = self._split_markdown_frontmatter(text) if path.suffix.lower() == ".md" else ({}, text)
-            rel = str(path.relative_to(self.project_path))
+            rel = path.relative_to(self.project_path).as_posix()
             allowed, _reason, _permission_metadata = self._authorize_read_target(rel, metadata=metadata)
             if not allowed:
+                denied += 1
                 continue
             lower = text.lower()
             title = self._title_for(path, text)
+            present = {term for term in terms if term in lower or term in title.lower()}
+            if not present:
+                continue
+            for term in present:
+                document_frequency[term] += 1
+            documents.append((path, rel, text, metadata, title, present))
+
+        population = max(len(documents), 1)
+        hits: list[SearchHit] = []
+        for path, rel, text, _metadata, title, present in documents:
+            lower = text.lower()
             title_lower = title.lower()
-            matched = sorted({term for term in terms if term in lower or term in title_lower})
+            term_score = sum(
+                lower.count(term) * (math.log((population + 1) / (document_frequency[term] + 1)) + 1.0)
+                for term in present
+            )
+            title_boost = sum(2 for term in present if term in title_lower)
+            path_boost = sum(1 for term in present if term in rel.lower())
+            wikilink_boost = len(_WIKILINK_RE.findall(text)) * 0.05
+            score = term_score + title_boost + path_boost + wikilink_boost + self._search_path_bias(rel)
+            hits.append(SearchHit(rel, title, score, sorted(present), self._snippet(text, terms)))
+        hits.sort(key=lambda hit: (-hit.score, hit.path))
+        return [hit.to_dict() for hit in hits[:candidate_limit]], denied
+
+    def _graph_retrieval(
+        self,
+        graph: dict[str, Any] | None,
+        candidates: list[dict[str, Any]],
+        *,
+        candidate_limit: int,
+    ) -> list[dict[str, Any]]:
+        if not graph:
+            return []
+        by_path = {str(hit.get("path")): hit for hit in candidates if hit.get("path")}
+        boosts = self._graph_boosts(graph)
+        for document in graph.get("documents", []):
+            path = str(document.get("path") or "")
+            if path and path not in by_path:
+                by_path[path] = {
+                    "path": path,
+                    "title": document.get("title") or Path(path).stem,
+                    "snippet": "",
+                    "matched_terms": [],
+                }
+        ranked = []
+        for path, boost in boosts.items():
+            if path in by_path:
+                ranked.append({**by_path[path], "score": float(boost)})
+        return sorted(ranked, key=lambda hit: (-float(hit.get("score") or 0), str(hit.get("path"))))[:candidate_limit]
+
+    def _exact_code_retrieval(self, terms: list[str], *, candidate_limit: int) -> tuple[list[dict[str, Any]], int]:
+        code_suffixes = {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".c", ".cc", ".cpp", ".h", ".hpp", ".sh"}
+        hits: list[dict[str, Any]] = []
+        denied = 0
+        for path in self._iter_repo_files(recursive=True, include_hidden=False):
+            if path.suffix.lower() not in code_suffixes:
+                continue
+            allowed, _reason, rel, _metadata = self._authorize_repo_path(path)
+            if not allowed:
+                denied += 1
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            lower = text.lower()
+            matched = [term for term in terms if term in lower or term in rel.lower()]
             if not matched:
                 continue
-            exact_hits = sum(lower.count(term) for term in matched)
-            title_boost = sum(2 for term in matched if term in title_lower)
-            path_boost = sum(1 for term in matched if term in rel.lower())
-            wikilink_boost = len(_WIKILINK_RE.findall(text)) * 0.05
-            path_bias = self._search_path_bias(rel)
-            score = exact_hits + title_boost + path_boost + wikilink_boost + path_bias
-            hits.append(SearchHit(rel, title, score, matched, self._snippet(text, terms)))
+            score = sum(lower.count(term) for term in matched) + sum(2 for term in matched if term in rel.lower())
+            hits.append({
+                "path": rel,
+                "title": path.name,
+                "score": float(score),
+                "matched_terms": sorted(set(matched)),
+                "snippet": self._snippet(text, terms),
+            })
+        return sorted(hits, key=lambda hit: (-float(hit["score"]), hit["path"]))[:candidate_limit], denied
 
-        hits.sort(key=lambda hit: (-hit.score, hit.path))
+    def _metadata_for_retrieval_path(self, rel: str) -> tuple[dict[str, Any], Path | None]:
+        try:
+            path = self._resolve_repo_path(rel)
+        except Exception:
+            return {}, None
+        if not path.exists() or not path.is_file():
+            return {}, None
+        if path.suffix.lower() != ".md":
+            return {}, path
+        try:
+            metadata, _body = self._split_markdown_frontmatter(path.read_text(encoding="utf-8", errors="ignore"))
+            return metadata, path
+        except Exception:
+            return {}, path
+
+    def _recency_retrieval(self, candidates: list[dict[str, Any]], *, candidate_limit: int) -> list[dict[str, Any]]:
+        ranked: list[dict[str, Any]] = []
+        for hit in candidates:
+            rel = str(hit.get("path") or "")
+            metadata, path = self._metadata_for_retrieval_path(rel)
+            timestamp = 0.0
+            declared = metadata.get("updated") or metadata.get("captured_at")
+            if declared:
+                try:
+                    timestamp = _dt.datetime.fromisoformat(str(declared).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    timestamp = 0.0
+            if not timestamp and path is not None:
+                try:
+                    timestamp = path.stat().st_mtime
+                except OSError:
+                    timestamp = 0.0
+            ranked.append({**hit, "score": timestamp})
+        return sorted(ranked, key=lambda hit: (-float(hit.get("score") or 0), str(hit.get("path"))))[:candidate_limit]
+
+    def _ownership_retrieval(self, candidates: list[dict[str, Any]], terms: list[str], *, candidate_limit: int) -> list[dict[str, Any]]:
+        ranked: list[dict[str, Any]] = []
+        for hit in candidates:
+            metadata, _path = self._metadata_for_retrieval_path(str(hit.get("path") or ""))
+            values: list[str] = []
+            for key in ("owner", "owners", "author", "authors", "team"):
+                raw = metadata.get(key)
+                if isinstance(raw, list):
+                    values.extend(str(item) for item in raw)
+                elif raw:
+                    values.append(str(raw))
+            if not values:
+                continue
+            haystack = " ".join(values).lower()
+            matched = sum(1 for term in terms if term in haystack)
+            ranked.append({**hit, "score": float(1 + matched), "ownership": sorted(set(values))})
+        return sorted(ranked, key=lambda hit: (-float(hit.get("score") or 0), str(hit.get("path"))))[:candidate_limit]
+
+    def _enrich_retrieval_hits(
+        self,
+        hits: list[dict[str, Any]],
+        terms: list[str],
+        *,
+        stale_paths: set[str],
+    ) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+        for hit in hits:
+            item = dict(hit)
+            rel = str(item.get("path") or "")
+            metadata, path = self._metadata_for_retrieval_path(rel)
+            allowed, _reason, _permission_metadata = self._authorize_read_target(rel, metadata=metadata)
+            if not allowed:
+                continue
+            item.update(classify_record(rel, metadata, stale=rel in stale_paths))
+            item["citation"] = {"path": rel, "title": item.get("title")}
+            if path is not None and path.suffix.lower() == ".md":
+                try:
+                    item["context"] = expand_markdown_context(
+                        path.read_text(encoding="utf-8", errors="ignore"),
+                        terms,
+                    )
+                except Exception:
+                    pass
+            enriched.append(item)
+        return enriched
+
+    def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict[str, Any]:
+        terms = self._terms(query)
+        if not terms:
+            return {
+                "query": query,
+                "hits": [],
+                "evidence_packet": EvidencePacket(
+                    query=query,
+                    plan=DeterministicQueryPlanner().plan(query, vector_enabled=rag).to_dict(),
+                    evidence=[],
+                    citations=[],
+                    retrieval_trace={"ranker": RANKER_VERSION, "retrievers": {}, "fused_records": 0},
+                    gaps=["No searchable terms found."],
+                ).to_dict(),
+                "explain": "No searchable terms found." if explain else None,
+            }
+
         candidate_limit = max(limit * 5, 25)
-        lexical_hits = [hit.to_dict() for hit in hits[:candidate_limit]]
-        graph = self._filter_graph_context_for_permissions(self._graph_context(query, limit=5))
-        graph_boosts = self._graph_boosts(graph) if graph else {}
-        result: dict[str, Any] = {
-            "query": query,
-            "hits": self._merge_search_hits(lexical_hits, [], graph_boosts=graph_boosts, limit=limit),
-        }
+        plan = DeterministicQueryPlanner().plan(query, vector_enabled=rag, graph_enabled=True)
+        lexical_hits, lexical_denied = self._lexical_retrieval(terms, candidate_limit=candidate_limit)
+        graph = self._filter_graph_context_for_permissions(self._graph_context(query, limit=max(5, limit)))
+        ranked_results: dict[str, list[dict[str, Any]]] = {"lexical": lexical_hits}
+        permission_filtered = {"lexical": lexical_denied}
+        vector: dict[str, Any] = {"hits": [], "status": "disabled"}
+        vector_hits: list[dict[str, Any]] = []
         if rag:
             vector = self.vector_search(query, limit=candidate_limit)
-            filtered_vector_hits = [
-                hit for hit in vector.get("hits", [])
-                if float(hit.get("score") or 0) >= 0.2
-            ]
-            result["vector_hits"] = filtered_vector_hits
-            result["hits"] = self._merge_search_hits(
-                lexical_hits,
-                filtered_vector_hits,
-                graph_boosts=graph_boosts,
-                limit=limit,
-            )
+            vector_hits = [hit for hit in vector.get("hits", []) if float(hit.get("score") or 0) >= 0.2]
+            ranked_results["vector"] = vector_hits
+            permission_filtered["vector"] = int(vector.get("permission_filtered") or 0)
+
+        combined_candidates = [*lexical_hits, *vector_hits]
+        if "graph" in plan.retrievers:
+            ranked_results["graph"] = self._graph_retrieval(graph, combined_candidates, candidate_limit=candidate_limit)
+        if "exact_code" in plan.retrievers:
+            exact_hits, exact_denied = self._exact_code_retrieval(terms, candidate_limit=candidate_limit)
+            ranked_results["exact_code"] = exact_hits
+            permission_filtered["exact_code"] = exact_denied
+        if "recency" in plan.retrievers:
+            ranked_results["recency"] = self._recency_retrieval(combined_candidates, candidate_limit=candidate_limit)
+        if "ownership" in plan.retrievers:
+            ranked_results["ownership"] = self._ownership_retrieval(combined_candidates, terms, candidate_limit=candidate_limit)
+
+        fused = reciprocal_rank_fusion(
+            ranked_results,
+            limit=limit,
+            weights={"lexical": 2.0, "vector": 1.0, "graph": 0.75, "exact_code": 1.1, "recency": 0.5, "ownership": 0.75},
+        )
+        # Preserve the public v1 diagnostic fields even though retrieval v2 no
+        # longer combines incomparable raw scores arithmetically.
+        graph_boosts = self._graph_boosts(graph or {})
+        for hit in fused:
+            signals = hit.get("rank_signals") if isinstance(hit.get("rank_signals"), dict) else {}
+            lexical_signal = signals.get("lexical") if isinstance(signals.get("lexical"), dict) else {}
+            vector_signal = signals.get("vector") if isinstance(signals.get("vector"), dict) else {}
+            hit["lexical_score"] = float(lexical_signal.get("raw_score") or 0)
+            hit["vector_score"] = float(vector_signal.get("raw_score") or 0)
+            hit["graph_score"] = round(float(graph_boosts.get(str(hit.get("path") or ""), 0)), 3)
+        affected = self.sources_affected()
+        affected_documents = affected.get("affected_documents", [])
+        stale_paths = {
+            str(item.get("path") if isinstance(item, dict) else item)
+            for item in affected_documents
+        }
+        fused = self._enrich_retrieval_hits(fused, terms, stale_paths=stale_paths)
+        trace = retrieval_trace(
+            query=query,
+            plan=plan,
+            ranked_results=ranked_results,
+            fused=fused,
+            permission_filtered=permission_filtered,
+        )
+        evidence = [
+            {
+                "record_id": hit.get("record_id"),
+                "path": hit.get("path"),
+                "title": hit.get("title"),
+                "snippet": hit.get("snippet", ""),
+                "score": hit.get("score"),
+                "trust_state": hit.get("trust_state"),
+                "freshness": hit.get("freshness"),
+                "source_type": hit.get("source_type"),
+                "context": hit.get("context"),
+                "retrievers": hit.get("retrievers", []),
+            }
+            for hit in fused
+        ]
+        citations = [
+            {"ref": f"[{index}]", "path": hit.get("path"), "title": hit.get("title"), "score": hit.get("score")}
+            for index, hit in enumerate(fused, start=1)
+        ]
+        stale_evidence = [item for item in evidence if item.get("freshness") == "stale"]
+        packet = EvidencePacket(
+            query=query,
+            plan=plan.to_dict(),
+            evidence=evidence,
+            citations=citations,
+            retrieval_trace=trace,
+            source_freshness={
+                "affected_documents": affected_documents,
+                "stale_evidence": stale_evidence,
+            },
+            gaps=["Model reranking is optional and not enabled in the deterministic local pipeline."],
+            suggested_next_actions=["Review stale or candidate evidence before promotion."],
+        ).to_dict()
+        result: dict[str, Any] = {
+            "query": query,
+            "hits": fused,
+            "query_plan": plan.to_dict(),
+            "retrieval_trace": trace,
+            "evidence_packet": packet,
+            "vector_hits": vector_hits,
+        }
+        if rag:
             result["rag"] = {
                 "database": vector.get("database"),
                 "embedding": vector.get("embedding"),
@@ -1262,16 +1607,11 @@ class KnowledgeRuntime:
         if explain:
             result["explain"] = {
                 "mode": "local_hybrid" if rag else "local_keyword_graph",
-                "signals": [
-                    "term_frequency",
-                    "title_match",
-                    "path_match",
-                    "typed_wikilink_count",
-                    "markdown_graph_context",
-                    "local_vector_cosine" if rag else "vector_optional",
-                ],
-                "ranker": "deterministic_hybrid_v1" if rag else "deterministic_lexical_graph_v1",
-                "note": "Hybrid retrieval defaults to local hashed embeddings plus lexical and graph signals. Model-backed embeddings are an explicit opt-in upgrade path.",
+                "ranker": RANKER_VERSION,
+                "plan": plan.to_dict(),
+                "signals": list(ranked_results),
+                "permission_filtered": permission_filtered,
+                "note": "Independent permission-filtered rankings are fused with deterministic reciprocal rank fusion; trust and freshness remain explicit result dimensions.",
             }
         return result
 
@@ -1369,7 +1709,8 @@ class KnowledgeRuntime:
             if not isinstance(doc, dict):
                 continue
             rel = str(doc.get("path") or "")
-            metadata = policy.metadata_for_path(rel, doc)
+            source_metadata, _path = self._metadata_for_retrieval_path(rel)
+            metadata = policy.metadata_for_path(rel, source_metadata or doc)
             allowed, reason = policy.can_read(rel, metadata)
             if allowed:
                 if policy.requires_audit("read", True, metadata):
@@ -2090,17 +2431,13 @@ class KnowledgeRuntime:
         runner: str,
     ) -> ThinkRequest:
         hits = search["hits"]
-        evidence = [
+        packet = search.get("evidence_packet") if isinstance(search.get("evidence_packet"), dict) else {}
+        evidence = packet.get("evidence") if isinstance(packet.get("evidence"), list) else [
             {"path": hit["path"], "title": hit["title"], "snippet": hit["snippet"], "score": hit["score"]}
             for hit in hits
         ]
-        citations = [
-            {
-                "ref": f"[{index}]",
-                "path": hit["path"],
-                "title": hit["title"],
-                "score": hit["score"],
-            }
+        citations = packet.get("citations") if isinstance(packet.get("citations"), list) else [
+            {"ref": f"[{index}]", "path": hit["path"], "title": hit["title"], "score": hit["score"]}
             for index, hit in enumerate(evidence, start=1)
         ]
         source_validation = self.sources_validate()
@@ -2131,6 +2468,9 @@ class KnowledgeRuntime:
         if source_changes.get("changed_sources"):
             gaps.append("Some dependency sources are marked changed; affected documents should be reviewed before relying on them.")
         retrieval = {
+            "evidence_packet_version": packet.get("version", EVIDENCE_PACKET_SCHEMA_VERSION),
+            "query_plan": search.get("query_plan") or packet.get("plan"),
+            "retrieval_trace": search.get("retrieval_trace") or packet.get("retrieval_trace"),
             "search": search,
             "evidence": evidence,
             "citations": citations,
@@ -2192,9 +2532,12 @@ class KnowledgeRuntime:
     def _think_evidence_packet(self, request: ThinkRequest) -> dict[str, Any]:
         retrieval = request.retrieval
         return {
+            "version": retrieval.get("evidence_packet_version", EVIDENCE_PACKET_SCHEMA_VERSION),
             "query": request.query,
             "mode": request.mode,
             "requested_runner": request.requested_runner,
+            "query_plan": retrieval.get("query_plan"),
+            "retrieval_trace": retrieval.get("retrieval_trace"),
             "evidence": retrieval["evidence"],
             "citations": retrieval["citations"],
             "graph_context": retrieval["search"].get("graph_context"),
@@ -2748,6 +3091,7 @@ class KnowledgeRuntime:
         return {"sessions": sessions[:limit], "limit": limit}
 
     def get_think_session(self, session_id: str, *, include_payload: bool = True) -> dict[str, Any]:
+        self._validate_run_id(session_id)
         session_dir = self.sessions_dir / session_id
         if not session_dir.exists():
             matches = sorted(self.sessions_dir.glob(f"{session_id}*"))
@@ -3869,6 +4213,45 @@ boot();
         check("pack", bool(pack_state), f"active pack: {pack_state.get('id')}" if pack_state else "no active .krail/pack.yaml")
         active_mode = self.active_mode()
         check("knowledge_mode", bool(active_mode.get("mode")), f"active mode: {active_mode['mode']['id']} ({active_mode['source']})")
+        import rail as rail_package
+
+        executable = shutil.which("krail")
+        executable_version: str | None = None
+        executable_error: str | None = None
+        if executable:
+            try:
+                version_env = os.environ.copy()
+                version_env.pop("PYTHONPATH", None)
+                completed = subprocess.run(
+                    [executable, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    env=version_env,
+                )
+                if completed.returncode == 0:
+                    payload = json.loads(completed.stdout)
+                    executable_version = str(payload.get("version") or "") or None
+                else:
+                    executable_error = (completed.stderr or completed.stdout).strip()[:500]
+            except Exception as exc:
+                executable_error = str(exc)
+        version_diagnostics = {
+            "runtime_version": rail_package.__version__,
+            "executable": executable,
+            "executable_version": executable_version,
+            "aligned": bool(executable_version and executable_version == rail_package.__version__),
+            "error": executable_error,
+        }
+        warn(
+            "cli_version_alignment",
+            executable is None or version_diagnostics["aligned"],
+            (
+                f"active runtime is KRAIL {rail_package.__version__}, but {executable or 'the krail executable'} "
+                f"reports {executable_version or 'an unknown/older version'}; reinstall the current checkout or run with "
+                "`PYTHONPATH=packages/rail-py python -m rail.cli`."
+            ),
+        )
         dependency_validation = self.sources_validate()
         check(
             "source_dependencies",
@@ -3969,6 +4352,7 @@ boot();
             "workflow_validation": workflow_validation,
             "listener_health": listener_health,
             "source_dependency_validation": dependency_validation,
+            "version_diagnostics": version_diagnostics,
         }
 
     def graph_build(self, *, write: bool = True) -> dict[str, Any]:
@@ -5582,6 +5966,7 @@ krail --local graph check
         return {"runs": runs[:limit], "limit": limit}
 
     def workflow_status(self, run_id: str) -> dict[str, Any]:
+        self._validate_run_id(run_id)
         candidates = [
             self.sessions_dir / run_id / "result.json",
             self.sessions_dir / self._slug(run_id) / "result.json",
@@ -5593,6 +5978,11 @@ krail --local graph check
         if len(matches) == 1:
             return json.loads(matches[0].read_text(encoding="utf-8"))
         raise FileNotFoundError(f"Workflow run not found: {run_id}")
+
+    @staticmethod
+    def _validate_run_id(run_id: str) -> None:
+        if not run_id or not re.fullmatch(r"[A-Za-z0-9_.-]+", run_id):
+            raise ValueError("run_id must be a simple identifier without path separators")
 
     def workflow_dashboard(self, *, limit: int = 50) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
@@ -5659,6 +6049,116 @@ krail --local graph check
             if len(rows) >= limit:
                 break
         return {"sessions": rows, "counts": counts, "limit": limit}
+
+    def run_list(self, *, limit: int = 50, status: str | None = None, kind: str | None = None) -> dict[str, Any]:
+        dashboard = self.workflow_dashboard(limit=max(limit * 3, 50))
+        runs: list[dict[str, Any]] = []
+        for row in dashboard.get("sessions", []):
+            normalized = {
+                "run_id": row.get("session_id"),
+                "kind": row.get("kind"),
+                "name": row.get("workflow") or row.get("task_id") or row.get("session_id"),
+                "status": row.get("status"),
+                "started_at": row.get("started_at"),
+                "ended_at": row.get("ended_at"),
+                "failed_step": row.get("failed_step"),
+                "path": row.get("path"),
+            }
+            if status and normalized["status"] != status:
+                continue
+            if kind and normalized["kind"] != kind:
+                continue
+            runs.append(normalized)
+            if len(runs) >= limit:
+                break
+        counts: dict[str, int] = {}
+        for run in runs:
+            key = str(run.get("status") or "unknown")
+            counts[key] = counts.get(key, 0) + 1
+        return {"runs": runs, "counts": counts, "limit": limit, "filters": {"status": status, "kind": kind}}
+
+    def run_show(self, run_id: str, *, summary: bool = False) -> dict[str, Any]:
+        try:
+            payload = self.workflow_status(run_id)
+            kind = "workflow"
+            normalized_id = str(payload.get("run_id") or run_id)
+        except FileNotFoundError:
+            payload = self.get_think_session(run_id, include_payload=not summary)
+            kind = "agent"
+            normalized_id = str(payload.get("session_id") or run_id)
+        if not summary:
+            return {"run_id": normalized_id, "kind": kind, "run": payload}
+        if kind == "workflow":
+            return {
+                "run_id": normalized_id,
+                "kind": kind,
+                "name": payload.get("workflow"),
+                "status": payload.get("status"),
+                "started_at": payload.get("started_at"),
+                "ended_at": payload.get("ended_at"),
+                "duration_seconds": payload.get("duration_seconds"),
+                "failed_step": payload.get("failed_step"),
+                "step_count": len(payload.get("steps") or []),
+                "output": payload.get("output"),
+            }
+        return {
+            "run_id": normalized_id,
+            "kind": kind,
+            "name": payload.get("query"),
+            "status": payload.get("status"),
+            "runner": payload.get("runner"),
+            "created_at": payload.get("created_at"),
+            "has_result": payload.get("has_result"),
+            "exit_code": payload.get("exit_code"),
+        }
+
+    def run_trace(self, run_id: str) -> dict[str, Any]:
+        shown = self.run_show(run_id, summary=False)
+        payload = shown["run"]
+        if shown["kind"] == "agent":
+            return {
+                "run_id": shown["run_id"],
+                "kind": "agent",
+                "status": payload.get("status"),
+                "trace": payload.get("trace") or {},
+                "failure": payload.get("failure_state"),
+            }
+
+        spans: list[dict[str, Any]] = []
+
+        def visit(steps: list[dict[str, Any]], parent: str | None = None) -> None:
+            for index, step in enumerate(steps):
+                if not isinstance(step, dict):
+                    continue
+                step_id = str(step.get("id") or f"step_{index + 1}")
+                span_id = f"{parent}.{step_id}" if parent else step_id
+                spans.append({
+                    "span_id": span_id,
+                    "parent_span_id": parent,
+                    "kind": step.get("kind"),
+                    "status": step.get("status"),
+                    "attempts": step.get("attempts"),
+                    "child_run_id": step.get("child_run_id"),
+                    "error": step.get("error"),
+                })
+                nested = step.get("steps")
+                if isinstance(nested, list):
+                    visit(nested, span_id)
+                for branch in step.get("branch_results") or []:
+                    if isinstance(branch, dict) and isinstance(branch.get("steps"), list):
+                        visit(branch["steps"], f"{span_id}.{branch.get('id') or 'branch'}")
+
+        visit(payload.get("steps") or [])
+        return {
+            "run_id": shown["run_id"],
+            "kind": "workflow",
+            "workflow": payload.get("workflow"),
+            "status": payload.get("status"),
+            "workflow_digest": payload.get("workflow_digest"),
+            "input_digest": payload.get("input_digest"),
+            "spans": spans,
+            "durability": "snapshot_result_v1",
+        }
 
     def _workflow_run_dir(self, run_id: str) -> Path:
         candidates = [self.sessions_dir / run_id, self.sessions_dir / self._slug(run_id)]

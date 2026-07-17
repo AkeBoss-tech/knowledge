@@ -34,7 +34,10 @@ def test_search_defaults_to_deterministic_hybrid_for_minimal_project_fixture(tmp
     result = runtime.search("Synthetic Regional Indicators", limit=3, explain=True)
 
     assert result["explain"]["mode"] == "local_hybrid"
-    assert result["explain"]["ranker"] == "deterministic_hybrid_v1"
+    assert result["explain"]["ranker"] == "deterministic_rrf_v2"
+    assert result["query_plan"]["version"] == "krail.query-plan/v1"
+    assert result["evidence_packet"]["version"] == "krail.evidence-packet/v1"
+    assert result["retrieval_trace"]["trace_digest"].startswith("sha256:")
     assert result["rag"]["status"] == "ok"
     assert result["rag"]["embedding"]["provider"] == "local_hash"
     assert [hit["path"] for hit in result["hits"][:2]] == [

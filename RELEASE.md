@@ -1,6 +1,6 @@
 # Release Checklist
 
-Target: `v1.0.0`
+Target: `v1.1.0`
 
 Release train: stable local-runtime v1 for `krail` and `rail-mcp`.
 
@@ -26,6 +26,8 @@ The v1 release covers:
   dry-run dispatch
 - `integrity status` and related ledger views
 - MCP access to the stable local project subset
+- additive typed actions, read-only retrievers, retrieval-v2 evidence packets,
+  trigger vocabulary, and unified run inspection
 
 The v1 release does not promise:
 
@@ -58,6 +60,12 @@ krail --local --path examples/minimal-project doctor
 krail --local --path examples/minimal-project search "employment index" --explain
 krail --local --path examples/minimal-project think "employment index"
 krail --local --path examples/minimal-project permissions doctor
+krail --local --path examples/minimal-project integrity status
+krail --local --path examples/minimal-project action list
+krail --local --path examples/minimal-project retriever list
+krail --local --path examples/minimal-project trigger list
+krail --local --path examples/minimal-project run list
+krail docs query knowledge-operations
 krail --local --path examples/minimal-project workflow list
 krail --local --path examples/minimal-project workflow execute source_refresh --dry-run
 krail --local --path examples/minimal-project workflow execute weekly_research_review --dry-run
@@ -85,6 +93,7 @@ python -m venv .venv-release
 python -m pip install --upgrade pip
 pip install packages/rail-py/dist/*.whl
 krail --version
+krail --local --path examples/minimal-project integrity status
 pip install --find-links packages/rail-py/dist packages/mcp-server/dist/*.whl
 rail-mcp --help
 deactivate
@@ -140,6 +149,6 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
 ## Tag
 
 ```bash
-git tag -a v1.0.0 -m "KRAIL v1.0.0"
-git push origin v1.0.0
+git tag -a v1.1.0 -m "KRAIL v1.1.0"
+git push origin v1.1.0
 ```

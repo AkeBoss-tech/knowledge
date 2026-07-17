@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.1.0 - 2026-07-17
+
+### Added
+
+- Typed action contracts with declared effects and dry-run-first public execution.
+- Deterministic retrieval-v2 query planning, reciprocal-rank fusion, evidence
+  packets, trust/freshness labels, context expansion, and trace digests.
+- Preferred `trigger` vocabulary while preserving `listener` compatibility.
+- Unified read-only inspection for workflow and agent runs.
+- Bundled `krail docs` guidance and versioned, non-destructive `AGENTS.md`
+  scaffolding.
+- Experimental MCP tools for actions, retrievers, evidence packets, triggers,
+  and unified runs.
+- A deterministic retrieval benchmark covering topical, graph, exact-code,
+  recency, ownership, and empty-result behavior.
+
+### Fixed
+
+- Kept graph-only retrieval subject to source-file permission metadata.
+- Contained run lookup to simple session identifiers under the project session
+  directory.
+- Made stable local integrity status independent of monorepo-only API modules.
+- Classified invalid and unknown MCP actions as client errors.
+- Added release checks for standalone-wheel integrity and tag/package version
+  alignment.
+
 ## v1.0.0 - 2026-07-11
 
 ### Changed

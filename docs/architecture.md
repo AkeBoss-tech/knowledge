@@ -20,6 +20,17 @@ engine/core logic -> SDK/CLI -> optional API/MCP -> optional interfaces
 Interfaces should live in projects, examples, or separate clients. They should
 consume the SDK, API, or MCP layer rather than becoming the product center.
 
+## Knowledge Operations Planes
+
+KRAIL 1.1 separates the local runtime into a durable knowledge plane, a
+read-only retrieval plane, and an effect-aware execution plane. Evidence
+packets connect retrieval to synthesis; typed action contracts connect planned
+work to execution; run views make workflow and agent records inspectable
+without pretending the current snapshot format is a crash-safe event log.
+
+See [Knowledge Operations Foundations](knowledge-operations.md) for the public
+vocabulary and compatibility boundary.
+
 ## Permissioning Model
 
 KRAIL permissioning is local-first and KRAIL-mediated. The repo remains the

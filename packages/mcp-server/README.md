@@ -17,7 +17,7 @@ source of truth.
 
 ## Stable V1 Tools
 
-`rail-mcp` 1.0.0 provides the stable local-runtime v1 tool contract below. This
+`rail-mcp` 1.1.0 preserves the stable local-runtime v1 tool contract below. This
 is not a claim that every MCP-exposed surface is frozen; unlisted tools remain
 experimental and the hosted API and engine packages are outside this contract.
 
@@ -55,6 +55,7 @@ from the compatibility promise for now. That currently includes:
 - listeners, events, queues, and other automation-oriented tools
 - SQL, Python execution, analysis plugins, registry discovery, and hydration
 - runner-session protocol tools and secret-management tools
+- 1.1 action, retriever, evidence-packet, trigger, and unified-run tools
 
 Experimental tools may change shape, move behind narrower permissions, or be
 removed before a broader post-v1 contract is declared.
@@ -67,7 +68,7 @@ project:
 
 ```bash
 pip install 'krail[local]'
-pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.0.0#subdirectory=packages/mcp-server'
+pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.0#subdirectory=packages/mcp-server'
 ```
 
 For local development from a repository checkout:
@@ -93,12 +94,14 @@ and project health checks.
 
 `rail-mcp` follows the same 1.x local-runtime release line as `krail`.
 
-Available in 1.0.0:
+Available in 1.1.0:
 
 - local-project search, `find`, and deterministic `think`
 - capture, inbox promotion, topic upserts, and project health checks
 - source dependency, graph, vector, workflow, and task surfaces
 - repo-backed permission checks for MCP-mediated reads and writes
+- experimental typed actions, retrieval plans and evidence packets, trigger aliases,
+  and unified run inspection
 
 Only the stable tool families listed above are part of the v1 contract.
 Everything else remains experimental, including:
@@ -110,7 +113,7 @@ Everything else remains experimental, including:
 ## Package Compatibility
 
 `rail-mcp` tracks the same major KRAIL line as the local runtime it adapts. The
-1.0.0 package therefore depends on `krail>=1.0.0,<2.0.0`; a future incompatible
+1.1.0 package therefore depends on `krail>=1.1.0,<2.0.0`; a future incompatible
 local-runtime contract requires a new major dependency range.
 
 ## Permission Model

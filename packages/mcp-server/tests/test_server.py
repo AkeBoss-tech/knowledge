@@ -152,7 +152,7 @@ def test_mcp_readme_lists_stable_and_experimental_tools():
 def test_mcp_pyproject_tracks_compatible_v1_krail_range():
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    assert '"krail>=1.0.0,<2.0.0"' in pyproject
+    assert '"krail>=1.1.0,<2.0.0"' in pyproject
 
 
 def test_mcp_graph_entities_calls_project(monkeypatch):
@@ -213,6 +213,49 @@ def test_mcp_search_can_call_federated_project_search(monkeypatch):
 
     payload = json.loads(result)
     assert payload["hits"][0]["path"] == "child:topics/public.md"
+
+
+def test_mcp_knowledge_operations_primitives(monkeypatch):
+    class Project:
+        def action_list(self):
+            return {"actions": [{"id": "search-project"}]}
+
+        def retriever_list(self):
+            return {"retrievers": [{"id": "lexical"}]}
+
+        def plan_query(self, query, *, rag=True):
+            return {"query": query, "retrievers": ["lexical", "vector"] if rag else ["lexical"]}
+
+        def search_evidence(self, query, *, limit=10, explain=False, rag=True):
+            return {"query": query, "evidence_packet": {"version": "krail.evidence-packet/v1"}}
+
+    monkeypatch.setattr(server, "_get_project", lambda: Project())
+
+    assert json.loads(server.action_list())["actions"][0]["id"] == "search-project"
+    assert json.loads(server.retriever_list())["retrievers"][0]["id"] == "lexical"
+    assert "vector" in json.loads(server.plan_query("architecture"))["retrievers"]
+    assert json.loads(server.build_evidence_packet("architecture"))["version"] == "krail.evidence-packet/v1"
+
+
+def test_action_errors_are_classified_as_client_errors(monkeypatch):
+    from rail.actions import ActionNotFoundError, ActionValidationError
+
+    class Project:
+        def action_show(self, action_id):
+            if action_id == "missing-action":
+                raise ActionNotFoundError("unknown action: missing-action")
+            return {"effect": "read"}
+
+        def action_execute(self, action_id, inputs, *, dry_run=True):
+            raise ActionValidationError("input.query is required")
+
+    monkeypatch.setattr(server, "_get_project", lambda: Project())
+
+    unknown = json.loads(server.action_run("missing-action"))
+    invalid = json.loads(server.action_run("search-project", inputs_json="{}"))
+
+    assert unknown["error"]["code"] == "not_found"
+    assert invalid["error"]["code"] == "invalid_arguments"
 
 
 def test_mcp_think_can_call_federated_project_think(monkeypatch):

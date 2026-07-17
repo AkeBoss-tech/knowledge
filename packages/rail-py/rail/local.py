@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from rail.integrity import ResearchIntegrityRepo, sync_sources_from_configs
+from rail.integrity_status import build_local_integrity_status
 from rail.knowledge import KnowledgeRuntime
 from rail.manifest import RailManifest, boot_validate_project, load_manifest
 
@@ -348,26 +349,7 @@ class LocalEngine:
     # ── Integrity ─────────────────────────────────────────────────────────────
 
     def get_integrity_status(self, project_slug: str) -> dict:
-        api_root = Path(__file__).parent.parent.parent / "api"
-        api_root_str = str(api_root.resolve())
-        if api_root_str in sys.path:
-            sys.path.remove(api_root_str)
-        sys.path.insert(0, api_root_str)
-        command_center_service = importlib.import_module("app.services.command_center_service")
-        status = command_center_service.list_project_integrity(
-            {
-                "_id": project_slug,
-                "name": self.manifest.project.name,
-                "slug": project_slug,
-                "status": "ready",
-                "localRepoPath": str(self.project_path),
-                "defaultBranch": "main",
-            }
-        )
-        return {
-            **status,
-            "mode": "local",
-        }
+        return build_local_integrity_status(self.project_path)
 
     def get_integrity_assumptions(self, project_slug: str) -> list[dict]:
         from rail.integrity import ResearchIntegrityRepo

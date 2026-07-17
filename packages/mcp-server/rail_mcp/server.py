@@ -19,7 +19,9 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 import rail
+from rail.actions import ActionNotFoundError, ActionValidationError
 from rail.permissions import PermissionPolicy
+from rail.retrieval import reciprocal_rank_fusion
 
 mcp = FastMCP("KRAIL")
 _original_mcp_tool = mcp.tool
@@ -77,6 +79,18 @@ STABLE_V1_TOOLS: tuple[str, ...] = tuple(
     for tool_name in group
 )
 EXPERIMENTAL_TOOLS: tuple[str, ...] = (
+    "action_list",
+    "action_show",
+    "action_run",
+    "retriever_list",
+    "plan_query",
+    "retrieve_evidence",
+    "fuse_rankings",
+    "expand_context",
+    "build_evidence_packet",
+    "run_list",
+    "run_show",
+    "run_trace",
     "list_classes",
     "get_entities",
     "search_entities",
@@ -108,6 +122,10 @@ EXPERIMENTAL_TOOLS: tuple[str, ...] = (
     "listener_validate",
     "listener_doctor",
     "listener_poll",
+    "trigger_list",
+    "trigger_templates",
+    "trigger_validate",
+    "trigger_poll",
     "event_list",
     "event_show",
     "event_replay",
@@ -208,6 +226,15 @@ def _safe_mcp_tool(*tool_args, **tool_kwargs):
                     fn.__name__,
                     "permission_denied",
                     str(exc),
+                )
+            except ActionNotFoundError as exc:
+                return _error_payload(fn.__name__, "not_found", str(exc))
+            except ActionValidationError as exc:
+                return _error_payload(
+                    fn.__name__,
+                    "invalid_arguments",
+                    str(exc),
+                    hint="Fix the action id or input payload and retry.",
                 )
             except RuntimeError as exc:
                 return _error_payload(
@@ -665,6 +692,92 @@ def search(query: str, limit: int = 10, explain: bool = False, federated: bool =
     if hasattr(project._backend, "knowledge"):
         return _json(project._backend.knowledge.search(query, limit=limit, explain=explain))
     return _json({"query": query, "hits": project.search(query)[:limit]})
+
+
+@mcp.tool()
+def action_list() -> str:
+    """List typed reusable KRAIL actions and their effect declarations."""
+    return _json(_get_project().action_list())
+
+
+@mcp.tool()
+def action_show(action_id: str) -> str:
+    """Show one action's schemas, effect class, and execution requirements."""
+    return _json(_get_project().action_show(action_id))
+
+
+@mcp.tool()
+def action_run(action_id: str, inputs_json: str = "{}", dry_run: bool = True) -> str:
+    """Validate or run a typed action. Defaults to a safe dry-run preview."""
+    inputs = _load_json_object_argument(inputs_json, argument="inputs_json", description="action inputs")
+    project = _get_project()
+    definition = project.action_show(action_id)
+    if not dry_run and definition.get("effect") != "read":
+        denied = _authorize_execute("action_run", f"action:{action_id}", private_by_default=False)
+        if denied:
+            return denied
+    return _json(project.action_execute(action_id, inputs, dry_run=dry_run))
+
+
+@mcp.tool()
+def retriever_list() -> str:
+    """List retrieval-v2 read-only retriever contracts."""
+    return _json(_get_project().retriever_list())
+
+
+@mcp.tool()
+def plan_query(query: str, rag: bool = True) -> str:
+    """Build the deterministic explainable retriever plan for a question."""
+    return _json(_get_project().plan_query(query, rag=rag))
+
+
+@mcp.tool()
+def retrieve_evidence(query: str, limit: int = 10, rag: bool = True) -> str:
+    """Run retrieval v2 and return hits, plan, trace, and the cited evidence packet."""
+    return _json(_get_project().search_evidence(query, limit=limit, explain=True, rag=rag))
+
+
+@mcp.tool()
+def fuse_rankings(rankings_json: str, limit: int = 10) -> str:
+    """Fuse JSON-encoded named result rankings with deterministic reciprocal rank fusion."""
+    rankings = _load_json_object_argument(rankings_json, argument="rankings_json", description="named retriever rankings")
+    normalized = {
+        str(name): [dict(hit) for hit in hits if isinstance(hit, dict)]
+        for name, hits in rankings.items()
+        if isinstance(hits, list)
+    }
+    return _json({"ranker": "deterministic_rrf_v2", "hits": reciprocal_rank_fusion(normalized, limit=limit)})
+
+
+@mcp.tool()
+def expand_context(path: str, query: str) -> str:
+    """Expand a readable result to its source-aware surrounding context."""
+    return _json(_get_project().expand_context(path, query))
+
+
+@mcp.tool()
+def build_evidence_packet(query: str, limit: int = 10, rag: bool = True) -> str:
+    """Build only the cited evidence-packet/v1 envelope for downstream synthesis."""
+    result = _get_project().search_evidence(query, limit=limit, explain=True, rag=rag)
+    return _json(result.get("evidence_packet", {}))
+
+
+@mcp.tool()
+def run_list(limit: int = 50, status: str = "", kind: str = "") -> str:
+    """List workflow and agent runs through the unified read-only inspector."""
+    return _json(_get_project().run_list(limit=limit, status=status or None, kind=kind or None))
+
+
+@mcp.tool()
+def run_show(run_id: str, summary: bool = False) -> str:
+    """Show one workflow or agent run."""
+    return _json(_get_project().run_show(run_id, summary=summary))
+
+
+@mcp.tool()
+def run_trace(run_id: str) -> str:
+    """Show the causal workflow spans or agent session trace for a run."""
+    return _json(_get_project().run_trace(run_id))
 
 
 @mcp.tool()
@@ -1270,6 +1383,34 @@ def listener_poll(listener_id: str = "", dry_run: bool = True, execute: bool = F
         if denied:
             return denied
     return _json(_get_project().listener_poll(listener_id or None, dry_run=dry_run, execute=execute))
+
+
+@mcp.tool()
+def trigger_list() -> str:
+    """List triggers using the KRAIL 1.1 vocabulary; aliases listener storage."""
+    return _json(_get_project().trigger_list())
+
+
+@mcp.tool()
+def trigger_templates() -> str:
+    """List built-in trigger templates."""
+    return _json(_get_project().trigger_templates())
+
+
+@mcp.tool()
+def trigger_validate(trigger_id: str = "") -> str:
+    """Validate one trigger or all configured triggers."""
+    return _json(_get_project().trigger_validate(trigger_id or None))
+
+
+@mcp.tool()
+def trigger_poll(trigger_id: str = "", dry_run: bool = True, execute: bool = False) -> str:
+    """Poll a trigger. Defaults to dry-run without workflow execution."""
+    if execute and not dry_run:
+        denied = _authorize_execute("trigger_poll", f"trigger:{trigger_id or '*'}", private_by_default=False)
+        if denied:
+            return denied
+    return _json(_get_project().trigger_poll(trigger_id or None, dry_run=dry_run, execute=execute))
 
 
 @mcp.tool()

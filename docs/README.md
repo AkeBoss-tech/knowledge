@@ -1,13 +1,17 @@
 # KRAIL Docs
 
-KRAIL 1.0.0 ships an honest local-runtime contract. The docs below define that
-supported boundary while keeping planning notes and launch drafts separate so
-they do not silently become the product contract. The hosted API and engine
-packages remain outside the v1 release.
+KRAIL 1.1.0 extends the stable local-runtime line with additive knowledge
+operations contracts. The docs below define that supported boundary while
+keeping planning notes and launch drafts separate so they do not silently
+become the product contract. The hosted API and engine packages remain outside
+the v1 release.
 
 ## Local-Runtime Contract Docs
 
 - [Architecture](architecture.md)
+- [Knowledge Operations Foundations](knowledge-operations.md)
+- [1.1.0 Release Notes](releases/1.1.0.md)
+- [1.1 Migration Guide](migrations/1.1.md)
 - [Project Layout](project-layout.md)
 - [Knowledge Modes](knowledge-modes.md)
 - [Supported Use Cases](use-cases.md)

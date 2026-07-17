@@ -48,6 +48,42 @@ class Project:
             return self._backend.knowledge.search(q)["hits"]
         return self._backend.search_entities(q)
 
+    def search_evidence(self, q: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict:
+        """Return the full local retrieval-v2 envelope instead of only hits."""
+        if not hasattr(self._backend, "knowledge"):
+            return {"query": q, "hits": self.search(q)[:limit]}
+        return self._backend.knowledge.search(q, limit=limit, explain=explain, rag=rag)
+
+    def action_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("action commands require local mode")
+        return self._backend.knowledge.action_list()
+
+    def action_show(self, action_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("action commands require local mode")
+        return self._backend.knowledge.action_show(action_id)
+
+    def action_execute(self, action_id: str, inputs: dict | None = None, *, dry_run: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("action commands require local mode")
+        return self._backend.knowledge.action_execute(action_id, inputs, dry_run=dry_run)
+
+    def retriever_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("retriever commands require local mode")
+        return self._backend.knowledge.retriever_list()
+
+    def plan_query(self, q: str, *, rag: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("query planning requires local mode")
+        return self._backend.knowledge.plan_query(q, rag=rag)
+
+    def expand_context(self, path: str, q: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("context expansion requires local mode")
+        return self._backend.knowledge.expand_context(path, q)
+
     def find(
         self,
         q: str,
@@ -554,6 +590,21 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_dashboard(limit=limit)
 
+    def run_list(self, *, limit: int = 50, status: str | None = None, kind: str | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("run inspection requires local mode")
+        return self._backend.knowledge.run_list(limit=limit, status=status, kind=kind)
+
+    def run_show(self, run_id: str, *, summary: bool = False) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("run inspection requires local mode")
+        return self._backend.knowledge.run_show(run_id, summary=summary)
+
+    def run_trace(self, run_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("run inspection requires local mode")
+        return self._backend.knowledge.run_trace(run_id)
+
     def workflow_resume(self, run_id: str, *, force: bool = False) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")
@@ -658,6 +709,19 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("listener commands require local mode")
         return self._backend.knowledge.listener_serve(host=host, port=port)
+
+    # Trigger is the public KRAIL 1.1 vocabulary. Listener methods remain as
+    # compatibility aliases over the same repo-backed specifications.
+    trigger_list = listener_list
+    trigger_templates = listener_templates
+    trigger_init = listener_init
+    trigger_validate = listener_validate
+    trigger_doctor = listener_doctor
+    trigger_show = listener_show
+    trigger_test = listener_test
+    trigger_poll = listener_poll
+    trigger_daemon = listener_daemon
+    trigger_serve = listener_serve
 
     def event_list(self, *, limit: int = 20, listener_id: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):

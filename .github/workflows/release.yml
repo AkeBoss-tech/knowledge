@@ -88,6 +88,23 @@ jobs:
       - name: Build distributions
         run: |
           python -m pip install --upgrade build twine
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          versions = {
+              tomllib.loads(Path(path).read_text())["project"]["version"]
+              for path in ("packages/rail-py/pyproject.toml", "packages/mcp-server/pyproject.toml")
+          }
+          if len(versions) != 1:
+              raise SystemExit(f"package versions disagree: {sorted(versions)}")
+          version = versions.pop()
+          ref = os.environ.get("GITHUB_REF_NAME", "")
+          if os.environ.get("GITHUB_REF_TYPE") == "tag" and ref != f"v{version}":
+              raise SystemExit(f"release tag {ref!r} does not match package version v{version}")
+          print(f"release version aligned: {version}")
+          PY
           rm -rf packages/rail-py/dist packages/mcp-server/dist
           python -m build packages/rail-py
           python -m build packages/mcp-server
@@ -100,6 +117,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install packages/rail-py/dist/*.whl
           krail --version
+          krail --local --path examples/minimal-project integrity status
+          krail docs query knowledge-operations
           pip install --find-links packages/rail-py/dist packages/mcp-server/dist/*.whl
           rail-mcp --help >/dev/null
 

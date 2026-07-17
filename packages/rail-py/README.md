@@ -57,6 +57,12 @@ the source files, or understand the broader monorepo architecture.
 
 ## V1 Contract
 
+`krail` 1.1.0 adds typed action and retriever contracts, deterministic
+retrieval-v2 evidence packets, `trigger` vocabulary, unified run inspection,
+and bundled `krail docs` guidance. These are additive to the 1.x local-runtime
+contract; existing `listener`, search, think, task, and workflow commands remain
+supported.
+
 `krail` 1.0.0 defines an honest local-runtime contract. It is not a claim that
 every KRAIL surface is stable: the hosted API and engine packages, along with
 the experimental capabilities called out below, remain outside this contract.

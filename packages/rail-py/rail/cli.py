@@ -7,6 +7,7 @@ from typing import Any
 
 import rail
 from rail.bootstrap import bootstrap_future_project
+from rail.docs import query_builtin_doc, search_builtin_docs
 from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
 from rail.manifest import ManifestValidationError
 from rail.modes import DEFAULT_MODES, get_mode
@@ -79,6 +80,17 @@ def _get_project(args: argparse.Namespace) -> rail.Project:
         api_key=args.api_key,
     )
 
+
+def cmd_docs(args: argparse.Namespace) -> None:
+    if args.docs_command == "search":
+        _print_json(search_builtin_docs(args.query, limit=args.limit))
+    elif args.docs_command == "query":
+        try:
+            _print_json(query_builtin_doc(args.path))
+        except KeyError as exc:
+            print(f"Error: {exc.args[0]}", file=sys.stderr)
+            raise SystemExit(2) from exc
+
 def cmd_init(args: argparse.Namespace):
     target = Path(args.directory).resolve()
     name = args.name or target.name
@@ -122,6 +134,18 @@ def cmd_search(project: rail.Project, args: argparse.Namespace):
         _print_json(project._backend.knowledge.search(args.query, limit=args.limit, explain=args.explain, rag=args.rag))
     else:
         _print_json(project.search(args.query))
+
+def cmd_action(project: rail.Project, args: argparse.Namespace):
+    if args.action_command == "list":
+        _print_json(project.action_list())
+    elif args.action_command == "show":
+        _print_json(project.action_show(args.action_id))
+    elif args.action_command == "run":
+        _print_json(project.action_execute(args.action_id, _parse_inputs(args.input), dry_run=not args.execute))
+
+def cmd_retriever(project: rail.Project, args: argparse.Namespace):
+    if args.retriever_command == "list":
+        _print_json(project.retriever_list())
 
 def cmd_find(project: rail.Project, args: argparse.Namespace):
     if getattr(args, "federated", False):
@@ -460,6 +484,14 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
     elif args.workflow_command == "resume":
         _print_json(project.workflow_resume(args.run_id, force=args.force))
 
+def cmd_run(project: rail.Project, args: argparse.Namespace):
+    if args.run_command == "list":
+        _print_json(project.run_list(limit=args.limit, status=args.status, kind=args.kind))
+    elif args.run_command == "show":
+        _print_json(project.run_show(args.run_id, summary=args.summary))
+    elif args.run_command == "trace":
+        _print_json(project.run_trace(args.run_id))
+
 def cmd_approval(project: rail.Project, args: argparse.Namespace):
     if args.approval_command == "list":
         _print_json(project.approval_list(status=args.status))
@@ -792,6 +824,14 @@ def main():
         help="Skip materializing workflow specs for the selected pack during init",
     )
 
+    docs_parser = subparsers.add_parser("docs", help="Search bundled KRAIL guidance without loading a project")
+    docs_subs = docs_parser.add_subparsers(dest="docs_command", required=True)
+    docs_search = docs_subs.add_parser("search", help="Search bundled guidance")
+    docs_search.add_argument("query")
+    docs_search.add_argument("--limit", type=int, default=10)
+    docs_query = docs_subs.add_parser("query", help="Read one bundled guidance document")
+    docs_query.add_argument("path", help="Document path returned by docs search")
+
     # Search
     s_parser = subparsers.add_parser("search", help="Search local project evidence")
     s_parser.add_argument("query", help="Search query")
@@ -803,6 +843,32 @@ def main():
     s_parser.set_defaults(rag=True)
     s_parser.add_argument("--federated", action="store_true", help="Search the local project and configured mounted child projects")
     s_parser.add_argument("--mount", action="append", help="Limit federated search to a specific mount id; repeatable")
+
+    action_parser = subparsers.add_parser("action", help="Inspect and run typed reusable KRAIL actions")
+    action_subs = action_parser.add_subparsers(dest="action_command")
+    action_subs.add_parser("list", help="List registered local actions")
+    action_show = action_subs.add_parser("show", help="Show one action contract")
+    action_show.add_argument("action_id")
+    action_run = action_subs.add_parser("run", help="Validate and optionally execute an action")
+    action_run.add_argument("action_id")
+    action_run.add_argument("--input", action="append", help="Action input as key=value; JSON values are accepted")
+    action_run.add_argument("--execute", action="store_true", help="Execute instead of returning a safe dry-run preview")
+
+    retriever_parser = subparsers.add_parser("retriever", help="Inspect retrieval-v2 read-only retrievers")
+    retriever_subs = retriever_parser.add_subparsers(dest="retriever_command")
+    retriever_subs.add_parser("list", help="List registered retriever contracts")
+
+    run_parser = subparsers.add_parser("run", help="Inspect workflow and agent runs through one read-only surface")
+    run_subs = run_parser.add_subparsers(dest="run_command")
+    run_list_parser = run_subs.add_parser("list", help="List recent workflow and agent runs")
+    run_list_parser.add_argument("--limit", type=int, default=50)
+    run_list_parser.add_argument("--status")
+    run_list_parser.add_argument("--kind", choices=["workflow", "agent"])
+    run_show_parser = run_subs.add_parser("show", help="Show one workflow or agent run")
+    run_show_parser.add_argument("run_id")
+    run_show_parser.add_argument("--summary", action="store_true")
+    run_trace_parser = run_subs.add_parser("trace", help="Show the causal step or session trace for a run")
+    run_trace_parser.add_argument("run_id")
 
     find_parser = subparsers.add_parser("find", help="Find typed knowledge records across docs, graph, integrity, sessions, queues, and artifacts")
     find_parser.add_argument("query", help="Find query")
@@ -1095,6 +1161,35 @@ def main():
     lserve.add_argument("--host", default="127.0.0.1")
     lserve.add_argument("--port", type=int, default=8787)
 
+    # KRAIL 1.1 public vocabulary. The listener command remains a complete
+    # compatibility alias over these same repo-backed specs.
+    trigger_parser = subparsers.add_parser("trigger", help="Observe events and trigger workflows (listener compatibility surface)")
+    trigger_subs = trigger_parser.add_subparsers(dest="listener_command")
+    trigger_subs.add_parser("list", help="List trigger specs under research_plan/listeners")
+    trigger_subs.add_parser("templates", help="List built-in trigger templates")
+    tinit = trigger_subs.add_parser("init", help="Create a trigger spec from a template or type")
+    tinit.add_argument("template")
+    tinit.add_argument("--id")
+    tinit.add_argument("--force", action="store_true")
+    tval = trigger_subs.add_parser("validate", help="Validate one trigger or all triggers")
+    tval.add_argument("listener_id", nargs="?")
+    trigger_subs.add_parser("doctor", help="Diagnose trigger health, state, and events")
+    tshow = trigger_subs.add_parser("show", help="Show a trigger spec")
+    tshow.add_argument("listener_id")
+    ttest = trigger_subs.add_parser("test", help="Observe a trigger without writing events or state")
+    ttest.add_argument("listener_id")
+    tpoll = trigger_subs.add_parser("poll", help="Poll one trigger or all triggers")
+    tpoll.add_argument("listener_id", nargs="?")
+    tpoll.add_argument("--all", action="store_true")
+    tpoll.add_argument("--dry-run", action="store_true")
+    tpoll.add_argument("--no-execute", action="store_true")
+    tdaemon = trigger_subs.add_parser("daemon", help="Continuously poll all enabled triggers")
+    tdaemon.add_argument("--once", action="store_true")
+    tdaemon.add_argument("--interval-seconds", type=int, default=30)
+    tserve = trigger_subs.add_parser("serve", help="Run the local trigger webhook receiver")
+    tserve.add_argument("--host", default="127.0.0.1")
+    tserve.add_argument("--port", type=int, default=8787)
+
     event_parser = subparsers.add_parser("event", help="Inspect and replay listener events")
     event_subs = event_parser.add_subparsers(dest="event_command")
     elist = event_subs.add_parser("list", help="List recorded listener events")
@@ -1339,6 +1434,10 @@ def main():
         cmd_init(args)
         return
 
+    if args.command == "docs":
+        cmd_docs(args)
+        return
+
     if args.command == "pack" and args.pack_command in {"list", "show"}:
         if args.pack_command == "list":
             _print_json({"packs": list(DEFAULT_PACKS.values())})
@@ -1358,6 +1457,12 @@ def main():
 
     if args.command == "search":
         cmd_search(project, args)
+    elif args.command == "action":
+        cmd_action(project, args)
+    elif args.command == "retriever":
+        cmd_retriever(project, args)
+    elif args.command == "run":
+        cmd_run(project, args)
     elif args.command == "find":
         cmd_find(project, args)
     elif args.command == "think":
@@ -1396,7 +1501,7 @@ def main():
         cmd_approval(project, args)
     elif args.command == "schedule":
         cmd_schedule(project, args)
-    elif args.command == "listener":
+    elif args.command in {"listener", "trigger"}:
         cmd_listener(project, args)
     elif args.command == "event":
         cmd_event(project, args)

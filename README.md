@@ -6,7 +6,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Local-first memory and workflows for serious AI agent projects.**
+**Local-first knowledge operations for serious AI agent projects.**
 
 KRAIL gives agents a durable project workspace instead of fragile chat context.
 You keep sources, notes, claims, workflows, prompts, and task records in a
@@ -30,11 +30,14 @@ KRAIL is the repo-backed layer that sits between raw files and agent actions.
 
 ```text
 search   = retrieve document evidence in the project
+retriever = produce read-only ranked evidence through a declared contract
 find     = find typed records across docs, graph, evidence, sessions, and queues
 think    = synthesize evidence + cite files + expose gaps
+action   = validate and run a typed operation with declared effects
 task     = create auditable work orders for local agents
 workflow = run repeatable project routines from the active pack
-listener = notice local/external changes and trigger workflows
+trigger  = notice local/external changes and start workflows (`listener` remains supported)
+run      = inspect workflow and agent execution through one surface
 queue    = reserve inventory batches for parallel ingestion workers
 permissions = keep access public by default, restrict only explicit records
 integrity = decide what is ready to trust, verify, or promote
@@ -60,6 +63,11 @@ integrity = decide what is ready to trust, verify, or promote
 - optional local API adapter for custom clients and interfaces
 
 ## V1 Contract
+
+KRAIL 1.1.0 adds typed actions, retrieval-v2 evidence packets, trigger
+vocabulary, unified run inspection, and bundled agent guidance without breaking
+the 1.x local-runtime contract. See the [1.1 release notes](docs/releases/1.1.0.md)
+and [migration guide](docs/migrations/1.1.md).
 
 KRAIL 1.0.0 is an honest local-runtime release. This contract covers the
 repo-backed workflow described below; experimental surfaces and the hosted API
