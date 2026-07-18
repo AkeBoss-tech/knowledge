@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 HydrationMode = Literal["full", "incremental"]
 GraphMode = Literal["markdown_frontmatter", "markdown_graph"]
-RunnerName = Literal["claude_code", "gemini_cli", "cursor_cli", "codex_cli", "copilot_cli"]
+RunnerName = str
 PlannerThreadMode = Literal["project"]
 WorkspaceMode = Literal["isolated"]
 CheckpointMode = Literal["git-ref", "none"]
@@ -124,12 +124,30 @@ class RunnerPolicySection(BaseModel):
     think_preferred: list[RunnerName] = Field(default_factory=list)
 
 
+class HarnessDefinition(BaseModel):
+    """A project-local adapter for any prompt-taking agent harness command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: str
+    description: str = "Custom local agent harness"
+    supports_think_synthesis: bool = True
+
+    @field_validator("command")
+    @classmethod
+    def _validate_command(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("harness command must be non-empty")
+        return value
+
+
 class AgentsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     roles_dir: str = "agents"
     default_runner: RunnerName = "codex_cli"
     runner_policy: RunnerPolicySection = Field(default_factory=RunnerPolicySection)
+    harnesses: dict[str, HarnessDefinition] = Field(default_factory=dict)
     sequential_execution: bool = True
     approval_required_for_write_runs: bool | None = None
     planner_thread_mode: PlannerThreadMode = "project"

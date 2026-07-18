@@ -64,9 +64,9 @@ integrity = decide what is ready to trust, verify, or promote
 
 ## V1 Contract
 
-KRAIL 1.1.0 adds typed actions, retrieval-v2 evidence packets, trigger
+KRAIL 1.1.1 adds portable workflow import, custom harness registration, typed actions, retrieval-v2 evidence packets, trigger
 vocabulary, unified run inspection, and bundled agent guidance without breaking
-the 1.x local-runtime contract. See the [1.1 release notes](docs/releases/1.1.0.md)
+the 1.x local-runtime contract. See the [1.1.1 release notes](docs/releases/1.1.1.md)
 and [migration guide](docs/migrations/1.1.md).
 
 KRAIL 1.0.0 is an honest local-runtime release. This contract covers the

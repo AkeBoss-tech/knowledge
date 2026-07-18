@@ -9,7 +9,7 @@ current conversation.
 ```bash
 python -m pip install 'krail[local]'
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.0#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
 
 krail init my-project --pack research-intelligence --mode markdown_graph
 cd my-project
@@ -64,6 +64,43 @@ Run `/mcp` to check that `krail` is connected. Then ask:
 2. Capture unreviewed findings in the inbox.
 3. Promote only source-backed material into a stable topic.
 4. Run `integrity_status` before using a generated answer as a project decision.
+
+## Portable Dynamic Workflows
+
+Claude Code dynamic workflows use runtime-only JavaScript helpers such as
+`agent()` and `pipeline()`. KRAIL can import the documented, declarative subset
+without executing JavaScript, then run the resulting workflow with any
+configured local runner:
+
+```bash
+krail --local workflow import-claude .claude/workflows/audit-routes.js --max-items 25
+krail --local workflow suggest-runner audit-routes
+krail --local workflow execute audit-routes --dry-run
+```
+
+The importer accepts `meta`, `await agent(...)`, and `await pipeline(items,
+item => agent(...))`. It rejects imports, filesystem or process access, dynamic
+evaluation, and unsupported JavaScript rather than attempting to emulate the
+Claude runtime. The generated spec is stored under
+`research_plan/workflows/` with `flow.format: krail-flow/v1`; edit its agent
+steps or runner policy to choose Codex, Cursor, Claude, Gemini, or another
+registered harness.
+
+Register a project-specific prompt-taking harness without changing KRAIL core:
+
+```yaml
+agents:
+  harnesses:
+    antigravity:
+      command: antigravity-agent
+      description: Antigravity local agent harness
+  runner_policy:
+    preferred: [antigravity, codex_cli]
+```
+
+KRAIL appends the work-order prompt as the final command argument for a custom
+harness. Use `krail --local agent list` and `workflow suggest-runner` to verify
+that its executable is available before dispatching work.
 
 ## Troubleshooting
 

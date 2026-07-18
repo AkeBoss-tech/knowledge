@@ -29,7 +29,7 @@ from rail.session_state import (
 )
 from rail.exceptions import RailError
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 def connect(
     slug: str,

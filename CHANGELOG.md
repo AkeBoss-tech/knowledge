@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.1.1 - 2026-07-18
+
+### Added
+
+- Portable `krail-flow/v1` workflow envelope and a safe importer for the
+  documented Claude dynamic-workflow `agent` and `pipeline` subset.
+- Per-workflow harness recommendations, including runner availability and
+  project policy rationale.
+- Project-declared prompt-taking harnesses under `agents.harnesses`, so a
+  workflow can use a custom local CLI without a KRAIL core change.
+
+### Fixed
+
+- Rejected unsupported Claude workflow JavaScript instead of attempting to
+  execute or emulate runtime-only code.
+
 ## v1.1.0 - 2026-07-17
 
 ### Added

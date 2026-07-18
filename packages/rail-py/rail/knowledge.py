@@ -23,6 +23,7 @@ from typing import Any
 import yaml
 
 from rail.actions import ActionDefinition, ActionRegistry
+from rail.claude_workflow import ClaudeWorkflowImportError, parse_claude_workflow, validate_krail_flow_v1
 from rail.modes import DEFAULT_MODES, get_mode
 from rail.markdown_graph import (
     build_markdown_graph,
@@ -2928,9 +2929,10 @@ class KnowledgeRuntime:
         return payload
 
     def _resolve_think_runner_for_session(self, runner: str, *, dry_run: bool) -> dict[str, Any]:
-        if dry_run and runner not in {"", "auto"} and runner in LOCAL_RUNNERS:
-            meta = LOCAL_RUNNERS[runner]
-            command = os.environ.get(meta["command_env"], meta["default_command"])
+        runners = self._local_runners()
+        if dry_run and runner not in {"", "auto"} and runner in runners:
+            meta = runners[runner]
+            command = os.environ.get(meta["command_env"], meta["default_command"]) if meta.get("command_env") else meta["default_command"]
             executable = shlex.split(command)[0] if command else ""
             available = bool(executable and shutil_which(executable))
             resolved: dict[str, Any] = {
@@ -5121,7 +5123,7 @@ jobs:
         return self.krail_dir / "schedules"
 
     def _runner_unavailable_resolution(self, runner: str, *, command: str, purpose: str | None = None, explicit: bool) -> dict[str, Any]:
-        meta = LOCAL_RUNNERS.get(runner, {})
+        meta = self._local_runners().get(runner, {})
         command_env = str(meta.get("command_env") or "RUNNER_COMMAND")
         executable = shlex.split(command)[0] if command else runner
         scope = f" for {purpose}" if purpose else ""
@@ -5148,8 +5150,9 @@ jobs:
 
     def list_agents(self) -> dict[str, Any]:
         agents = []
-        for name, meta in LOCAL_RUNNERS.items():
-            command = os.environ.get(meta["command_env"], meta["default_command"])
+        runners = self._local_runners()
+        for name, meta in runners.items():
+            command = os.environ.get(meta["command_env"], meta["default_command"]) if meta.get("command_env") else meta["default_command"]
             executable = shlex.split(command)[0] if command else ""
             agents.append(
                 {
@@ -5160,10 +5163,31 @@ jobs:
                 }
             )
         resolved = self.resolve_runner()
-        return {"agents": agents, "default": resolved["runner"], "fallback_order": list(LOCAL_RUNNERS)}
+        return {"agents": agents, "default": resolved["runner"], "fallback_order": list(runners)}
+
+    def _local_runners(self) -> dict[str, dict[str, str]]:
+        """Return built-ins plus project-declared prompt-taking harnesses."""
+        runners = {name: dict(meta) for name, meta in LOCAL_RUNNERS.items()}
+        manifest_agents = self._manifest_data().get("agents", {})
+        declared = manifest_agents.get("harnesses") if isinstance(manifest_agents, dict) else {}
+        if not isinstance(declared, dict):
+            return runners
+        for name, definition in declared.items():
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name) or not isinstance(definition, dict):
+                continue
+            command = definition.get("command")
+            if not isinstance(command, str) or not command.strip():
+                continue
+            runners[name] = {
+                "default_command": command,
+                "description": str(definition.get("description") or "Custom local agent harness"),
+                "supports_think_synthesis": "true" if definition.get("supports_think_synthesis", True) else "false",
+            }
+        return runners
 
     def resolve_runner(self, preferred: str | None = None, *, purpose: str | None = None) -> dict[str, Any]:
         manifest_agents = self._manifest_data().get("agents", {})
+        runners = self._local_runners()
         policy = manifest_agents.get("runner_policy") if isinstance(manifest_agents.get("runner_policy"), dict) else {}
         explicit_runner = preferred not in {None, "", "auto"}
         candidates = [preferred] if explicit_runner else []
@@ -5179,26 +5203,26 @@ jobs:
         if not explicit_runner and isinstance(default_runner, str) and default_runner and default_runner not in candidates:
             candidates.append(default_runner)
         if not explicit_runner:
-            candidates.extend(name for name in LOCAL_RUNNERS if name not in candidates)
+            candidates.extend(name for name in runners if name not in candidates)
 
         checked: list[dict[str, Any]] = []
         for candidate in candidates:
             if not candidate:
                 continue
-            if candidate not in LOCAL_RUNNERS:
+            if candidate not in runners:
                 checked.append({"runner": candidate, "available": False, "reason": "unknown runner"})
                 continue
-            meta = LOCAL_RUNNERS[candidate]
-            command = os.environ.get(meta["command_env"], meta["default_command"])
+            meta = runners[candidate]
+            command = os.environ.get(meta["command_env"], meta["default_command"]) if meta.get("command_env") else meta["default_command"]
             executable = shlex.split(command)[0] if command else ""
             available = bool(executable and shutil_which(executable))
             checked.append({"runner": candidate, "command": command, "available": available})
             if available:
                 return {"runner": candidate, "command": command, "available": True, "checked": checked}
 
-        fallback = preferred if preferred and preferred in LOCAL_RUNNERS else (default_runner if isinstance(default_runner, str) and default_runner in LOCAL_RUNNERS else "codex_cli")
-        meta = LOCAL_RUNNERS.get(fallback, LOCAL_RUNNERS["codex_cli"])
-        command = os.environ.get(meta["command_env"], meta["default_command"])
+        fallback = preferred if preferred and preferred in runners else (default_runner if isinstance(default_runner, str) and default_runner in runners else "codex_cli")
+        meta = runners.get(fallback, runners["codex_cli"])
+        command = os.environ.get(meta["command_env"], meta["default_command"]) if meta.get("command_env") else meta["default_command"]
         payload = {
             "runner": fallback,
             "command": command,
@@ -5422,10 +5446,11 @@ krail --local graph check
         return {"status": "created", "work_order": work_order, "path": str(path.relative_to(self.project_path))}
 
     def _runner_command(self, runner: str, prompt: str) -> list[str]:
-        if runner not in LOCAL_RUNNERS:
+        runners = self._local_runners()
+        if runner not in runners:
             raise ValueError(f"Unknown runner: {runner}")
-        meta = LOCAL_RUNNERS[runner]
-        base = os.environ.get(meta["command_env"], meta["default_command"])
+        meta = runners[runner]
+        base = os.environ.get(meta["command_env"], meta["default_command"]) if meta.get("command_env") else meta["default_command"]
         parts = shlex.split(base)
         if runner == "codex_cli":
             return [*parts, "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
@@ -5668,6 +5693,8 @@ krail --local graph check
         schedule = spec.get("schedule")
         if schedule is not None and not isinstance(schedule, str):
             errors.append("schedule must be a string when present")
+        if "flow" in spec:
+            errors.extend(validate_krail_flow_v1(spec.get("flow")))
         steps = spec.get("steps")
         if not isinstance(steps, list) or not steps:
             errors.append("steps must be a non-empty list")
@@ -5734,7 +5761,7 @@ krail --local graph check
                                 errors.append(f"command step {step_id} capture.format must be json or text")
                 if kind == "agent":
                     runner = str(step.get("runner") or spec.get("runner") or "auto")
-                    if runner != "auto" and runner not in LOCAL_RUNNERS:
+                    if runner != "auto" and runner not in self._local_runners():
                         errors.append(f"agent step {step_id} has unknown runner: {runner}")
                     role = step.get("role")
                     if role is not None and not isinstance(role, str):
@@ -5747,7 +5774,7 @@ krail --local graph check
                     if mode not in {"deterministic", "runner", "hybrid"}:
                         errors.append(f"think step {step_id} has unknown mode: {mode}")
                     runner = str(step.get("runner") or spec.get("runner") or "auto")
-                    if runner != "auto" and runner not in LOCAL_RUNNERS:
+                    if runner != "auto" and runner not in self._local_runners():
                         errors.append(f"think step {step_id} has unknown runner: {runner}")
                     query = step.get("query") or step.get("prompt") or step.get("description")
                     if not isinstance(query, str) or not query.strip():
@@ -6671,6 +6698,96 @@ krail --local graph check
             }
         path.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
         return {"status": "written", "path": str(rel), "workflow": spec, "template": template}
+
+    def workflow_import_claude(
+        self,
+        source_file: str,
+        *,
+        workflow_id: str | None = None,
+        force: bool = False,
+        max_items: int = 100,
+    ) -> dict[str, Any]:
+        """Translate a safe subset of a Claude dynamic-workflow JS file to KRAIL Flow.
+
+        The importer is deliberately a parser, never a JavaScript executor.  It
+        accepts the documented ``agent``/``pipeline`` shape and rejects any
+        filesystem, process, import, or dynamic-evaluation construct.
+        """
+        candidate = (self.project_path / source_file).resolve()
+        try:
+            relative_source = candidate.relative_to(self.project_path)
+        except ValueError as exc:
+            raise ValueError("Claude workflow source must be inside the project repository") from exc
+        if not candidate.exists() or not candidate.is_file():
+            raise FileNotFoundError(f"Claude workflow source not found: {source_file}")
+        if candidate.suffix not in {".js", ".mjs"}:
+            raise ValueError("Claude workflow source must be a .js or .mjs file")
+        if max_items <= 0:
+            raise ValueError("max_items must be positive")
+        try:
+            spec = parse_claude_workflow(
+                candidate.read_text(encoding="utf-8"),
+                source_path=str(relative_source),
+                max_items=max_items,
+            )
+        except ClaudeWorkflowImportError as exc:
+            return {"status": "rejected", "source": str(relative_source), "error": str(exc)}
+        if workflow_id:
+            spec["id"] = workflow_id
+        validation = self._validate_workflow_spec(spec)
+        if not validation["ok"]:
+            return {"status": "rejected", "source": str(relative_source), "workflow": spec, "validation": validation}
+        rel = Path("research_plan") / "workflows" / f"{self._slug(str(spec['id']))}.yaml"
+        destination = self.project_path / rel
+        if destination.exists() and not force:
+            return {"status": "exists", "source": str(relative_source), "path": str(rel), "workflow": spec}
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        return {"status": "imported", "source": str(relative_source), "path": str(rel), "workflow": spec, "validation": validation}
+
+    def workflow_suggest_runner(self, workflow_id: str) -> dict[str, Any]:
+        """Explain the runner KRAIL would choose for each portable agent step."""
+        shown = self.workflow_show(workflow_id)
+        spec = shown["workflow"]
+        selections: list[dict[str, Any]] = []
+
+        def visit(steps: Any, location: str = "steps") -> None:
+            if not isinstance(steps, list):
+                return
+            for index, step in enumerate(steps, start=1):
+                if not isinstance(step, dict):
+                    continue
+                step_id = str(step.get("id") or f"step_{index}")
+                path = f"{location}.{step_id}"
+                kind = str(step.get("kind") or "command")
+                if kind == "agent":
+                    requested = str(step.get("runner") or spec.get("runner") or "auto")
+                    purpose = "think" if str(step.get("role") or "") in {"research", "analysis"} else None
+                    resolution = self.resolve_runner(requested, purpose=purpose)
+                    selections.append({
+                        "step": path,
+                        "requested_runner": requested,
+                        "selected_runner": resolution["runner"],
+                        "available": resolution["available"],
+                        "reason": "explicit workflow runner" if requested != "auto" else "project policy and local runner availability",
+                        "checked": resolution.get("checked", []),
+                        "suggested_next_actions": resolution.get("suggested_next_actions", []),
+                    })
+                for key in ("steps", "then", "else"):
+                    visit(step.get(key), f"{path}.{key}")
+                for branch in step.get("branches") or []:
+                    if isinstance(branch, dict):
+                        visit(branch.get("steps"), f"{path}.branches.{branch.get('id') or 'branch'}")
+
+        visit(spec.get("steps"))
+        unavailable = [item for item in selections if not item["available"]]
+        return {
+            "workflow": spec.get("id"),
+            "flow_format": (spec.get("flow") or {}).get("format") if isinstance(spec.get("flow"), dict) else None,
+            "selections": selections,
+            "ready": not unavailable,
+            "summary": f"{len(selections) - len(unavailable)}/{len(selections)} agent steps have an available selected runner.",
+        }
 
     def _workflow_spec_path(self, workflow_id: str) -> Path:
         candidates = [

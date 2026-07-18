@@ -57,7 +57,7 @@ the source files, or understand the broader monorepo architecture.
 
 ## V1 Contract
 
-`krail` 1.1.0 adds typed action and retriever contracts, deterministic
+`krail` 1.1.1 adds portable workflow import, custom harness registration, typed action and retriever contracts, deterministic
 retrieval-v2 evidence packets, `trigger` vocabulary, unified run inspection,
 and bundled `krail docs` guidance. These are additive to the 1.x local-runtime
 contract; existing `listener`, search, think, task, and workflow commands remain

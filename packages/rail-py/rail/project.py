@@ -555,6 +555,28 @@ class Project:
             raise RuntimeError("workflow commands require local mode")
         return self._backend.knowledge.workflow_init(workflow_id, force=force, template=template)
 
+    def import_claude_workflow(
+        self,
+        source_file: str,
+        *,
+        workflow_id: str | None = None,
+        force: bool = False,
+        max_items: int = 100,
+    ) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_import_claude(
+            source_file,
+            workflow_id=workflow_id,
+            force=force,
+            max_items=max_items,
+        )
+
+    def suggest_workflow_runners(self, workflow_id: str) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("workflow commands require local mode")
+        return self._backend.knowledge.workflow_suggest_runner(workflow_id)
+
     def show_workflow(self, workflow_id: str) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("workflow commands require local mode")

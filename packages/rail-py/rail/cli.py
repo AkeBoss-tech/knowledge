@@ -455,6 +455,15 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
         _print_json(project.workflow_templates())
     elif args.workflow_command == "init":
         _print_json(project.init_workflow(args.workflow_id, force=args.force, template=args.template))
+    elif args.workflow_command == "import-claude":
+        _print_json(
+            project.import_claude_workflow(
+                args.source_file,
+                workflow_id=args.workflow_id,
+                force=args.force,
+                max_items=args.max_items,
+            )
+        )
     elif args.workflow_command == "show":
         if getattr(args, "mount", None):
             _print_json(project.mount_show_workflow(args.mount, args.workflow_id))
@@ -465,6 +474,8 @@ def cmd_workflow(project: rail.Project, args: argparse.Namespace):
         _print_json(result)
         if not result.get("ok", False):
             sys.exit(1)
+    elif args.workflow_command == "suggest-runner":
+        _print_json(project.suggest_workflow_runners(args.workflow_id))
     elif args.workflow_command == "run":
         if getattr(args, "mount", None):
             _print_json(project.mount_run_workflow(args.mount, args.workflow_id, runner=args.runner, dry_run=args.dry_run))
@@ -925,7 +936,7 @@ def main():
     t_parser.add_argument("query", help="Question to answer")
     t_parser.add_argument("--limit", type=int, default=5)
     t_parser.add_argument("--mode", choices=["deterministic", "runner", "hybrid"], default="deterministic")
-    t_parser.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    t_parser.add_argument("--runner", default="auto", help="Built-in or project-declared harness name")
     t_parser.add_argument("--dry-run", action="store_true", help="Prepare prompt/evidence/result session traces without launching a local runner")
     t_parser.add_argument("--output", help="Write the think result envelope to a JSON file")
     t_parser.add_argument("--register-integrity", action="store_true", help="Register the written think output as an integrity artifact with claim candidates")
@@ -1037,11 +1048,11 @@ def main():
     aks.add_argument("--force", action="store_true", help="Overwrite existing KRAIL prompt files")
     ad = a_subs.add_parser("doctor", help="Create and dispatch a KRAIL doctor agent task")
     ad.add_argument("--prompt", help="Override the default doctor task prompt")
-    ad.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    ad.add_argument("--runner", default="auto", help="Built-in or project-declared harness name")
     ad.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
     ar = a_subs.add_parser("run", help="Create and dispatch a one-off local agent task")
     ar.add_argument("prompt", help="Task prompt")
-    ar.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    ar.add_argument("--runner", default="auto", help="Built-in or project-declared harness name")
     ar.add_argument("--role", default="research")
     ar.add_argument("--dry-run", action="store_true", help="Create session files and show command without launching")
 
@@ -1053,7 +1064,7 @@ def main():
     tc = task_subs.add_parser("create", help="Create a local task")
     tc.add_argument("title")
     tc.add_argument("--description", default="")
-    tc.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    tc.add_argument("--runner", default="auto", help="Built-in or project-declared harness name")
     tc.add_argument("--workflow")
     tc.add_argument("--role", default="research")
     tc.add_argument("--mount", help="Create the task inside a mounted child project")
@@ -1061,7 +1072,7 @@ def main():
     two.add_argument("task_id")
     td = task_subs.add_parser("dispatch", help="Dispatch a task to a local CLI runner")
     td.add_argument("task_id")
-    td.add_argument("--runner", choices=RUNNER_CHOICES)
+    td.add_argument("--runner", help="Built-in or project-declared harness name")
     td.add_argument("--dry-run", action="store_true")
     td.add_argument("--mount", help="Dispatch a task inside a mounted child project")
 
@@ -1075,14 +1086,21 @@ def main():
     wi.add_argument("workflow_id")
     wi.add_argument("--template", choices=sorted(WORKFLOW_TEMPLATES))
     wi.add_argument("--force", action="store_true")
+    wic = wf_subs.add_parser("import-claude", help="Translate a safe Claude dynamic-workflow JS subset into portable KRAIL Flow")
+    wic.add_argument("source_file", help="Repository-relative .js or .mjs workflow source")
+    wic.add_argument("--workflow-id", help="Override meta.name for the imported workflow")
+    wic.add_argument("--max-items", type=int, default=100, help="Safety cap for imported pipeline fan-out")
+    wic.add_argument("--force", action="store_true", help="Overwrite an existing imported workflow spec")
     ws = wf_subs.add_parser("show", help="Show a local workflow spec")
     ws.add_argument("workflow_id")
     ws.add_argument("--mount", help="Show the workflow from a mounted child project")
     wv = wf_subs.add_parser("validate", help="Validate a local workflow spec")
     wv.add_argument("workflow_id")
+    wsr = wf_subs.add_parser("suggest-runner", help="Show the selected local harness for every agent step")
+    wsr.add_argument("workflow_id")
     wr = wf_subs.add_parser("run", help="Run a materialized workflow or suggest workflow init")
     wr.add_argument("workflow_id")
-    wr.add_argument("--runner", default="auto", choices=RUNNER_CHOICES)
+    wr.add_argument("--runner", default="auto", help="Built-in or project-declared harness name")
     wr.add_argument("--dry-run", action="store_true")
     wr.add_argument("--mount", help="Run the workflow in a mounted child project")
     wx = wf_subs.add_parser("execute", help="Execute a local workflow spec")

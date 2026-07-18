@@ -1,6 +1,6 @@
 # Release Checklist
 
-Target: `v1.1.0`
+Target: `v1.1.1`
 
 Release train: stable local-runtime v1 for `krail` and `rail-mcp`.
 
@@ -149,6 +149,6 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
 ## Tag
 
 ```bash
-git tag -a v1.1.0 -m "KRAIL v1.1.0"
-git push origin v1.1.0
+git tag -a v1.1.1 -m "KRAIL v1.1.1"
+git push origin v1.1.1
 ```

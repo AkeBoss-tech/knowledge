@@ -9,7 +9,7 @@ Codex connects to KRAIL through a local MCP stdio server.
 ```bash
 python -m pip install 'krail[local]'
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.0#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
 
 krail init my-project --pack research-intelligence --mode markdown_graph
 krail --local --path my-project doctor

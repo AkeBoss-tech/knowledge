@@ -72,6 +72,110 @@ def test_workflow_init_show_and_dry_run(tmp_path: Path):
     assert (root / dry_run["path"] / "result.json").exists()
 
 
+def test_import_claude_dynamic_workflow_to_portable_flow(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    source = root / ".claude" / "workflows" / "audit-routes.js"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """export const meta = {
+  name: 'audit-routes',
+  description: 'Audit every route handler for missing auth checks',
+}
+const found = await agent('List every .ts file under src/routes/.', {
+  schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', items: { type: 'string' } } } },
+})
+const audits = await pipeline(found.files, file =>
+  agent(`Audit ${file} for missing authentication checks.`, { label: file }),
+)
+return audits.filter(Boolean)
+""",
+        encoding="utf-8",
+    )
+
+    runtime = KnowledgeRuntime(root)
+    result = runtime.workflow_import_claude(".claude/workflows/audit-routes.js", max_items=12)
+
+    assert result["status"] == "imported"
+    assert result["path"] == "research_plan/workflows/audit-routes.yaml"
+    spec = yaml.safe_load((root / result["path"]).read_text(encoding="utf-8"))
+    assert spec["flow"]["format"] == "krail-flow/v1"
+    assert spec["steps"][0]["id"] == "found"
+    assert spec["steps"][1]["kind"] == "foreach"
+    assert spec["steps"][1]["items_from"] == "steps.found.output.files"
+    assert spec["steps"][1]["max_items"] == 12
+    assert "${{ file }}" in spec["steps"][1]["steps"][0]["prompt"]
+    assert runtime.workflow_validate("audit-routes")["ok"] is True
+
+    spec["flow"]["format"] = "unknown/v1"
+    (root / result["path"]).write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+    assert "flow.format must be krail-flow/v1" in runtime.workflow_validate("audit-routes")["errors"]
+
+
+def test_import_claude_dynamic_workflow_rejects_runtime_access(tmp_path: Path):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    source = root / "unsafe.js"
+    source.write_text(
+        "export const meta = { name: 'unsafe' }; process.exit(1); const result = await agent('nope'); return result;",
+        encoding="utf-8",
+    )
+
+    result = KnowledgeRuntime(root).workflow_import_claude("unsafe.js")
+
+    assert result["status"] == "rejected"
+    assert "process access" in result["error"]
+
+
+def test_workflow_runner_suggestion_uses_available_runner_policy(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    runtime = KnowledgeRuntime(root)
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "portable.yaml").write_text(
+        yaml.safe_dump(
+            {"id": "portable", "steps": [{"id": "work", "kind": "agent", "runner": "auto", "role": "research", "prompt": "Research."}]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("rail.knowledge.shutil_which", lambda executable: "/bin/" + executable if executable == "codex" else None)
+
+    result = runtime.workflow_suggest_runner("portable")
+
+    assert result["ready"] is True
+    assert result["selections"][0]["selected_runner"] == "codex_cli"
+    assert result["selections"][0]["available"] is True
+
+
+def test_project_declared_harness_is_available_to_workflow_and_task_dispatch(tmp_path: Path, monkeypatch):
+    root = bootstrap_future_project(tmp_path, name="Workflow Project", slug="workflow-project")
+    manifest_path = root / "rail.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["agents"]["harnesses"] = {
+        "antigravity": {"command": "antigravity-agent", "description": "Antigravity test harness"}
+    }
+    manifest["agents"]["default_runner"] = "antigravity"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    workflow_dir = root / "research_plan" / "workflows"
+    workflow_dir.mkdir(parents=True, exist_ok=True)
+    (workflow_dir / "portable.yaml").write_text(
+        yaml.safe_dump(
+            {"id": "portable", "steps": [{"id": "work", "kind": "agent", "runner": "antigravity", "prompt": "Research."}]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("rail.knowledge.shutil_which", lambda executable: "/bin/antigravity-agent" if executable == "antigravity-agent" else None)
+
+    runtime = KnowledgeRuntime(root)
+    assert runtime.workflow_validate("portable")["ok"] is True
+    suggestion = runtime.workflow_suggest_runner("portable")
+    assert suggestion["selections"][0]["selected_runner"] == "antigravity"
+    task = runtime.create_task("Custom harness", runner="antigravity")
+    dispatched = runtime.dispatch_task(task["task"]["id"], dry_run=True)
+    assert dispatched["runner"] == "antigravity"
+    assert dispatched["command"][-1].startswith("You are a local KRAIL workflow worker")
+
+
 def test_software_workflow_templates_are_materialized_with_repo_steps(tmp_path: Path):
     root = bootstrap_future_project(tmp_path, name="Software Project", slug="software-project", knowledge_mode="software")
     runtime = KnowledgeRuntime(root)

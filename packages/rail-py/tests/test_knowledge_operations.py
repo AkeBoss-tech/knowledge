@@ -138,7 +138,7 @@ def test_builtin_docs_and_versioned_agent_guide_are_available_without_project(tm
     assert results["results"][0]["path"] == "retrieval-v2"
     assert "reciprocal-rank fusion" in document["document"]["content"]
     guide = (root / "AGENTS.md").read_text(encoding="utf-8")
-    assert "Guide version: 1.1.0" in guide
+    assert "Guide version: 1.1.1" in guide
     assert "krail docs search" in guide
 
 

@@ -12,7 +12,7 @@ Install the local KRAIL runtime and MCP adapter with Python 3.11+:
 ```bash
 python -m pip install 'krail[local]'
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.0#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
 rail-mcp --help
 ```
 

@@ -149,6 +149,18 @@ def test_manifest_defaults_new_contract_sections():
     assert manifest.mounts == []
 
 
+def test_manifest_accepts_project_declared_harnesses():
+    content = MINIMAL_RAIL_YAML.replace(
+        '  default_runner: "codex_cli"\n',
+        '  default_runner: "antigravity"\n  harnesses:\n    antigravity:\n      command: "antigravity-agent"\n      description: "Project agent harness"\n',
+    )
+
+    manifest = parse_manifest_content(content)
+
+    assert manifest.agents.default_runner == "antigravity"
+    assert manifest.agents.harnesses["antigravity"].command == "antigravity-agent"
+
+
 def test_manifest_parses_mounts():
     content = MINIMAL_RAIL_YAML + textwrap.dedent(
         """\
