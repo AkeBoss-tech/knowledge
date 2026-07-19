@@ -9,7 +9,7 @@ current conversation.
 ```bash
 python -m pip install 'krail[local]'
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
 
 krail init my-project --pack research-intelligence --mode markdown_graph
 cd my-project

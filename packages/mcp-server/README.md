@@ -17,7 +17,7 @@ source of truth.
 
 ## Stable V1 Tools
 
-`rail-mcp` 1.1.1 preserves the stable local-runtime v1 tool contract below. This
+`rail-mcp` 1.1.12 preserves the stable local-runtime v1 tool contract below. This
 is not a claim that every MCP-exposed surface is frozen; unlisted tools remain
 experimental and the hosted API and engine packages are outside this contract.
 
@@ -68,7 +68,7 @@ project:
 
 ```bash
 pip install 'krail[local]'
-pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
+pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
 ```
 
 For local development from a repository checkout:
@@ -94,7 +94,7 @@ and project health checks.
 
 `rail-mcp` follows the same 1.x local-runtime release line as `krail`.
 
-Available in 1.1.1:
+Available in 1.1.12:
 
 - local-project search, `find`, and deterministic `think`
 - capture, inbox promotion, topic upserts, and project health checks
@@ -113,7 +113,7 @@ Everything else remains experimental, including:
 ## Package Compatibility
 
 `rail-mcp` tracks the same major KRAIL line as the local runtime it adapts. The
-1.1.1 package therefore depends on `krail>=1.1.1,<2.0.0`; a future incompatible
+1.1.12 package therefore depends on `krail>=1.1.12,<2.0.0`; a future incompatible
 local-runtime contract requires a new major dependency range.
 
 ## Permission Model

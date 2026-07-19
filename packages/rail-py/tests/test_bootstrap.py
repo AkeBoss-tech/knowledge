@@ -42,6 +42,7 @@ def test_bootstrap_future_project_creates_workspace_scaffold(tmp_path):
     assert (root / "research_plan/state/artifact_lineage.json").exists()
     assert (root / "research_plan/state/verification_runs.json").exists()
     assert (root / "sources/dependencies.yaml").exists()
+    assert (root / "sources/datasets.yaml").exists()
     assert (root / "agents/prompts/planner.md").exists()
     assert (root / "skills/repo-contract.md").exists()
     assert (root / "skills/web-research.md").exists()

@@ -413,6 +413,48 @@ def fetch_api(api_name, resolved_data=None):
 
     return df
 
+
+def iter_api(api_name, resolved_data=None, *, chunksize: int | None = None):
+    """Yield normalized source frames without requiring a full CSV/SQL result in memory.
+
+    Chunking is deliberately limited to local CSV and ``sql_mirror`` sources;
+    other handlers retain their existing one-frame behavior.
+    """
+    spec = _load_spec(api_name)
+    resolved_data = resolved_data or {}
+    source_type = spec.get("type", "api")
+    if not chunksize or int(chunksize) < 1:
+        yield fetch_api(api_name, resolved_data=resolved_data)
+        return
+    chunksize = int(chunksize)
+    if source_type == "csv" and not str(spec.get("path", "")).startswith(("http://", "https://")):
+        for frame in pd.read_csv(spec["path"], chunksize=chunksize):
+            if "fields" in spec:
+                frame = _apply_fields(frame, spec["fields"])
+            if spec.get("drop_na"):
+                frame = frame.dropna()
+            yield frame
+        return
+    if source_type == "sql_mirror":
+        try:
+            from sqlalchemy import create_engine, text
+        except ImportError as exc:
+            raise ImportError("sqlalchemy is required for chunked sql_mirror sources") from exc
+        connection_string = spec.get("connection_string")
+        query = spec.get("query") or (f"SELECT * FROM {spec['table']}" if spec.get("table") else None)
+        if not connection_string or not query:
+            raise ValueError("sql_mirror requires connection_string and query or table")
+        engine = create_engine(connection_string)
+        with engine.connect() as connection:
+            for frame in pd.read_sql(text(query), connection, chunksize=chunksize):
+                if "fields" in spec:
+                    frame = _apply_fields(frame, spec["fields"])
+                if spec.get("drop_na"):
+                    frame = frame.dropna()
+                yield frame
+        return
+    yield fetch_api(api_name, resolved_data=resolved_data)
+
 def _download_document(url):
     suffix = Path(url).suffix or ".bin"
     key = hashlib.sha1(url.encode()).hexdigest()

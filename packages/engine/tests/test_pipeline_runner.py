@@ -4,6 +4,7 @@ No network calls; uses a tiny inline YAML config and a synthetic DataFrame.
 """
 import sys
 import os
+import sqlite3
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -479,3 +480,43 @@ def test_run_pipeline_with_pdf_source(tmp_path, monkeypatch):
     assert len(items) == 2
     names = {getattr(i, "hasName", None) for i in items}
     assert names == {"Report A", "Report B"}
+
+
+def test_incremental_csv_hydration_uses_batches_watermarks_and_entity_cache(minimal_pipeline_dir, monkeypatch):
+    root = Path(minimal_pipeline_dir["pipeline_path"]).parent
+    (root / "items.csv").write_text(
+        "name,code,updated\nAlpha,A1,1\nBeta,B2,2\nGamma,C3,3\n",
+        encoding="utf-8",
+    )
+    (root / "apis" / "items.yaml").write_text(
+        MINIMAL_API_YAML.format(csv_path=str(root / "items.csv")) + "\n  - source: updated\n    alias: updated\n",
+        encoding="utf-8",
+    )
+    pipeline_path = Path(minimal_pipeline_dir["pipeline_path"])
+    pipeline = yaml.safe_load(pipeline_path.read_text(encoding="utf-8"))
+    pipeline["state_path"] = str(root / "hydration_progress.json")
+    pipeline["entity_resolution_db"] = str(root / "entity_resolution.sqlite")
+    pipeline["steps"][0].update(
+        {
+            "batch_size": 1,
+            "incremental": {"watermark": "updated"},
+            "entity_resolution": {"key": "{code}", "scope": "items"},
+        }
+    )
+    pipeline_path.write_text(yaml.safe_dump(pipeline), encoding="utf-8")
+    monkeypatch.setenv("RAIL_HYDRATION_MODE", "incremental")
+
+    run_pipeline(str(pipeline_path))
+    (root / "items.csv").write_text(
+        "name,code,updated\nAlpha,A1,1\nBeta,B2,2\nGamma,C3,3\nDelta,D4,4\n",
+        encoding="utf-8",
+    )
+    run_pipeline(str(pipeline_path))
+
+    w = _open_db(minimal_pipeline_dir["db_path"])
+    onto = w.get_ontology("http://example.org/test_minimal.owl").load()
+    item_cls = next(item for item in onto.classes() if item.name == "Item")
+    assert len(list(item_cls.instances())) == 4
+    assert yaml.safe_load((root / "hydration_progress.json").read_text(encoding="utf-8"))["steps"]["load_items"]["watermark"] == 4
+    with sqlite3.connect(root / "entity_resolution.sqlite") as connection:
+        assert connection.execute("SELECT uri FROM entity_resolution WHERE scope = 'items' AND source_key = 'D4'").fetchone() == ("Item_D4",)

@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.12 - 2026-07-18
+
+### Added
+
+- Dataset catalog declarations for large CSV, JSON, Parquet, and SQLite
+  sources, including source/schema fingerprints and semantic projections.
+- Rebuildable DuckDB dataset caches with configured indexes, freshness status,
+  structural validation, and a real-dataset benchmark command.
+- Bounded, provenance-carrying SQL routing across dataset caches, ontology
+  mirrors, and authoritative SQLite sources.
+- Opt-in chunked hydration, incremental high-water marks, and persistent
+  source-key-to-canonical-URI resolution caches.
+
+### Fixed
+
+- Kept bulk raw data out of mandatory per-row OWL materialization while
+  retaining explicit lineage to the semantic projection.
+
 ## v1.1.1 - 2026-07-18
 
 ### Added

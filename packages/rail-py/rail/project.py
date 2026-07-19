@@ -35,6 +35,16 @@ class Project:
         result = self._backend.query_sql(sql)
         return pd.DataFrame(result["rows"], columns=result["columns"])
 
+    def query_routed(self, sql: str, *, backend: str = "auto", limit: int = 100) -> dict:
+        if not hasattr(self._backend, "query_routed"):
+            raise RuntimeError("routed queries require local mode")
+        return self._backend.query_routed(sql, backend=backend, limit=limit)
+
+    def query_source_sqlite(self, dataset_id: str, sql: str, *, limit: int = 100) -> dict:
+        if not hasattr(self._backend, "query_source_sqlite"):
+            raise RuntimeError("source queries require local mode")
+        return self._backend.query_source_sqlite(dataset_id, sql, limit=limit)
+
     def classes(self) -> list[dict]:
         return self._backend.get_classes()
 
@@ -53,6 +63,41 @@ class Project:
         if not hasattr(self._backend, "knowledge"):
             return {"query": q, "hits": self.search(q)[:limit]}
         return self._backend.knowledge.search(q, limit=limit, explain=explain, rag=rag)
+
+    def datasets_validate(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_validate()
+
+    def datasets_list(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_list()
+
+    def datasets_snapshot(self, *, write: bool = True) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_snapshot(write=write)
+
+    def datasets_cache_build(self, *, dataset_ids: list[str] | None = None) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_cache_build(dataset_ids=dataset_ids)
+
+    def datasets_cache_status(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_cache_status()
+
+    def datasets_cache_validate(self) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_cache_validate()
+
+    def datasets_cache_benchmark(self, dataset_id: str, *, iterations: int = 3) -> dict:
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("dataset commands require local mode")
+        return self._backend.knowledge.datasets_cache_benchmark(dataset_id, iterations=iterations)
 
     def action_list(self) -> dict:
         if not hasattr(self._backend, "knowledge"):

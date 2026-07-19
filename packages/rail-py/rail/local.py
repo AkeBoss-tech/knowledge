@@ -213,6 +213,8 @@ class LocalEngine:
         pipeline_spec["db"] = str(self.artifact_db_path)
         pipeline_spec["output_owl"] = str(self.ontology_root / "populated_ontology.owl")
         pipeline_spec["duckdb"] = str(self.artifact_duckdb_path)
+        pipeline_spec["state_path"] = str(self.project_path / self.manifest.paths.plan_root / "state" / "hydration_progress.json")
+        pipeline_spec["entity_resolution_db"] = str(self.ontology_root / "entity_resolution.sqlite")
 
         # Resolve ontology reference relative to project root
         onto_ref = pipeline_spec.get("ontology")
@@ -334,6 +336,14 @@ class LocalEngine:
         result = conn.execute(sql).fetchdf()
         conn.close()
         return {"columns": list(result.columns), "rows": result.values.tolist()}
+
+    def query_routed(self, sql: str, *, backend: str = "auto", limit: int = 100) -> dict:
+        from rail.query_router import route_sql
+        return route_sql(self.project_path, sql, backend=backend, limit=limit, ontology_path=self.artifact_duckdb_path)
+
+    def query_source_sqlite(self, dataset_id: str, sql: str, *, limit: int = 100) -> dict:
+        from rail.query_router import query_sqlite_source
+        return query_sqlite_source(self.project_path, dataset_id, sql, limit=limit)
 
     def get_classes(self) -> list[dict]:
         import duckdb

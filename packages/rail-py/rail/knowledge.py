@@ -59,6 +59,8 @@ from rail.source_dependencies import (
     load_dependency_manifest,
     validate_dependency_manifest,
 )
+from rail.datasets import list_datasets, snapshot_catalog, validate_catalog
+from rail.dataset_cache import benchmark_cache, build_cache, cache_status, validate_cache
 from rail.vector_store import LocalVectorStore
 
 
@@ -4486,6 +4488,27 @@ boot();
 
     def sources_affected(self, *, source_ids: list[str] | None = None) -> dict[str, Any]:
         return affected_documents(self.project_path, source_ids=source_ids)
+
+    def datasets_validate(self) -> dict[str, Any]:
+        return validate_catalog(self.project_path)
+
+    def datasets_list(self) -> dict[str, Any]:
+        return list_datasets(self.project_path)
+
+    def datasets_snapshot(self, *, write: bool = True) -> dict[str, Any]:
+        return snapshot_catalog(self.project_path, write=write)
+
+    def datasets_cache_build(self, *, dataset_ids: list[str] | None = None) -> dict[str, Any]:
+        return build_cache(self.project_path, dataset_ids=dataset_ids)
+
+    def datasets_cache_status(self) -> dict[str, Any]:
+        return cache_status(self.project_path)
+
+    def datasets_cache_validate(self) -> dict[str, Any]:
+        return validate_cache(self.project_path)
+
+    def datasets_cache_benchmark(self, dataset_id: str, *, iterations: int = 3) -> dict[str, Any]:
+        return benchmark_cache(self.project_path, dataset_id=dataset_id, iterations=iterations)
 
     def _repo_state_file(self, filename: str) -> Path:
         path = self.project_path / "research_plan" / "state" / filename

@@ -31,7 +31,7 @@ separate PyPI project, so install its released source package from GitHub:
 
 ```bash
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.1#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
 rail-mcp --help
 ```
 

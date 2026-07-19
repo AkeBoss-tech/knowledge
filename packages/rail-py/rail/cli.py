@@ -651,6 +651,28 @@ def cmd_sources(project: rail.Project, args: argparse.Namespace):
     elif args.sources_command == "affected":
         _print_json(project.sources_affected(source_ids=args.source_id))
 
+def cmd_datasets(project: rail.Project, args: argparse.Namespace):
+    if args.datasets_command == "validate":
+        result = project.datasets_validate()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
+    elif args.datasets_command == "list":
+        _print_json(project.datasets_list())
+    elif args.datasets_command == "snapshot":
+        _print_json(project.datasets_snapshot(write=not args.no_write))
+    elif args.datasets_command == "cache-build":
+        _print_json(project.datasets_cache_build(dataset_ids=args.dataset_id))
+    elif args.datasets_command == "cache-status":
+        _print_json(project.datasets_cache_status())
+    elif args.datasets_command == "cache-validate":
+        result = project.datasets_cache_validate()
+        _print_json(result)
+        if not result.get("ok", False):
+            sys.exit(1)
+    elif args.datasets_command == "cache-benchmark":
+        _print_json(project.datasets_cache_benchmark(args.dataset_id, iterations=args.iterations))
+
 def cmd_evidence(project: rail.Project, args: argparse.Namespace):
     if args.evidence_command == "candidates":
         _print_json({"sources": project.integrity_source_candidates(), "claims": project.integrity_claim_candidates()})
@@ -683,6 +705,10 @@ def cmd_query(project: rail.Project, args: argparse.Namespace):
     query_command = getattr(args, "query_command", None)
     if query_command == "sql":
         _print_json(project.query(args.sql).to_dict(orient="records"))
+    elif query_command == "routed":
+        _print_json(project.query_routed(args.sql, backend=args.backend, limit=args.limit))
+    elif query_command == "source":
+        _print_json(project.query_source_sqlite(args.dataset_id, args.sql, limit=args.limit))
     elif query_command == "classes":
         _print_json(project.classes())
     elif query_command == "entities":
@@ -1294,6 +1320,20 @@ def main():
     sa = sources_subs.add_parser("affected", help="List documents affected by changed sources")
     sa.add_argument("--source-id", action="append", help="Limit affected-doc lookup to a source id; can be repeated")
 
+    datasets_parser = subparsers.add_parser("datasets", help="Manage the large-source dataset catalog")
+    datasets_subs = datasets_parser.add_subparsers(dest="datasets_command")
+    datasets_subs.add_parser("validate", help="Validate sources/datasets.yaml")
+    datasets_subs.add_parser("list", help="List declared datasets")
+    ds = datasets_subs.add_parser("snapshot", help="Fingerprint datasets and record schemas")
+    ds.add_argument("--no-write", action="store_true", help="Do not write research_plan/state/dataset_snapshots.json")
+    dcb = datasets_subs.add_parser("cache-build", help="Build the DuckDB cache for catalogued datasets")
+    dcb.add_argument("--dataset-id", action="append", help="Build only this dataset; can be repeated")
+    datasets_subs.add_parser("cache-status", help="Report cache freshness against current source fingerprints")
+    datasets_subs.add_parser("cache-validate", help="Fail if cache freshness, table shape, or row counts drift")
+    dbenchmark = datasets_subs.add_parser("cache-benchmark", help="Measure repeatable count-query latency for one cached dataset")
+    dbenchmark.add_argument("dataset_id")
+    dbenchmark.add_argument("--iterations", type=int, default=3)
+
     evidence_parser = subparsers.add_parser("evidence", help="Review and promote candidate evidence")
     evidence_subs = evidence_parser.add_subparsers(dest="evidence_command")
     evidence_subs.add_parser("candidates", help="List source and claim candidates")
@@ -1338,6 +1378,16 @@ def main():
     
     sql_p = q_subs.add_parser("sql", help="Run SQL query")
     sql_p.add_argument("sql", help="SQL statement")
+
+    routed_p = q_subs.add_parser("routed", help="Run bounded SQL through the ontology/cache router")
+    routed_p.add_argument("sql", help="Read-only SQL statement")
+    routed_p.add_argument("--backend", choices=["auto", "cache", "ontology"], default="auto")
+    routed_p.add_argument("--limit", type=int, default=100)
+
+    source_p = q_subs.add_parser("source", help="Run bounded read-only SQL against a catalogued SQLite source")
+    source_p.add_argument("dataset_id")
+    source_p.add_argument("sql")
+    source_p.add_argument("--limit", type=int, default=100)
     
     cls_p = q_subs.add_parser("classes", help="List classes")
     
@@ -1531,6 +1581,8 @@ def main():
         cmd_vector(project, args)
     elif args.command == "sources":
         cmd_sources(project, args)
+    elif args.command == "datasets":
+        cmd_datasets(project, args)
     elif args.command == "evidence":
         cmd_evidence(project, args)
     elif args.command == "repo":

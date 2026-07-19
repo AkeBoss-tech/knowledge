@@ -1,6 +1,6 @@
 # KRAIL Docs
 
-KRAIL 1.1.1 extends the stable local-runtime line with portable workflow import and additive knowledge
+KRAIL 1.1.12 extends the stable local-runtime line with scalable dataset catalogs and additive knowledge
 operations contracts. The docs below define that supported boundary while
 keeping planning notes and launch drafts separate so they do not silently
 become the product contract. The hosted API and engine packages remain outside
@@ -10,7 +10,7 @@ the v1 release.
 
 - [Architecture](architecture.md)
 - [Knowledge Operations Foundations](knowledge-operations.md)
-- [1.1.1 Release Notes](releases/1.1.1.md)
+- [1.1.12 Release Notes](releases/1.1.12.md)
 - [1.1 Migration Guide](migrations/1.1.md)
 - [Project Layout](project-layout.md)
 - [Knowledge Modes](knowledge-modes.md)

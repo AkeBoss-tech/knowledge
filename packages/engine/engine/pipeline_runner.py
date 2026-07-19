@@ -4,6 +4,7 @@ No domain knowledge — all mapping is declared in the YAML.
 """
 import os
 import re
+import json
 import yaml
 
 
@@ -73,11 +74,40 @@ def _get_or_create(onto, onto_class, uri, cache):
     return ind, True
 
 
+def _load_progress(path):
+    if not path or not os.path.exists(path):
+        return {"steps": {}}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {"steps": {}}
+    except (OSError, json.JSONDecodeError):
+        return {"steps": {}}
+
+
+def _write_progress(path, progress):
+    if not path:
+        return
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(progress, handle, indent=2, sort_keys=True, default=str)
+
+
+def _is_newer(value, previous):
+    if previous is None:
+        return True
+    try:
+        return float(value) > float(previous)
+    except (TypeError, ValueError):
+        return str(value) > str(previous)
+
+
 def run_pipeline(pipeline_path):
     global FunctionalProperty
     from owlready2 import World, FunctionalProperty as OwlreadyFunctionalProperty
     from engine.ontology_builder import load_ontology
-    from engine.api_runner import fetch_api
+    from engine.api_runner import iter_api
+    from engine.entity_resolution import EntityResolutionCache
     from engine.transform_runner import run_dataframe_transform, run_ontology_transform
     import duckdb
     import pandas as pd
@@ -114,49 +144,77 @@ def run_pipeline(pipeline_path):
 
     resolved = {}  # {api_name: DataFrame} — for foreach resolution
     _cache = {}    # {uri: individual} — avoids repeat SQLite searches
+    progress_path = pipeline.get("state_path")
+    progress = _load_progress(progress_path)
+    resolution_path = pipeline.get("entity_resolution_db")
+    resolution_cache = EntityResolutionCache(resolution_path) if resolution_path else None
 
-    for step in pipeline["steps"]:
+    try:
+      for step in pipeline["steps"]:
         step_name = step["name"]
         api_name = step["api"]
         class_name = step["class"]
         uri_template = step["uri"]
         properties = step.get("properties", {})
         relationships = step.get("relationships", [])
+        batch_size = step.get("batch_size")
+        incremental = step.get("incremental") or {}
+        watermark = incremental.get("watermark") if hydration_mode == "incremental" else None
+        previous_watermark = (progress.get("steps", {}).get(step_name, {}) or {}).get("watermark") if watermark else None
+        resolution = step.get("entity_resolution") or {}
+        resolution_key_template = resolution.get("key")
 
         print(f"\n[step] {step_name}: {class_name} <- {api_name}")
-
-        df = fetch_api(api_name, resolved_data=resolved)
-        cols = list(df.columns)
-        col_preview = ", ".join(str(c) for c in cols[:12])
-        if len(cols) > 12:
-            col_preview += f", … (+{len(cols) - 12} more)"
-        print(f"  [data] {len(df)} rows, {len(cols)} columns: {col_preview}")
-
-        # Optional DataFrame transform (pre-ontology mapping)
-        transform_spec = step.get("transform")
-        if transform_spec:
-            transform_cfg = step.get("transform_config", {})
-            print(f"  [transform] {transform_spec}")
-            df = run_dataframe_transform(transform_spec, df, config=transform_cfg)
-
-        resolved[api_name] = df
-
-        limit = step.get("limit")
-        if limit:
-            df = df.head(int(limit))
+        if batch_size:
+            print(f"  [batch] {batch_size} rows")
+        if watermark:
+            print(f"  [incremental] watermark={watermark!r}, previous={previous_watermark!r}")
 
         onto_class = class_map.get(class_name)
         if onto_class is None:
             raise ValueError(f"Class '{class_name}' not found in ontology. Check ontology YAML.")
 
         count = 0
-        with onto:
-            # Iterating over dicts is faster than iterrows() + Series.to_dict()
-            for row_dict in df.to_dict("records"):
+        skipped = 0
+        latest_watermark = previous_watermark
+        limit = int(step.get("limit") or 0)
+        for df in iter_api(api_name, resolved_data=resolved, chunksize=batch_size):
+            cols = list(df.columns)
+            col_preview = ", ".join(str(c) for c in cols[:12])
+            if len(cols) > 12:
+                col_preview += f", … (+{len(cols) - 12} more)"
+            print(f"  [data] {len(df)} rows, {len(cols)} columns: {col_preview}")
+            transform_spec = step.get("transform")
+            if transform_spec:
+                transform_cfg = step.get("transform_config", {})
+                print(f"  [transform] {transform_spec}")
+                df = run_dataframe_transform(transform_spec, df, config=transform_cfg)
+            # Chunked sources intentionally expose only the current frame for
+            # foreach resolution; dependent large-source joins should happen in DuckDB.
+            resolved[api_name] = df
+
+            with onto:
+              for row_dict in df.to_dict("records"):
                 # Skip internal columns
                 row_dict = {k: v for k, v in row_dict.items() if not str(k).startswith("_")}
 
+                if limit and count >= limit:
+                    break
+                if watermark:
+                    if watermark not in row_dict:
+                        raise ValueError(f"Step '{step_name}' watermark column '{watermark}' is missing")
+                    candidate = row_dict[watermark]
+                    if not _is_newer(candidate, previous_watermark):
+                        skipped += 1
+                        continue
+                    if _is_newer(candidate, latest_watermark):
+                        latest_watermark = candidate
+
                 uri = _resolve(uri_template, row_dict, sanitize=True)
+                if resolution_cache and resolution_key_template:
+                    source_key = _resolve(str(resolution_key_template), row_dict)
+                    uri = resolution_cache.get(str(resolution.get("scope") or step_name), source_key) or uri
+                    resolution_cache.put(str(resolution.get("scope") or step_name), source_key, uri)
                 individual, created = _get_or_create(onto, onto_class, uri, _cache)
 
                 # Data properties
@@ -201,8 +259,18 @@ def run_pipeline(pipeline_path):
                         _set_object_property(individual, prop_name, prop, target)
 
                 count += 1
+            if watermark and latest_watermark != previous_watermark:
+                progress.setdefault("steps", {}).setdefault(step_name, {})["watermark"] = latest_watermark
+                _write_progress(progress_path, progress)
+            if resolution_cache:
+                resolution_cache.commit()
+            if limit and count >= limit:
+                break
 
-        print(f"  -> {count} {class_name} individuals processed")
+        print(f"  -> {count} {class_name} individuals processed" + (f", {skipped} skipped by watermark" if watermark else ""))
+    finally:
+      if resolution_cache:
+        resolution_cache.close()
 
     # Post-hydration ontology transforms
     for entry in pipeline.get("post_hydration_transforms", []):

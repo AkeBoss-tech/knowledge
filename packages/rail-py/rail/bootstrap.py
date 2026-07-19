@@ -647,6 +647,12 @@ Never promote hypotheses that still rely on unsupported or stale claims.
     _write(project_root / ".ontology/ontology.yaml", ontology_yaml)
     _write(project_root / "specs/research_question.yaml", research_question)
     _write(project_root / "sources/dependencies.yaml", source_dependencies)
+    _write(
+        project_root / "sources/datasets.yaml",
+        "# Large-source catalog. Raw data remains authoritative; caches and ontology projections are derived.\n"
+        "version: 1\n"
+        "datasets: []\n",
+    )
     _write(project_root / "topics/brief.md", brief)
     for filename, content in research_plan_files.items():
         _write(project_root / "research_plan" / filename, content)
@@ -858,7 +864,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             f"""\
             # KRAIL Agent Guide
 
-            Guide version: 1.1.1
+            Guide version: 1.1.12
             Project: {name}
 
             The repository is the durable source of truth. Start every session with:
