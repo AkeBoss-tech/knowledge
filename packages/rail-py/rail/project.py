@@ -64,6 +64,17 @@ class Project:
             return {"query": q, "hits": self.search(q)[:limit]}
         return self._backend.knowledge.search(q, limit=limit, explain=explain, rag=rag)
 
+    @property
+    def provider(self):
+        """Public provider-v1 surface for local projects.
+
+        Hosted/legacy backends do not silently emulate this contract because they
+        cannot guarantee exact local authority, version, and digest traces.
+        """
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("krail.provider.v1 requires a local project provider")
+        return self._backend.knowledge.provider
+
     def datasets_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("dataset commands require local mode")

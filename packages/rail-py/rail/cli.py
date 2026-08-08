@@ -6,6 +6,18 @@ from pathlib import Path
 from typing import Any
 
 import rail
+from krail.provider.v1 import (
+    DescribeTypesRequest,
+    ExplainRequest,
+    FindRequest,
+    GetResourceRequest,
+    IntegrityRequest,
+    LineageRequest,
+    ProviderInfoRequest,
+    ResourceRef,
+    RetrieveEvidenceRequest,
+    SearchRequest,
+)
 from rail.bootstrap import bootstrap_future_project
 from rail.docs import query_builtin_doc, search_builtin_docs
 from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
@@ -146,6 +158,36 @@ def cmd_action(project: rail.Project, args: argparse.Namespace):
 def cmd_retriever(project: rail.Project, args: argparse.Namespace):
     if args.retriever_command == "list":
         _print_json(project.retriever_list())
+
+
+def _provider_ref(value: str) -> ResourceRef:
+    return ResourceRef.model_validate_json(value)
+
+
+def cmd_provider(project: rail.Project, args: argparse.Namespace):
+    provider = project.provider
+    command = args.provider_command
+    if command == "info":
+        result = provider.provider_info(ProviderInfoRequest(consumer_version=args.consumer_version))
+    elif command == "describe-types":
+        result = provider.describe_types(DescribeTypesRequest())
+    elif command == "search":
+        result = provider.search(SearchRequest(query=args.query, resource_types=args.type or [], limit=args.limit, cursor=args.cursor))
+    elif command == "find":
+        result = provider.find(FindRequest(resource_type=args.resource_type, identifiers=args.identifier))
+    elif command == "get-resource":
+        result = provider.get_resource(GetResourceRequest(ref=_provider_ref(args.ref), max_bytes=args.max_bytes))
+    elif command == "retrieve-evidence":
+        result = provider.retrieve_evidence(RetrieveEvidenceRequest(query=args.query, resource_types=args.type or [], max_items=args.max_items, max_total_bytes=args.max_total_bytes))
+    elif command == "explain":
+        result = provider.explain(ExplainRequest(question=args.question, refs=[_provider_ref(item) for item in args.ref or []], max_evidence_items=args.max_evidence_items))
+    elif command == "lineage":
+        result = provider.lineage(LineageRequest(ref=_provider_ref(args.ref), max_depth=args.max_depth, max_nodes=args.max_nodes))
+    elif command == "integrity":
+        result = provider.integrity(IntegrityRequest(refs=[_provider_ref(item) for item in args.ref], max_findings=args.max_findings))
+    else:
+        raise ValueError(f"unknown provider command: {command}")
+    _print_json(result.model_dump(mode="json"))
 
 def cmd_find(project: rail.Project, args: argparse.Namespace):
     if getattr(args, "federated", False):
@@ -881,6 +923,39 @@ def main():
     s_parser.add_argument("--federated", action="store_true", help="Search the local project and configured mounted child projects")
     s_parser.add_argument("--mount", action="append", help="Limit federated search to a specific mount id; repeatable")
 
+    provider_parser = subparsers.add_parser("provider", help="Use the bounded krail.provider.v1 read contract")
+    provider_subs = provider_parser.add_subparsers(dest="provider_command", required=True)
+    provider_info = provider_subs.add_parser("info", help="Negotiate provider-v1 capabilities and version compatibility")
+    provider_info.add_argument("--consumer-version")
+    provider_subs.add_parser("describe-types", help="List provider-v1 resource types")
+    provider_search = provider_subs.add_parser("search", help="Run bounded provider-v1 search")
+    provider_search.add_argument("query")
+    provider_search.add_argument("--type", action="append")
+    provider_search.add_argument("--limit", type=int, default=20)
+    provider_search.add_argument("--cursor")
+    provider_find = provider_subs.add_parser("find", help="Find exact provider-v1 resource identifiers")
+    provider_find.add_argument("resource_type")
+    provider_find.add_argument("identifier", nargs="+")
+    provider_get = provider_subs.add_parser("get-resource", help="Read one exact provider-v1 resource reference")
+    provider_get.add_argument("ref", help="ResourceRef JSON")
+    provider_get.add_argument("--max-bytes", type=int, default=1_048_576)
+    provider_evidence = provider_subs.add_parser("retrieve-evidence", help="Retrieve an exact bounded EvidencePacket")
+    provider_evidence.add_argument("query")
+    provider_evidence.add_argument("--type", action="append")
+    provider_evidence.add_argument("--max-items", type=int, default=12)
+    provider_evidence.add_argument("--max-total-bytes", type=int, default=131_072)
+    provider_explain = provider_subs.add_parser("explain", help="Explain from bounded exact evidence")
+    provider_explain.add_argument("question")
+    provider_explain.add_argument("--ref", action="append", help="ResourceRef JSON")
+    provider_explain.add_argument("--max-evidence-items", type=int, default=12)
+    provider_lineage = provider_subs.add_parser("lineage", help="Read bounded lineage for an exact resource")
+    provider_lineage.add_argument("ref", help="ResourceRef JSON")
+    provider_lineage.add_argument("--max-depth", type=int, default=3)
+    provider_lineage.add_argument("--max-nodes", type=int, default=100)
+    provider_integrity = provider_subs.add_parser("integrity", help="Check exact provider-v1 references")
+    provider_integrity.add_argument("--ref", action="append", required=True, help="ResourceRef JSON")
+    provider_integrity.add_argument("--max-findings", type=int, default=100)
+
     action_parser = subparsers.add_parser("action", help="Inspect and run typed reusable KRAIL actions")
     action_subs = action_parser.add_subparsers(dest="action_command")
     action_subs.add_parser("list", help="List registered local actions")
@@ -1525,6 +1600,8 @@ def main():
 
     if args.command == "search":
         cmd_search(project, args)
+    elif args.command == "provider":
+        cmd_provider(project, args)
     elif args.command == "action":
         cmd_action(project, args)
     elif args.command == "retriever":

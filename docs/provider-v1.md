@@ -17,6 +17,11 @@ local implementation internally. A consumer must rely only on these models and
 must not infer those internals. OpenSaddle is one possible consumer, but KRAIL has
 no OpenSaddle dependency and the contract contains no OpenSaddle-specific field.
 
+The local implementation is reached from Python as `rail.local(path).provider`.
+The CLI exposes the same application behavior under `krail --local provider`,
+and MCP exposes the nine `provider_*` tools (negotiation plus the eight reads).
+All three routes validate the same strict request/result models.
+
 ## Operations
 
 Each request and result has a constant `contract: "krail.provider.v1"`, forbids
@@ -25,6 +30,7 @@ unknown fields, and can emit implementation-neutral JSON Schema with
 
 | Operation | Request | Result | Bound |
 | --- | --- | --- | --- |
+| negotiate | `ProviderInfoRequest` | `ProviderInfoResult` | eight named capabilities and a bounded diagnostic |
 | describe types | `DescribeTypesRequest` | `DescribeTypesResult` | 256 descriptors |
 | search | `SearchRequest` | `SearchResult` | 100 hits, bounded previews and cursor |
 | find exact IDs | `FindRequest` | `FindResult` | 100 requested IDs / hits |
@@ -37,6 +43,12 @@ unknown fields, and can emit implementation-neutral JSON Schema with
 Search is ranked text/semantic discovery. Find is an exact, authority-local
 identifier lookup. Neither operation promises or accepts SQL, SPARQL, graph
 traversal syntax, query plans, storage paths, or runtime handles.
+
+The local provider uses content-addressed immutable versions. Search cursors are
+opaque, query-bound tokens and cannot page beyond the 100-result contract window.
+Exact reads reject authority, version, or digest drift instead of returning newer
+content. If no exact readable evidence exists, evidence and explanation fail
+explicitly rather than constructing an untraced packet.
 
 ## Evidence bounds and traceability
 
@@ -73,6 +85,9 @@ invalid fixture demonstrates that an unqualified authority is rejected.
   importable during a declared migration window.
 - Producers emit exactly one contract version per value. Consumers reject an
   unsupported `contract` value rather than guessing or silently coercing it.
+- `ProviderInfoRequest.consumer_version` compares the consumer and installed
+  provider major versions. `compatible=false` and a version-skew diagnostic are
+  returned on mismatch; capabilities are never inferred from package version.
 
 `ResourceRef` identity rules are normative in
 [Storage Authority and Resource Identity](storage-authority.md). Provider v1 is

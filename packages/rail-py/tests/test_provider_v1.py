@@ -27,6 +27,8 @@ from krail.provider.v1 import (
     IntegrityResult,
     LineageRequest,
     LineageResult,
+    ProviderInfoRequest,
+    ProviderInfoResult,
     ResourceRef,
     ResourcePayload,
     RetrieveEvidenceRequest,
@@ -99,8 +101,10 @@ def test_resource_ref_rejects_ambiguous_or_unverifiable_identity(field: str, val
 def test_fixtures_are_executable_contract_examples() -> None:
     valid = json.loads((FIXTURES / "evidence_packet.json").read_text(encoding="utf-8"))
     invalid = json.loads((FIXTURES / "invalid_unqualified_ref.json").read_text(encoding="utf-8"))
+    provider_info = json.loads((FIXTURES / "provider_info.json").read_text(encoding="utf-8"))
 
     assert EvidencePacket.model_validate(valid).items[0].source.version.startswith("git:")
+    assert ProviderInfoResult.model_validate(provider_info).capabilities[-1] == "integrity"
     with pytest.raises(ValidationError):
         ResourceRef.model_validate(invalid)
 
@@ -187,6 +191,8 @@ def test_every_evidence_item_requires_an_exact_resource_ref() -> None:
         LineageResult,
         IntegrityRequest,
         IntegrityResult,
+        ProviderInfoRequest,
+        ProviderInfoResult,
     ],
 )
 def test_every_operation_shape_exposes_versioned_json_schema(model: type) -> None:

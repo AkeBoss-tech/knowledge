@@ -25,6 +25,7 @@ The v1 compatibility promise applies only to the tool families below. These are
 the tools we expect clients to build against for KRAIL v1 readiness.
 
 - `contract`: `mcp_contract`
+- `provider_v1`: `provider_info`, `provider_describe_types`, `provider_search`, `provider_find`, `provider_get_resource`, `provider_retrieve_evidence`, `provider_explain`, `provider_lineage`, `provider_integrity`
 - `doctor`: `doctor`
 - `search`: `search`, `find`
 - `think`: `think`, `register_think_result`, `think_sessions`, `think_session_status`
@@ -43,6 +44,10 @@ tool does not require a project to be loaded and returns the stable groups and
 tool names, the currently exposed experimental tool names, and the stable JSON
 error shape. Pass `contract_version="v1"` (the default); unsupported versions
 also return an actionable JSON error payload.
+
+The `provider_v1` tools are the storage-independent boundary. Except for
+negotiation and type description, they accept strict provider-v1 request JSON
+and return the same models as the local Python and CLI surfaces.
 
 ## Experimental Tools
 

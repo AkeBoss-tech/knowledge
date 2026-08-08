@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import (
     BaseModel,
@@ -55,6 +55,33 @@ class ContractModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     contract: Literal["krail.provider.v1"] = CONTRACT_ID
+
+
+ProviderCapability = Literal[
+    "describe_types",
+    "search",
+    "find",
+    "get_resource",
+    "retrieve_evidence",
+    "explain",
+    "lineage",
+    "integrity",
+]
+
+
+class ProviderInfoRequest(ContractModel):
+    """Negotiate the provider contract without depending on its implementation."""
+
+    consumer_version: Annotated[str, StringConstraints(max_length=128)] | None = None
+
+
+class ProviderInfoResult(ContractModel):
+    provider: NonEmpty
+    provider_version: NonEmpty
+    installed_distribution_version: NonEmpty
+    capabilities: list[ProviderCapability] = Field(max_length=8)
+    compatible: bool = True
+    diagnostic: Annotated[str, StringConstraints(max_length=4096)] = ""
 
 
 class ResourceRef(ContractModel):
@@ -324,6 +351,21 @@ class IntegrityResult(ContractModel):
     truncated: bool = False
 
 
+@runtime_checkable
+class Provider(Protocol):
+    """Structural interface implemented by storage-independent v1 providers."""
+
+    def provider_info(self, request: ProviderInfoRequest) -> ProviderInfoResult: ...
+    def describe_types(self, request: DescribeTypesRequest) -> DescribeTypesResult: ...
+    def search(self, request: SearchRequest) -> SearchResult: ...
+    def find(self, request: FindRequest) -> FindResult: ...
+    def get_resource(self, request: GetResourceRequest) -> GetResourceResult: ...
+    def retrieve_evidence(self, request: RetrieveEvidenceRequest) -> RetrieveEvidenceResult: ...
+    def explain(self, request: ExplainRequest) -> ExplainResult: ...
+    def lineage(self, request: LineageRequest) -> LineageResult: ...
+    def integrity(self, request: IntegrityRequest) -> IntegrityResult: ...
+
+
 __all__ = [name for name in globals() if name.endswith(("Request", "Result"))] + [
     "CONTRACT_ID",
     "MAX_SEARCH_RESULTS",
@@ -345,4 +387,6 @@ __all__ = [name for name in globals() if name.endswith(("Request", "Result"))] +
     "EvidencePacket",
     "LineageEdge",
     "IntegrityFinding",
+    "Provider",
+    "ProviderCapability",
 ]

@@ -94,8 +94,9 @@ def test_v1_contract_defines_stable_and_experimental_tool_sets():
         "tasks",
         "workflows",
         "integrity",
-        "permissions",
-    }
+            "permissions",
+            "provider_v1",
+        }
     stable = set(server.STABLE_V1_TOOLS)
     experimental = set(server.EXPERIMENTAL_TOOLS)
     assert {"doctor", "search", "think", "capture", "create_task", "run_workflow", "integrity_status", "permissions_doctor"} <= stable
@@ -235,6 +236,41 @@ def test_mcp_knowledge_operations_primitives(monkeypatch):
     assert json.loads(server.retriever_list())["retrievers"][0]["id"] == "lexical"
     assert "vector" in json.loads(server.plan_query("architecture"))["retrievers"]
     assert json.loads(server.build_evidence_packet("architecture"))["version"] == "krail.evidence-packet/v1"
+
+
+def test_mcp_provider_search_is_equivalent_to_python_contract(monkeypatch):
+    from krail.provider.v1 import SearchRequest, SearchResult
+
+    class _Provider:
+        def search(self, request):
+            assert isinstance(request, SearchRequest)
+            return SearchResult(hits=[], truncated=False)
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+    request = SearchRequest(query="bounded provider", limit=3)
+
+    payload = json.loads(server.provider_search(request.model_dump_json()))
+
+    assert payload == _Project.provider.search(request).model_dump(mode="json")
+
+
+def test_mcp_contract_exposes_all_provider_v1_reads():
+    payload = json.loads(server.mcp_contract())
+
+    assert set(payload["stable"]["tool_groups"]["provider_v1"]) == {
+        "provider_info",
+        "provider_describe_types",
+        "provider_search",
+        "provider_find",
+        "provider_get_resource",
+        "provider_retrieve_evidence",
+        "provider_explain",
+        "provider_lineage",
+        "provider_integrity",
+    }
 
 
 def test_action_errors_are_classified_as_client_errors(monkeypatch):
