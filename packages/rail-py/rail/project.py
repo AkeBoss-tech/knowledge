@@ -75,6 +75,12 @@ class Project:
             raise RuntimeError("krail.provider.v1 requires a local project provider")
         return self._backend.knowledge.provider
 
+    def context_brief(self, request):
+        """Assemble a provider-neutral Context Brief for exact repository/issue refs."""
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("context briefs require a local KRAIL application service")
+        return self._backend.knowledge.application.context_brief(request)
+
     def datasets_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("dataset commands require local mode")

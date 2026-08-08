@@ -15,6 +15,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from krail.epistemic_history import EpistemicHistory
+
 from krail.provider.v1 import (
     CONTRACT_ID,
     DescribeTypesRequest,
@@ -85,6 +87,16 @@ class KnowledgeApplicationService:
     def __init__(self, runtime: "KnowledgeRuntime") -> None:
         self.runtime = runtime
         self.provider = LocalKnowledgeProvider(self)
+        from rail.context_brief import ContextBriefService
+
+        self.context_briefs = ContextBriefService(
+            self.provider,
+            EpistemicHistory(runtime.project_path),
+        )
+
+    def context_brief(self, request):
+        """Assemble a bounded brief without performing provider or external writes."""
+        return self.context_briefs.assemble(request)
 
     def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
         return self.runtime._search_impl(query, **kwargs)
