@@ -1,0 +1,8 @@
+{
+  "contract": "krail.provider.v1",
+  "authority": "local-project",
+  "resource_type": "topic",
+  "resource_id": "topics/provider-contract.md",
+  "version": "working-tree",
+  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

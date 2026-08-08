@@ -31,6 +31,12 @@ without pretending the current snapshot format is a crash-safe event log.
 See [Knowledge Operations Foundations](knowledge-operations.md) for the public
 vocabulary and compatibility boundary.
 
+External consumers use the storage-independent
+[`krail.provider.v1` contract](provider-v1.md). Its authority-qualified identity
+rules and the durable-record ownership map are defined in
+[Storage Authority and Resource Identity](storage-authority.md). Neither the
+optional API nor hydrated databases become authoritative through that contract.
+
 ## Permissioning Model
 
 KRAIL permissioning is local-first and KRAIL-mediated. The repo remains the

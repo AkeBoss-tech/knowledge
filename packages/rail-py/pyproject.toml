@@ -53,7 +53,7 @@ embeddings = ["sentence-transformers>=2.7"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rail*"]
+include = ["rail*", "krail*"]
 
 [project.scripts]
 rail = "rail.cli:main"
