@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from krail.epistemic_history import EpistemicHistory
+from krail.provider.capabilities import CapabilityNegotiationRequest
 
 from krail.provider.v1 import (
     CONTRACT_ID,
@@ -93,6 +94,9 @@ class KnowledgeApplicationService:
             self.provider,
             EpistemicHistory(runtime.project_path),
         )
+        from rail.capability_publication import LocalCapabilityPublication
+
+        self.capability_publication = LocalCapabilityPublication()
 
     def context_brief(self, request):
         """Assemble a bounded brief without performing provider or external writes."""
@@ -156,6 +160,17 @@ class LocalKnowledgeProvider:
             diagnostic=diagnostic,
         )
 
+    def capability_descriptor(self):
+        """Publish the immutable Context Brief capability without granting access."""
+        return self.application.capability_publication.descriptor()
+
+    def negotiate_capability(self, request: CapabilityNegotiationRequest):
+        return self.application.capability_publication.negotiate(request)
+
+    def context_brief(self, request):
+        """Delegate to the accepted K2.1 service; do not duplicate assembly."""
+        return self.application.context_brief(request)
+
     def describe_types(self, request: DescribeTypesRequest) -> DescribeTypesResult:
         del request
         return DescribeTypesResult(
@@ -202,18 +217,30 @@ class LocalKnowledgeProvider:
         )
 
     @staticmethod
-    def _encode_cursor(query: str, offset: int) -> str:
-        payload = json.dumps({"q": hashlib.sha256(query.encode()).hexdigest(), "o": offset}, separators=(",", ":"))
+    def _encode_cursor(query: str, resource_types: list[str], offset: int) -> str:
+        shape = json.dumps(
+            {"query": query, "resource_types": sorted(set(resource_types))},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        payload = json.dumps({"s": hashlib.sha256(shape.encode()).hexdigest(), "o": offset}, separators=(",", ":"))
         return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
 
     @staticmethod
-    def _decode_cursor(query: str, cursor: str | None) -> int:
+    def _decode_cursor(query: str, resource_types: list[str], cursor: str | None) -> int:
         if not cursor:
             return 0
         try:
             padded = cursor + "=" * (-len(cursor) % 4)
             payload = json.loads(base64.urlsafe_b64decode(padded).decode())
-            if payload.get("q") != hashlib.sha256(query.encode()).hexdigest():
+            shape = json.dumps(
+                {"query": query, "resource_types": sorted(set(resource_types))},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if payload.get("s") != hashlib.sha256(shape.encode()).hexdigest():
                 raise ValueError
             offset = int(payload["o"])
         except Exception as exc:
@@ -239,7 +266,7 @@ class LocalKnowledgeProvider:
         )
 
     def search(self, request: SearchRequest) -> SearchResult:
-        offset = self._decode_cursor(request.query, request.cursor)
+        offset = self._decode_cursor(request.query, request.resource_types, request.cursor)
         # Materialize at most the contract-wide window before type filtering so
         # opaque cursor offsets remain stable across pages.
         legacy = self.application.search(request.query, limit=100, explain=False, rag=False)
@@ -251,7 +278,7 @@ class LocalKnowledgeProvider:
         more = len(hits) > offset + request.limit and offset + request.limit < 100
         return SearchResult(
             hits=page,
-            next_cursor=self._encode_cursor(request.query, offset + request.limit) if more else None,
+            next_cursor=self._encode_cursor(request.query, request.resource_types, offset + request.limit) if more else None,
             truncated=more,
         )
 

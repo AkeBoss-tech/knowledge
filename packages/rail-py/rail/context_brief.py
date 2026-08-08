@@ -57,12 +57,12 @@ class ProcessingVersion(StrictModel):
 
 
 def _default_versions() -> tuple[ProcessingVersion, ...]:
-    return (
+    return tuple(sorted((
         ProcessingVersion(component="context-brief", version=CONTEXT_BRIEF_VERSION),
         ProcessingVersion(component="ranking", version=RANKING_VERSION),
         ProcessingVersion(component="freshness", version=FRESHNESS_VERSION),
         ProcessingVersion(component="conflict", version=CONFLICT_VERSION),
-    )
+    ), key=lambda item: item.component))
 
 
 class ContextBriefRequest(StrictModel):

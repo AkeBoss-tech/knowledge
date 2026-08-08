@@ -142,6 +142,10 @@ def test_provider_cursor_is_opaque_query_bound_and_bounded(tmp_path: Path) -> No
     assert second.hits[0].ref != first.hits[0].ref
     with pytest.raises(ValueError, match="invalid for this search"):
         project.provider.search(SearchRequest(query="different query", limit=1, cursor=first.next_cursor))
+    with pytest.raises(ValueError, match="invalid for this search"):
+        project.provider.search(
+            SearchRequest(query="shared paging term", resource_types=["source"], limit=1, cursor=first.next_cursor)
+        )
 
 
 def test_python_and_cli_provider_search_are_equivalent(tmp_path: Path, capsys) -> None:

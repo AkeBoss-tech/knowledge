@@ -257,16 +257,63 @@ def test_mcp_provider_search_is_equivalent_to_python_contract(monkeypatch):
     assert payload == _Project.provider.search(request).model_dump(mode="json")
 
 
+def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monkeypatch):
+    from datetime import UTC, datetime
+
+    from krail.provider.capabilities import CapabilityNegotiationRequest
+    from krail.provider.v1 import ResourceRef
+    from rail.capability_publication import context_brief_descriptor
+    from rail.context_brief import ContextBriefRequest
+
+    content_digest = "sha256:" + "a" * 64
+    repository = ResourceRef(
+        authority="git+file:///fixture",
+        resource_type="document",
+        resource_id="docs/repository.md",
+        version="content:" + "a" * 64,
+        digest=content_digest,
+    )
+    issue = repository.model_copy(update={"resource_type": "topic", "resource_id": "topics/issue.md"})
+    request = ContextBriefRequest(repository=repository, issue=issue, evaluated_at=datetime(2026, 8, 7, tzinfo=UTC))
+    descriptor = context_brief_descriptor()
+
+    class _Provider:
+        def context_brief(self, actual):
+            assert actual == request
+            return type("Result", (), {"model_dump": lambda self, mode: {"brief": "same"}})()
+
+        def capability_descriptor(self):
+            return descriptor
+
+        def negotiate_capability(self, actual):
+            assert isinstance(actual, CapabilityNegotiationRequest)
+            from krail.provider.capabilities import negotiate
+
+            return negotiate(descriptor, actual)
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    assert json.loads(server.provider_context_brief(request.model_dump_json())) == {"brief": "same"}
+    assert json.loads(server.provider_capability()) == descriptor.model_dump(mode="json")
+    negotiated = json.loads(server.provider_capability("1.0.0", descriptor.descriptor_digest))
+    assert negotiated["compatible"] is True
+
+
 def test_mcp_contract_exposes_all_provider_v1_reads():
     payload = json.loads(server.mcp_contract())
 
     assert set(payload["stable"]["tool_groups"]["provider_v1"]) == {
         "provider_info",
+        "provider_capability",
         "provider_describe_types",
         "provider_search",
         "provider_find",
         "provider_get_resource",
         "provider_retrieve_evidence",
+        "provider_context_brief",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",

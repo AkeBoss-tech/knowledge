@@ -81,6 +81,14 @@ class Project:
             raise RuntimeError("context briefs require a local KRAIL application service")
         return self._backend.knowledge.application.context_brief(request)
 
+    def capability_descriptor(self):
+        """Publish the local provider's immutable Context Brief descriptor."""
+        return self.provider.capability_descriptor()
+
+    def negotiate_capability(self, request):
+        """Check version/digest compatibility without granting authorization."""
+        return self.provider.negotiate_capability(request)
+
     def datasets_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("dataset commands require local mode")

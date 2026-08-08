@@ -19,6 +19,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 import rail
+from krail.provider.capabilities import CapabilityNegotiationRequest
 from krail.provider.v1 import (
     DescribeTypesRequest,
     ExplainRequest,
@@ -31,6 +32,7 @@ from krail.provider.v1 import (
     SearchRequest,
 )
 from rail.actions import ActionNotFoundError, ActionValidationError
+from rail.context_brief import ContextBriefRequest
 from rail.permissions import PermissionPolicy
 from rail.retrieval import reciprocal_rank_fusion
 
@@ -41,11 +43,13 @@ STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "contract": ("mcp_contract",),
     "provider_v1": (
         "provider_info",
+        "provider_capability",
         "provider_describe_types",
         "provider_search",
         "provider_find",
         "provider_get_resource",
         "provider_retrieve_evidence",
+        "provider_context_brief",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",
@@ -339,6 +343,24 @@ def provider_info(consumer_version: str = "") -> str:
 
 
 @mcp.tool()
+def provider_capability(
+    consumer_version: str = "",
+    descriptor_digest: str = "",
+    capability_id: str = "krail.context-brief",
+) -> str:
+    """Publish or negotiate the digest-addressed read-only Context Brief capability."""
+    provider = _get_project().provider
+    if not consumer_version:
+        return _provider_result(provider.capability_descriptor())
+    request = CapabilityNegotiationRequest(
+        capability_id=capability_id,
+        consumer_version=consumer_version,
+        descriptor_digest=descriptor_digest or None,
+    )
+    return _provider_result(provider.negotiate_capability(request))
+
+
+@mcp.tool()
 def provider_describe_types() -> str:
     """List resource types available through the bounded provider-v1 contract."""
     return _provider_result(_get_project().provider.describe_types(DescribeTypesRequest()))
@@ -371,6 +393,13 @@ def provider_get_resource(request_json: str) -> str:
 def provider_retrieve_evidence(request_json: str) -> str:
     """Retrieve a strict, bounded, exact-source EvidencePacket."""
     return _provider_result(_get_project().provider.retrieve_evidence(_provider_request(request_json, RetrieveEvidenceRequest, "retrieve_evidence")))
+
+
+@mcp.tool()
+def provider_context_brief(request_json: str) -> str:
+    """Assemble a deterministic bounded Context Brief from an exact strict request."""
+    request = _provider_request(request_json, ContextBriefRequest, "context_brief")
+    return _provider_result(_get_project().provider.context_brief(request))
 
 
 @mcp.tool()

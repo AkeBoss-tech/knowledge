@@ -78,6 +78,13 @@ def test_context_brief_is_bounded_exact_and_reproducible(tmp_path: Path) -> None
     assert first.domain_event_ref.event_digest == first.brief_digest
 
 
+def test_context_brief_request_json_round_trip_preserves_default_processing_order(tmp_path: Path) -> None:
+    _root, project = _project(tmp_path)
+    request = _request(project)
+
+    assert ContextBriefRequest.model_validate_json(request.model_dump_json()) == request
+
+
 def test_context_brief_rejects_drifted_exact_inputs(tmp_path: Path) -> None:
     root, project = _project(tmp_path)
     request = _request(project)
