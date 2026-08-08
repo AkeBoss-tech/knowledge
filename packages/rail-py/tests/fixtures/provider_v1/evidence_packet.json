@@ -1,0 +1,24 @@
+{
+  "contract": "krail.provider.v1",
+  "packet_id": "packet:example-001",
+  "query": "What supports the provider contract?",
+  "generated_at": "2026-08-07T12:00:00Z",
+  "items": [
+    {
+      "contract": "krail.provider.v1",
+      "source": {
+        "contract": "krail.provider.v1",
+        "authority": "git+file:///workspace/example",
+        "resource_type": "topic",
+        "resource_id": "topics/provider-contract.md",
+        "version": "git:5e79f760286edece91cf3f99c90f83e9d731d67f",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "locator": "lines:10-18",
+      "excerpt": "The provider boundary is read-only and storage independent.",
+      "media_type": "text/markdown",
+      "relevance": 0.98
+    }
+  ],
+  "truncated": false
+}
