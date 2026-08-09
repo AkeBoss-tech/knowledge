@@ -76,6 +76,50 @@ def test_provider_publication_negotiates_version_and_digest_without_authorizing(
     assert wrong_digest.compatible is False
 
 
+@pytest.mark.parametrize(
+    ("consumer_version", "compatible"),
+    [
+        ("0.999.999", False),
+        ("1.0.0-alpha", False),
+        ("1.0.0-alpha.1", False),
+        ("1.0.0", True),
+        ("1.0.1-alpha.1", True),
+        ("1.999.999+consumer", True),
+        ("2.0.0-alpha", True),
+        ("2.0.0-rc.1", True),
+        ("2.0.0", False),
+        ("2.0.0+consumer", False),
+    ],
+)
+def test_negotiation_enforces_exact_advertised_semver_interval(
+    tmp_path: Path,
+    consumer_version: str,
+    compatible: bool,
+) -> None:
+    provider = _project(tmp_path).provider
+
+    result = provider.negotiate_capability(
+        CapabilityNegotiationRequest(capability_id=CAPABILITY_ID, consumer_version=consumer_version)
+    )
+
+    assert result.compatible is compatible
+
+
+@pytest.mark.parametrize(
+    "consumer_version",
+    [
+        "1.0.0-alpha..1",
+        "1.0.0-alpha.",
+        "1.0.0-.",
+        "1.0.0-01",
+        "1.0.0+build..1",
+    ],
+)
+def test_negotiation_rejects_invalid_semver_identifiers(consumer_version: str) -> None:
+    with pytest.raises(ValidationError):
+        CapabilityNegotiationRequest(capability_id=CAPABILITY_ID, consumer_version=consumer_version)
+
+
 def test_public_capability_contract_contains_no_host_or_execution_dependency() -> None:
     import krail.provider.capabilities as capability_contract
 

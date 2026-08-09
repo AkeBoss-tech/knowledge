@@ -6,11 +6,15 @@ version `1.0.0`. Its immutable descriptor covers the `retrieve_evidence` and
 declares payload and cardinality bounds, records semantic-processing versions,
 and is addressed by a SHA-256 digest of its canonical content.
 
-Consumers may publish the descriptor directly or negotiate a same-major version
+Consumers may publish the descriptor directly or negotiate the exact advertised
+semantic-version interval (`>=1.0.0,<2.0.0`, using SemVer precedence)
 with an optional exact descriptor-digest pin. A successful negotiation means
 only that the public request/result contract is compatible. Descriptor
 availability does not grant authorization: registration, policy, approval,
 credentials, and execution remain outside KRAIL and outside this descriptor.
+Under SemVer precedence, `2.0.0-alpha` is below the exclusive `2.0.0` ceiling
+and is therefore inside this interval; `1.0.0-alpha` is below its inclusive
+floor and is not compatible.
 
 For local Python callers, use `project.capability_descriptor()`,
 `project.negotiate_capability(request)`, and

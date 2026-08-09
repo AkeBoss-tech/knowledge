@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 
 CAPABILITY_DESCRIPTOR_SCHEMA = "krail.capability-descriptor.v1"
 CAPABILITY_NEGOTIATION_SCHEMA = "krail.capability-negotiation.v1"
+SEMVER_PATTERN = (
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4096)]
 SemVer = Annotated[
     str,
-    StringConstraints(pattern=r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"),
+    StringConstraints(pattern=SEMVER_PATTERN),
 ]
 Digest = Annotated[str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")]
 
@@ -39,8 +45,43 @@ def _digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
 
 
-def _major(version: str) -> int:
-    return int(version.split(".", 1)[0])
+def _semver_parts(version: str) -> tuple[tuple[int, int, int], tuple[str, ...] | None]:
+    match = re.fullmatch(SEMVER_PATTERN, version)
+    if match is None:  # Pydantic validates public inputs; keep this helper total.
+        raise ValueError(f"invalid semantic version: {version}")
+    core = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    prerelease = tuple(match.group(4).split(".")) if match.group(4) else None
+    if prerelease and any(item.isdigit() and len(item) > 1 and item.startswith("0") for item in prerelease):
+        raise ValueError("numeric semantic-version prerelease identifiers may not contain leading zeroes")
+    return core, prerelease
+
+
+def _compare_semver(left: str, right: str) -> int:
+    left_core, left_pre = _semver_parts(left)
+    right_core, right_pre = _semver_parts(right)
+    if left_core != right_core:
+        return -1 if left_core < right_core else 1
+    if left_pre is None or right_pre is None:
+        if left_pre is right_pre:
+            return 0
+        return 1 if left_pre is None else -1
+    for left_item, right_item in zip(left_pre, right_pre):
+        if left_item == right_item:
+            continue
+        left_numeric = left_item.isdigit()
+        right_numeric = right_item.isdigit()
+        if left_numeric and right_numeric:
+            return -1 if int(left_item) < int(right_item) else 1
+        if left_numeric != right_numeric:
+            return -1 if left_numeric else 1
+        return -1 if left_item < right_item else 1
+    if len(left_pre) == len(right_pre):
+        return 0
+    return -1 if len(left_pre) < len(right_pre) else 1
+
+
+def _in_supported_range(version: str) -> bool:
+    return _compare_semver(version, "1.0.0") >= 0 and _compare_semver(version, "2.0.0") < 0
 
 
 class StrictModel(BaseModel):
@@ -71,7 +112,7 @@ class SemanticProcessingVersion(StrictModel):
 
 class CompatibilityDeclaration(StrictModel):
     consumer_version_range: Literal[">=1.0.0,<2.0.0"] = ">=1.0.0,<2.0.0"
-    negotiation: Literal["same-major-and-optional-digest-pin"] = "same-major-and-optional-digest-pin"
+    negotiation: Literal["advertised-semver-range-and-optional-digest-pin"] = "advertised-semver-range-and-optional-digest-pin"
 
 
 class AuthorizationDeclaration(StrictModel):
@@ -93,6 +134,12 @@ class CapabilityDescriptor(StrictModel):
     semantic_processing_versions: tuple[SemanticProcessingVersion, ...] = Field(min_length=1, max_length=32)
     compatibility: CompatibilityDeclaration = Field(default_factory=CompatibilityDeclaration)
     authorization: AuthorizationDeclaration = Field(default_factory=AuthorizationDeclaration)
+
+    @field_validator("semantic_version")
+    @classmethod
+    def _valid_semantic_version(cls, value: str) -> str:
+        _semver_parts(value)
+        return value
 
     @classmethod
     def issue(cls, **values: Any) -> "CapabilityDescriptor":
@@ -123,6 +170,12 @@ class CapabilityNegotiationRequest(StrictModel):
     consumer_version: SemVer
     descriptor_digest: Digest | None = None
 
+    @field_validator("consumer_version")
+    @classmethod
+    def _valid_consumer_version(cls, value: str) -> str:
+        _semver_parts(value)
+        return value
+
 
 class CapabilityNegotiationResult(StrictModel):
     schema_version: Literal["krail.capability-negotiation.v1"] = CAPABILITY_NEGOTIATION_SCHEMA
@@ -137,8 +190,8 @@ def negotiate(
 ) -> CapabilityNegotiationResult:
     if request.capability_id != descriptor.capability_id:
         return CapabilityNegotiationResult(compatible=False, diagnostic="capability id is not published by this provider")
-    if _major(request.consumer_version) != _major(descriptor.semantic_version):
-        return CapabilityNegotiationResult(compatible=False, descriptor=descriptor, diagnostic="capability semantic-version major is incompatible")
+    if not _in_supported_range(request.consumer_version):
+        return CapabilityNegotiationResult(compatible=False, descriptor=descriptor, diagnostic="consumer version is outside the advertised compatibility range")
     if request.descriptor_digest and request.descriptor_digest != descriptor.descriptor_digest:
         return CapabilityNegotiationResult(compatible=False, descriptor=descriptor, diagnostic="capability descriptor digest pin does not match")
     return CapabilityNegotiationResult(compatible=True, descriptor=descriptor, diagnostic="capability version and descriptor digest are compatible")
