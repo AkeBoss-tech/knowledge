@@ -1,0 +1,46 @@
+{
+  "observation": {
+    "provider": "fixture-provider",
+    "resource_kind": "pull-request",
+    "observed_at": "2026-08-09T10:05:00Z",
+    "state": "confirmed",
+    "resource_ref": {
+      "authority": "https://provider.example",
+      "resource_type": "pull-request",
+      "resource_id": "northstar/pulls/184",
+      "version": "etag:pr-184-head-bbbbbbbb",
+      "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "provider_payload_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bounded_summary": "Provider reports the pull request head and checks as successful."
+  },
+  "links": {
+    "context_brief_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "context_evidence_packet_id": "packet:context:fixture",
+    "verification_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "verification_evidence_packet_id": "packet:verification:fixture",
+    "operation_receipt_ref": {
+      "event_type": "external.operation-effect.v1",
+      "event_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "operation_id": "op-184",
+      "correlation_id": "corr-184",
+      "causation_id": "cause-184"
+    },
+    "operation_context": {"operation_id": "op-184", "correlation_id": "corr-184", "causation_id": "cause-184"}
+  },
+  "semantic_assertions": [
+    {
+      "text": "The provider-confirmed pull request observation references the pinned head version.",
+      "source_ref": {
+        "authority": "https://provider.example",
+        "resource_type": "pull-request",
+        "resource_id": "northstar/pulls/184",
+        "version": "etag:pr-184-head-bbbbbbbb",
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+      }
+    }
+  ],
+  "processing_versions": [
+    {"component": "outcome-ingestion", "version": "krail.outcome-ingestion.v1"}
+  ]
+}

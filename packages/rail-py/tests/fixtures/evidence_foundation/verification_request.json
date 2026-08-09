@@ -1,0 +1,132 @@
+{
+  "context_brief": {
+    "brief_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "evidence_packet_id": "packet:context:fixture",
+    "repository": {
+      "authority": "git+file:///fixture/northstar",
+      "resource_type": "repository",
+      "resource_id": "northstar",
+      "version": "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "issue": {
+      "authority": "https://provider.example",
+      "resource_type": "issue",
+      "resource_id": "northstar/issues/184",
+      "version": "etag:issue-184-v3",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "source_refs": [
+      {
+        "authority": "git+file:///fixture/northstar",
+        "resource_type": "repository",
+        "resource_id": "northstar",
+        "version": "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      {
+        "authority": "https://provider.example",
+        "resource_type": "issue",
+        "resource_id": "northstar/issues/184",
+        "version": "etag:issue-184-v3",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    ],
+    "processing_versions": [{"component": "context-brief", "version": "krail.context-brief.v1"}]
+  },
+  "assembled_at": "2026-08-09T10:00:00Z",
+  "diff": {
+    "role": "diff",
+    "ref": {
+      "authority": "git+file:///fixture/northstar",
+      "resource_type": "diff",
+      "resource_id": "changes/184.patch",
+      "version": "git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "media_type": "text/x-diff",
+    "byte_length": 8192,
+    "bounded_summary": "Patch changes the release controller and its focused test."
+  },
+  "changed_files": [
+    {
+      "authority": "git+file:///fixture/northstar",
+      "resource_type": "file",
+      "resource_id": "src/release_controller.py",
+      "version": "git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "pytest-focused",
+      "kind": "test",
+      "command": {
+        "program": "pytest",
+        "arguments": ["-q"],
+        "descriptor_digest": "sha256:75eed4ceb16993444ae2e8040686851b15e7f3a3301b8cea2d7de9c56dab6703"
+      },
+      "status": "passed",
+      "summary": "12 focused tests passed.",
+      "artifact_refs": [
+        {
+          "role": "test-result",
+          "ref": {
+            "authority": "file:///fixture/artifacts",
+            "resource_type": "test-result",
+            "resource_id": "pytest-focused.json",
+            "version": "content:6666666666666666666666666666666666666666666666666666666666666666",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          "media_type": "application/json",
+          "byte_length": 512,
+          "bounded_summary": "Structured test summary; raw logs remain external."
+        }
+      ]
+    }
+  ],
+  "tool_versions": [
+    {
+      "component": "pytest",
+      "version": "8.4.1",
+      "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    }
+  ],
+  "environment_versions": [
+    {
+      "component": "python-linux-x86_64",
+      "version": "3.13.5",
+      "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  ],
+  "processing_versions": [
+    {"component": "verification-assembly", "version": "krail.verification-assembly.v1"}
+  ],
+  "claims": [
+    {
+      "text": "The focused release-controller checks passed for the exact supplied patch.",
+      "source_refs": [
+        {
+          "authority": "https://provider.example",
+          "resource_type": "issue",
+          "resource_id": "northstar/issues/184",
+          "version": "etag:issue-184-v3",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ],
+      "file_refs": [
+        {
+          "authority": "git+file:///fixture/northstar",
+          "resource_type": "file",
+          "resource_id": "src/release_controller.py",
+          "version": "git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      ],
+      "check_ids": ["pytest-focused"]
+    }
+  ],
+  "gaps": [],
+  "conflicts": [],
+  "operation_context": {"operation_id": "op-184", "correlation_id": "corr-184", "causation_id": "cause-184"}
+}
