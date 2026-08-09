@@ -56,6 +56,7 @@ def test_unavailable_and_partial_verification_are_explicit_and_non_leaking() -> 
     request = _request()
     missing_check = request.checks[0].model_copy(
         update={
+            "check_id": "pytest-restricted",
             "status": "inaccessible",
             "summary": "Check evidence is inaccessible in the supplied authorization context.",
             "artifact_refs": (),
@@ -64,7 +65,7 @@ def test_unavailable_and_partial_verification_are_explicit_and_non_leaking() -> 
     explicit = VerificationEvidenceRequest.model_validate(
         {
             **request.model_dump(mode="python"),
-            "checks": (missing_check,),
+            "checks": (*request.checks, missing_check),
             "gaps": (
                 {
                     "state": "inaccessible",
@@ -77,8 +78,30 @@ def test_unavailable_and_partial_verification_are_explicit_and_non_leaking() -> 
     result = VerificationEvidenceService().assemble(explicit)
 
     assert result.evidence_packet.truncated is True
-    assert "pytest-focused.json" not in result.model_dump_json()
+    assert result.checks[1].check_id == "pytest-restricted"
+    assert result.checks[1].artifact_refs == ()
     assert "count" not in json.dumps(result.gaps[0].model_dump())
+
+    with pytest.raises(ValidationError, match="observed checks"):
+        VerificationEvidenceRequest.model_validate(
+            {
+                **explicit.model_dump(mode="python"),
+                "claims": (
+                    request.claims[0].model_copy(update={"check_ids": (missing_check.check_id,)}),
+                ),
+            }
+        )
+
+    with pytest.raises(ValidationError, match="explicit corresponding verification gaps"):
+        VerificationEvidenceRequest.model_validate(
+            {**explicit.model_dump(mode="python"), "gaps": ()}
+        )
+
+    partial_check = request.checks[0].model_copy(update={"status": "partial"})
+    with pytest.raises(ValidationError, match="explicit corresponding verification gaps"):
+        VerificationEvidenceRequest.model_validate(
+            {**request.model_dump(mode="python"), "checks": (partial_check,)}
+        )
 
     with pytest.raises(ValidationError, match="must not leak"):
         request.checks[0].model_validate({**request.checks[0].model_dump(), "status": "redacted"})

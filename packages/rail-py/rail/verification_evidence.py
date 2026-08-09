@@ -221,12 +221,23 @@ class VerificationEvidenceRequest(StrictModel):
             raise ValueError("changed file references must be unique exact versions")
         if len({item.check_id for item in self.checks}) != len(self.checks):
             raise ValueError("check identifiers must be unique")
-        available_checks = {item.check_id for item in self.checks}
+        checks_by_id = {item.check_id: item for item in self.checks}
+        available_checks = set(checks_by_id)
+        required_gap_states = {
+            item.status
+            for item in self.checks
+            if item.status in {"partial", "missing", "inaccessible", "redacted"}
+        }
+        disclosed_gap_states = {item.state for item in self.gaps}
+        if not required_gap_states.issubset(disclosed_gap_states):
+            raise ValueError("partial or unavailable checks require explicit corresponding verification gaps")
         exact_sources = {item.exact_key for item in self.context_brief.source_refs}
         exact_files = {item.exact_key for item in self.changed_files}
         for claim in self.claims:
             if not set(claim.check_ids).issubset(available_checks):
                 raise ValueError("verification claims may cite only declared checks")
+            if any(checks_by_id[check_id].status in UNAVAILABLE_CHECK_DISCLOSURES for check_id in claim.check_ids):
+                raise ValueError("verification claims may cite only observed checks")
             if not {item.exact_key for item in claim.source_refs}.issubset(exact_sources):
                 raise ValueError("verification claims may cite only exact Context Brief sources")
             if not {item.exact_key for item in claim.file_refs}.issubset(exact_files):
