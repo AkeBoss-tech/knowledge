@@ -24,9 +24,13 @@ All three routes validate the same strict request/result models.
 
 ## Operations
 
-Each request and result has a constant `contract: "krail.provider.v1"`, forbids
-unknown fields, and can emit implementation-neutral JSON Schema with
-`model_json_schema()`.
+Each Python request and result has a constant
+`contract: "krail.provider.model.v1"`, forbids unknown fields, and can emit
+implementation-neutral JSON Schema with `model_json_schema()`. The former
+`contract: "krail.provider.v1"` value was retired because it collided with
+OpenSaddle's different normative wire protocol. The Python import path remains
+`krail.provider.v1`; use `krail.provider.opensaddle_v1` for an explicit,
+validated projection to the OpenSaddle boundary.
 
 | Operation | Request | Result | Bound |
 | --- | --- | --- | --- |

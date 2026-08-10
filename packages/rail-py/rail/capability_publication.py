@@ -80,7 +80,7 @@ def context_brief_descriptor() -> CapabilityDescriptor:
             CapabilityLimit(name="max_evidence_packet_bytes", value=MAX_EVIDENCE_PACKET_BYTES, unit="utf8-bytes"),
         ),
         semantic_processing_versions=(
-            SemanticProcessingVersion(component="provider-contract", version="krail.provider.v1"),
+            SemanticProcessingVersion(component="provider-contract", version="krail.provider.model.v1"),
             SemanticProcessingVersion(component="context-brief", version=CONTEXT_BRIEF_VERSION),
             SemanticProcessingVersion(component="ranking", version=RANKING_VERSION),
             SemanticProcessingVersion(component="freshness", version=FRESHNESS_VERSION),

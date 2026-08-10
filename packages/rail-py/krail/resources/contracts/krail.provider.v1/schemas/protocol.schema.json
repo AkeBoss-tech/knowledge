@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opensaddle.dev/contracts/krail.provider.v1/protocol.schema.json",
+  "title": "OpenSaddle KRAIL provider protocol v1",
+  "oneOf": [
+    {"$ref": "#/$defs/Request"},
+    {"$ref": "#/$defs/Response"}
+  ],
+  "$defs": {
+    "ContractVersion": {"const": "krail.provider.v1"},
+    "Operation": {
+      "enum": ["negotiate", "describe_types", "search", "find", "get_resource", "retrieve_evidence", "explain", "lineage", "integrity"]
+    },
+    "Identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$", "maxLength": 512},
+    "TypeName": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,99}$", "maxLength": 100},
+    "Sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "minLength": 64, "maxLength": 64},
+    "Digest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {"algorithm": {"const": "sha-256"}, "value": {"$ref": "#/$defs/Sha256"}}
+    },
+    "SourceVersion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "origin", "version", "digest"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/Identifier"},
+        "origin": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]{1,900}$", "maxLength": 932},
+        "version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "digest": {"$ref": "#/$defs/Digest"}
+      }
+    },
+    "ResourceRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issuer", "resource_id", "resource_type", "version", "digest", "source"],
+      "properties": {
+        "issuer": {"type": "string", "format": "uri", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$", "minLength": 3, "maxLength": 512},
+        "resource_id": {"$ref": "#/$defs/Identifier"},
+        "resource_type": {"$ref": "#/$defs/TypeName"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 256},
+        "digest": {"$ref": "#/$defs/Digest"},
+        "source": {"$ref": "#/$defs/SourceVersion"}
+      }
+    },
+    "Scalar": {"type": ["string", "number", "integer", "boolean", "null"], "maxLength": 4096},
+    "Attributes": {
+      "type": "object", "maxProperties": 64,
+      "propertyNames": {"$ref": "#/$defs/TypeName"},
+      "additionalProperties": {"$ref": "#/$defs/Scalar"}
+    },
+    "PageRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["limit"],
+      "properties": {
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "cursor": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "PageResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["limit", "has_more"],
+      "properties": {
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "has_more": {"type": "boolean"},
+        "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "AuthorizationSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["shape", "omitted_count", "count_precision", "reason_codes"],
+      "properties": {
+        "shape": {"const": "authorized_projection"},
+        "omitted_count": {"type": "integer", "minimum": 0, "maximum": 1000000000},
+        "count_precision": {"enum": ["exact", "lower_bound", "undisclosed"]},
+        "reason_codes": {
+          "type": "array", "maxItems": 3, "uniqueItems": true,
+          "items": {"enum": ["policy_filtered", "scope_filtered", "classification_filtered"]}
+        }
+      }
+    },
+    "ResourceSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/ResourceRef"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 512},
+        "summary": {"type": "string", "maxLength": 4096},
+        "attributes": {"$ref": "#/$defs/Attributes"}
+      }
+    },
+    "Locator": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "unit", "start", "end"],
+          "properties": {
+            "kind": {"const": "span"}, "unit": {"enum": ["bytes", "unicode_codepoints", "lines"]},
+            "start": {"type": "integer", "minimum": 0, "maximum": 9007199254740990},
+            "end": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {"kind": {"const": "fragment"}, "value": {"type": "string", "minLength": 1, "maxLength": 1024}}
+        }
+      ]
+    },
+    "Citation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_id", "relation", "resource", "locator", "excerpt_digest", "record_digest"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/Identifier"},
+        "relation": {"enum": ["direct", "derived_from"]},
+        "resource": {"$ref": "#/$defs/ResourceRef"},
+        "locator": {"$ref": "#/$defs/Locator"},
+        "excerpt_digest": {"$ref": "#/$defs/Digest"},
+        "record_digest": {"$ref": "#/$defs/Digest"},
+        "content": {"type": "string", "maxLength": 32768}
+      }
+    },
+    "EvidenceResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resource", "inputs", "citations"],
+      "properties": {
+        "resource": {"$ref": "#/$defs/ResourceRef"},
+        "inputs": {"type": "array", "maxItems": 50, "uniqueItems": true, "items": {"$ref": "#/$defs/ResourceRef"}},
+        "citations": {"type": "array", "minItems": 1, "maxItems": 50, "items": {"$ref": "#/$defs/Citation"}}
+      }
+    },
+    "EvidencePacket": {
+      "type": "object", "additionalProperties": false,
+      "required": ["packet_id", "created_at", "results", "authorization"],
+      "properties": {
+        "packet_id": {"$ref": "#/$defs/Identifier"},
+        "created_at": {"type": "string", "format": "date-time", "maxLength": 40},
+        "results": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/EvidenceResult"}},
+        "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "ErrorCode": {
+      "enum": ["invalid_request", "unsupported_contract", "unsupported_operation", "unauthorized", "not_found", "cursor_invalid", "limit_exceeded", "payload_too_large", "integrity_mismatch", "unavailable"]
+    },
+    "Error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {"$ref": "#/$defs/ErrorCode"},
+        "message": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object", "maxProperties": 16, "propertyNames": {"$ref": "#/$defs/TypeName"}, "additionalProperties": {"$ref": "#/$defs/Scalar"}}
+      }
+    },
+    "Request": {
+      "oneOf": [
+        {"$ref": "#/$defs/NegotiateRequest"}, {"$ref": "#/$defs/DescribeTypesRequest"},
+        {"$ref": "#/$defs/SearchRequest"}, {"$ref": "#/$defs/FindRequest"},
+        {"$ref": "#/$defs/GetResourceRequest"}, {"$ref": "#/$defs/RetrieveEvidenceRequest"},
+        {"$ref": "#/$defs/ExplainRequest"}, {"$ref": "#/$defs/LineageRequest"},
+        {"$ref": "#/$defs/IntegrityRequest"}
+      ]
+    },
+    "NegotiateRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation"],
+      "properties": {"contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "negotiate"}}
+    },
+    "DescribeTypesRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "describe_types"},
+        "type_names": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/TypeName"}}
+      }
+    },
+    "SearchRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "query", "page"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "search"},
+        "query": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "types": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"$ref": "#/$defs/TypeName"}},
+        "page": {"$ref": "#/$defs/PageRequest"}
+      }
+    },
+    "FindSelector": {
+      "type": "object", "additionalProperties": false, "required": ["field", "value"],
+      "properties": {"field": {"enum": ["resource_id", "resource_type", "version", "label"]}, "value": {"type": "string", "minLength": 1, "maxLength": 512}}
+    },
+    "FindRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "match", "selectors", "page"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "find"}, "match": {"enum": ["all", "any"]},
+        "selectors": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"$ref": "#/$defs/FindSelector"}},
+        "page": {"$ref": "#/$defs/PageRequest"}
+      }
+    },
+    "GetResourceRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "ref"],
+      "properties": {"contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "get_resource"}, "ref": {"$ref": "#/$defs/ResourceRef"}}
+    },
+    "RetrieveEvidenceRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "refs", "max_evidence_per_resource", "max_content_bytes"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "retrieve_evidence"},
+        "refs": {"type": "array", "minItems": 1, "maxItems": 50, "uniqueItems": true, "items": {"$ref": "#/$defs/ResourceRef"}},
+        "max_evidence_per_resource": {"type": "integer", "minimum": 1, "maximum": 50},
+        "max_content_bytes": {"type": "integer", "minimum": 0, "maximum": 262144}
+      }
+    },
+    "ExplainRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "ref", "max_depth"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "explain"},
+        "ref": {"$ref": "#/$defs/ResourceRef"}, "max_depth": {"type": "integer", "minimum": 0, "maximum": 8}
+      }
+    },
+    "LineageRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "ref", "direction", "max_depth", "page"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "lineage"},
+        "ref": {"$ref": "#/$defs/ResourceRef"}, "direction": {"enum": ["ancestors", "descendants", "both"]},
+        "max_depth": {"type": "integer", "minimum": 1, "maximum": 16}, "page": {"$ref": "#/$defs/PageRequest"}
+      }
+    },
+    "IntegrityRequest": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "refs"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "integrity"},
+        "refs": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/ResourceRef"}}
+      }
+    },
+    "Response": {
+      "oneOf": [
+        {"$ref": "#/$defs/NegotiateResponse"}, {"$ref": "#/$defs/DescribeTypesResponse"},
+        {"$ref": "#/$defs/SearchResponse"}, {"$ref": "#/$defs/FindResponse"},
+        {"$ref": "#/$defs/GetResourceResponse"}, {"$ref": "#/$defs/RetrieveEvidenceResponse"},
+        {"$ref": "#/$defs/ExplainResponse"}, {"$ref": "#/$defs/LineageResponse"},
+        {"$ref": "#/$defs/IntegrityResponse"}, {"$ref": "#/$defs/ErrorResponse"}
+      ]
+    },
+    "ResponseHead": {
+      "type": "object", "required": ["contract_version", "operation"],
+      "properties": {"contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"$ref": "#/$defs/Operation"}}
+    },
+    "NegotiateResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contract_version", "operation", "provider", "health", "supported_contracts", "capabilities", "limits"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "negotiate"},
+        "provider": {
+          "type": "object", "additionalProperties": false, "required": ["issuer", "name", "implementation_version"],
+          "properties": {
+            "issuer": {"type": "string", "format": "uri", "minLength": 3, "maxLength": 512},
+            "name": {"type": "string", "minLength": 1, "maxLength": 200},
+            "implementation_version": {"type": "string", "minLength": 1, "maxLength": 100}
+          }
+        },
+        "health": {"enum": ["healthy", "degraded", "unavailable"]},
+        "supported_contracts": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}},
+        "capabilities": {"type": "array", "minItems": 1, "maxItems": 9, "uniqueItems": true, "items": {"$ref": "#/$defs/Operation"}},
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["max_request_bytes", "max_response_bytes", "max_page_size", "max_refs", "max_evidence_per_resource", "max_evidence_content_bytes"],
+          "properties": {
+            "max_request_bytes": {"type": "integer", "minimum": 1024, "maximum": 1048576},
+            "max_response_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
+            "max_page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+            "max_refs": {"type": "integer", "minimum": 1, "maximum": 100},
+            "max_evidence_per_resource": {"type": "integer", "minimum": 1, "maximum": 50},
+            "max_evidence_content_bytes": {"type": "integer", "minimum": 0, "maximum": 262144}
+          }
+        }
+      }
+    },
+    "TypeDescriptor": {
+      "type": "object", "additionalProperties": false, "required": ["name", "versioned", "searchable", "evidence_supported"],
+      "properties": {
+        "name": {"$ref": "#/$defs/TypeName"}, "versioned": {"const": true}, "searchable": {"type": "boolean"},
+        "evidence_supported": {"type": "boolean"}, "description": {"type": "string", "maxLength": 1024}
+      }
+    },
+    "DescribeTypesResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "types", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "describe_types"},
+        "types": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/TypeDescriptor"}},
+        "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "SearchResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "items", "page", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "search"},
+        "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/ResourceSummary"}},
+        "page": {"$ref": "#/$defs/PageResponse"}, "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "FindResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "items", "page", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "find"},
+        "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/ResourceSummary"}},
+        "page": {"$ref": "#/$defs/PageResponse"}, "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "GetResourceResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "resource", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "get_resource"},
+        "resource": {
+          "type": "object", "additionalProperties": false, "required": ["ref", "media_type"],
+          "properties": {
+            "ref": {"$ref": "#/$defs/ResourceRef"}, "media_type": {"type": "string", "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$", "maxLength": 200},
+            "content": {"type": "string", "maxLength": 262144}, "attributes": {"$ref": "#/$defs/Attributes"}
+          }
+        },
+        "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "RetrieveEvidenceResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "packet"],
+      "properties": {"contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "retrieve_evidence"}, "packet": {"$ref": "#/$defs/EvidencePacket"}}
+    },
+    "ExplainResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "subject", "summary", "inputs", "packet"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "explain"}, "subject": {"$ref": "#/$defs/ResourceRef"},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "inputs": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/ResourceRef"}},
+        "packet": {"$ref": "#/$defs/EvidencePacket"}
+      }
+    },
+    "LineageEdge": {
+      "type": "object", "additionalProperties": false, "required": ["from", "to", "relation"],
+      "properties": {"from": {"$ref": "#/$defs/ResourceRef"}, "to": {"$ref": "#/$defs/ResourceRef"}, "relation": {"enum": ["version_of", "derived_from", "cites"]}}
+    },
+    "LineageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "edges", "page", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "lineage"},
+        "edges": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/LineageEdge"}},
+        "page": {"$ref": "#/$defs/PageResponse"}, "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "IntegrityResult": {
+      "type": "object", "additionalProperties": false, "required": ["ref", "status", "observed_digest"],
+      "properties": {"ref": {"$ref": "#/$defs/ResourceRef"}, "status": {"enum": ["verified", "mismatch", "unavailable"]}, "observed_digest": {"$ref": "#/$defs/Digest"}}
+    },
+    "IntegrityResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "results", "authorization"],
+      "properties": {
+        "contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"const": "integrity"},
+        "results": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/IntegrityResult"}},
+        "authorization": {"$ref": "#/$defs/AuthorizationSummary"}
+      }
+    },
+    "ErrorResponse": {
+      "type": "object", "additionalProperties": false, "required": ["contract_version", "operation", "error"],
+      "properties": {"contract_version": {"$ref": "#/$defs/ContractVersion"}, "operation": {"$ref": "#/$defs/Operation"}, "error": {"$ref": "#/$defs/Error"}}
+    }
+  }
+}
