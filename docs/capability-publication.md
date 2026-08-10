@@ -69,13 +69,32 @@ services.
 
 The installable package includes a language-neutral fixture at
 `krail/resources/contracts/krail.context-brief.v1/bundle.json`. Its manifest
-pins the descriptor digest, projected request/result schemas, and a golden
+pins the `krail.context-brief.opensaddle-v1` wire descriptor digest, its
+embedded projected request/result schemas, and a golden
 repository-plus-issue exchange whose resource provenance uses OpenSaddle's
 normative `ResourceRef` and `SourceVersion` shape. Consumers can load and verify
 the assets through `krail.provider.resources` without importing the `rail`
 runtime.
 
+The wire capability has a distinct ID because its schemas are not the Python
+provider model schemas. Its digest atomically binds the projected schemas, the
+exact OpenSaddle provider-contract bundle, read-only effects, limits,
+processing versions, compatibility range, authorization declaration, and the
+source `krail.context-brief` descriptor. The internal descriptor is retained
+only as named provenance and must never be negotiated as the wire exchange.
+
 The projection is intentionally fail-closed: it requires caller-supplied direct
 source bindings and an explicit successful authorization decision, rejects
 derived or truncated evidence, and does not reinterpret KRAIL's query-based
 `retrieve_evidence` input as OpenSaddle's exact-ref operation.
+
+The direct-evidence profile preserves exact source identity, locator, content,
+and input order. It accepts only enumerated UTF-8 textual media types
+(`text/plain` and `text/markdown`). KRAIL media type and relevance are bound
+through the opaque `evidence_id`, which is itself covered by the recomputable
+wire `record_digest`, but they are not presentation fields in the normative
+Citation. Wire content must therefore be treated as UTF-8, untrusted text, and
+the projection is intentionally not fully reversible. Contiguous
+citations for one resource retain their order; interleaved repeated resources,
+duplicate evidence records, binary/unknown media, and any value whose semantics
+cannot be represented are rejected instead of regrouped or silently dropped.
