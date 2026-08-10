@@ -676,6 +676,52 @@ def test_hidden_population_cannot_trigger_visible_scan_bound_or_change_cursor(
         service.list_captures(restricted)
 
 
+def test_authorized_metadata_query_materializes_at_most_bound_plus_one(monkeypatch):
+    class BoundedSpyMetadata(MemoryMetadataStore):
+        list_calls = 0
+        materialized = 0
+
+        def list(self, *args, **kwargs):
+            self.list_calls += 1
+            raise AssertionError("authorized listing used the unbounded list adapter")
+
+        def list_authorized_captures(self, *args, **kwargs):
+            rows = super().list_authorized_captures(*args, **kwargs)
+            self.materialized = len(rows)
+            assert self.materialized <= kwargs["limit"]
+            return rows
+
+    metadata = BoundedSpyMetadata()
+    service, authority, _ = governed(metadata=metadata)
+    admin = issue(authority)
+    capture(service, admin, "visible-a")
+    capture(service, admin, "visible-b")
+    for index in range(20):
+        capture(
+            service,
+            admin,
+            f"hidden-{index:02d}",
+            source="slack",
+            classification="restricted",
+        )
+    restricted = issue(
+        authority,
+        claims(
+            actions=("capture.list",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="bounded-adapter-query",
+        ),
+    )
+    monkeypatch.setattr(hosted_access, "MAX_AUTHORIZATION_SCAN_RECORDS", 1)
+
+    with pytest.raises(ValueError, match="scan bound"):
+        service.list_captures(restricted)
+
+    assert metadata.list_calls == 0
+    assert metadata.materialized == 2
+
+
 def test_capture_idempotency_binds_source_and_classification():
     service, authority, _ = governed()
     context = issue(authority)

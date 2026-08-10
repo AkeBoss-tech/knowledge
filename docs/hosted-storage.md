@@ -84,8 +84,11 @@ migration must explicitly map and rewrite them.
 ## Non-leaking projections and audit
 
 Authorized listing filters source and classification before presentation.
-Capped authorization scans are applied to the policy-shaped visible snapshot,
-so hidden population cannot trigger a distinct caller-visible bound failure.
+Capped authorization scans are pushed into the metadata adapter as
+source/classification/state predicates plus `LIMIT`, so hidden population
+cannot trigger a distinct caller-visible bound failure or unbounded row
+materialization. Omission metadata is always coarse rather than querying a
+hidden count.
 Cursors are opaque HMAC-bound values tied to the signed context, tenant/project
 scope, and the exact visible snapshot. Policy omissions report only
 `count_precision: undisclosed`, `omitted_count: 0`, and a coarse reason. Hidden

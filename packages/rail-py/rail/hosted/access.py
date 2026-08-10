@@ -707,7 +707,7 @@ class GovernedHostedRepository:
             classification="*",
             target="capture-page",
         )
-        visible, omitted = self.repository.capture_records_for_scope(
+        visible = self.repository.capture_records_for_scope(
             source_ids=claims.source_ids,
             classifications=claims.classifications,
             max_records=MAX_AUTHORIZATION_SCAN_RECORDS,
@@ -751,7 +751,7 @@ class GovernedHostedRepository:
             items=tuple(page),
             next_cursor=next_cursor,
             authorization=AuthorizationSummary(
-                reason_codes=("policy_filtered",) if omitted else ()
+                reason_codes=("policy_filtered",)
             ),
         )
 

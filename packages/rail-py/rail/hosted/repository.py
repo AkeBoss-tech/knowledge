@@ -11,6 +11,7 @@ import base64
 import binascii
 import copy
 import hashlib
+import heapq
 import json
 import os
 import tempfile
@@ -65,6 +66,15 @@ class MetadataStore(Protocol):
     def put(self, record: HostedRecord, *, expected_revision: int) -> None: ...
     def restore(self, record: HostedRecord) -> None: ...
     def list(self, tenant_id: str, project_id: str, *, kind: str | None = None) -> list[HostedRecord]: ...
+    def list_authorized_captures(
+        self,
+        tenant_id: str,
+        project_id: str,
+        *,
+        source_ids: tuple[str, ...],
+        classifications: tuple[DataClassification, ...],
+        limit: int,
+    ) -> list[HostedRecord]: ...
 
 
 class MemoryMetadataStore:
@@ -114,6 +124,39 @@ class MemoryMetadataStore:
     def list(self, tenant_id: str, project_id: str, *, kind: str | None = None) -> list[HostedRecord]:
         rows = [r for r in self._records.values() if r.tenant_id == tenant_id and r.project_id == project_id and (kind is None or r.record_kind == kind)]
         return sorted(rows, key=lambda row: (row.record_kind, row.record_id))
+
+    def list_authorized_captures(
+        self,
+        tenant_id: str,
+        project_id: str,
+        *,
+        source_ids: tuple[str, ...],
+        classifications: tuple[DataClassification, ...],
+        limit: int,
+    ) -> list[HostedRecord]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        wildcard_source = "*" in source_ids
+        allowed_classifications = frozenset(classifications)
+
+        def authorized_rows() -> Iterator[HostedRecord]:
+            for row in self._records.values():
+                if (
+                    row.tenant_id != tenant_id
+                    or row.project_id != project_id
+                    or row.record_kind != "capture"
+                    or row.payload.get("state", "active") != "active"
+                ):
+                    continue
+                source_id = row.payload.get("source_id", "__legacy_unmapped__")
+                classification = row.payload.get("classification", "restricted")
+                if (
+                    (wildcard_source or source_id in source_ids)
+                    and classification in allowed_classifications
+                ):
+                    yield row
+
+        return heapq.nsmallest(limit, authorized_rows(), key=lambda row: row.record_id)
 
 
 class JsonMetadataStore(MemoryMetadataStore):
@@ -232,6 +275,40 @@ class PostgresMetadataStore:
             cursor.execute(sql, params)
             return [self._decode(row) for row in cursor.fetchall()]
 
+    def list_authorized_captures(
+        self,
+        tenant_id: str,
+        project_id: str,
+        *,
+        source_ids: tuple[str, ...],
+        classifications: tuple[DataClassification, ...],
+        limit: int,
+    ) -> list[HostedRecord]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        sql = (
+            "SELECT record FROM krail_hosted_record "
+            "WHERE tenant_id=%s AND project_id=%s AND record_kind='capture' "
+            "AND COALESCE(record->'payload'->>'state','active')='active'"
+        )
+        params: tuple[Any, ...] = (tenant_id, project_id)
+        if "*" not in source_ids:
+            sql += (
+                " AND COALESCE(record->'payload'->>'source_id',"
+                "'__legacy_unmapped__') = ANY(%s)"
+            )
+            params += (list(source_ids),)
+        sql += (
+            " AND COALESCE(record->'payload'->>'classification','restricted')"
+            " = ANY(%s)"
+        )
+        params += (list(classifications),)
+        sql += " ORDER BY record_id LIMIT %s"
+        params += (limit,)
+        with self._connection().cursor() as cursor:
+            cursor.execute(sql, params)
+            return [self._decode(row) for row in cursor.fetchall()]
+
 
 class HostedRepository:
     """Tenant/project-scoped unit of work for immutable captures."""
@@ -331,7 +408,7 @@ class HostedRepository:
         source_ids: tuple[str, ...],
         classifications: tuple[DataClassification, ...],
         max_records: int,
-    ) -> tuple[list[CaptureRecord], bool]:
+    ) -> list[CaptureRecord]:
         """Return a bounded policy-shaped metadata snapshot.
 
         Filtering stays inside the repository boundary so hidden population
@@ -342,26 +419,14 @@ class HostedRepository:
         if max_records < 0:
             raise ValueError("max_records must not be negative")
         with self.metadata.transaction():
-            rows = self.metadata.list(
-                self.tenant_id, self.project_id, kind="capture"
+            rows = self.metadata.list_authorized_captures(
+                self.tenant_id,
+                self.project_id,
+                source_ids=source_ids,
+                classifications=classifications,
+                limit=max_records + 1,
             )
-        wildcard_source = "*" in source_ids
-        allowed_classifications = frozenset(classifications)
-        visible: list[CaptureRecord] = []
-        omitted = False
-        for row in rows:
-            if row.payload.get("state", "active") != "active":
-                continue
-            capture = CaptureRecord.model_validate(row.payload)
-            allowed = (
-                (wildcard_source or capture.source_id in source_ids)
-                and capture.classification in allowed_classifications
-            )
-            if not allowed:
-                omitted = True
-            elif len(visible) <= max_records:
-                visible.append(capture)
-        return visible, omitted
+        return [CaptureRecord.model_validate(row.payload) for row in rows]
 
     def rebuild_projection(self, projection_id: str, builder: Callable[[list[CaptureRecord]], dict[str, Any]], *, rebuilt_at: datetime, projection_kind: str = "search") -> ProjectionRecord:
         with self.metadata.transaction():

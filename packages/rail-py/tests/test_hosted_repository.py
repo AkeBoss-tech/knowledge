@@ -198,6 +198,112 @@ def test_postgres_adapter_uses_scoped_compare_and_swap():
     assert connection.committed and not connection.rolled_back
 
 
+def test_postgres_authorized_capture_query_pushes_policy_and_limit_to_sql():
+    connection = FakeConnection()
+    store = PostgresMetadataStore(
+        "postgresql://unused", connect=lambda dsn: connection
+    )
+    with store.transaction():
+        assert (
+            store.list_authorized_captures(
+                "tenant",
+                "project",
+                source_ids=("github",),
+                classifications=("internal",),
+                limit=51,
+            )
+            == []
+        )
+
+    sql, params = connection.statements[-1]
+    assert "record_kind='capture'" in sql
+    assert "record->'payload'->>'state'" in sql
+    assert "record->'payload'->>'source_id'" in sql
+    assert "record->'payload'->>'classification'" in sql
+    assert "ORDER BY record_id LIMIT %s" in sql
+    assert params == ("tenant", "project", ["github"], ["internal"], 51)
+
+
+def test_postgres_authorized_capture_query_projects_nested_payload_policy():
+    source = repository(tenant="tenant", project="project")
+    expected = source.capture(
+        "github-internal",
+        b"visible",
+        source_id="github",
+        classification="internal",
+        media_type="text/plain",
+        created_at=NOW,
+        idempotency_key="visible",
+    )
+    source.capture(
+        "slack-internal",
+        b"hidden-source",
+        source_id="slack",
+        classification="internal",
+        media_type="text/plain",
+        created_at=NOW,
+        idempotency_key="hidden-source",
+    )
+    source.capture(
+        "github-restricted",
+        b"hidden-classification",
+        source_id="github",
+        classification="restricted",
+        media_type="text/plain",
+        created_at=NOW,
+        idempotency_key="hidden-classification",
+    )
+    records = source.metadata.list("tenant", "project", kind="capture")
+
+    class PolicyCursor(FakeCursor):
+        def execute(self, sql, params):
+            super().execute(sql, params)
+            assert "record->'payload'->>'source_id'" in sql
+            assert "record->'payload'->>'classification'" in sql
+            tenant, project, sources, classifications, limit = params
+            matches = [
+                row
+                for row in self.connection.records
+                if row.tenant_id == tenant
+                and row.project_id == project
+                and row.record_kind == "capture"
+                and row.payload.get("state", "active") == "active"
+                and row.payload.get("source_id", "__legacy_unmapped__") in sources
+                and row.payload.get("classification", "restricted")
+                in classifications
+            ]
+            self._rows = [
+                (row.model_dump(mode="json"),)
+                for row in sorted(matches, key=lambda row: row.record_id)[:limit]
+            ]
+
+        def fetchall(self):
+            return self._rows
+
+    class PolicyConnection(FakeConnection):
+        def __init__(self, values):
+            super().__init__()
+            self.records = values
+
+        def cursor(self):
+            return PolicyCursor(self)
+
+    connection = PolicyConnection(records)
+    store = PostgresMetadataStore(
+        "postgresql://unused", connect=lambda dsn: connection
+    )
+    with store.transaction():
+        projected = store.list_authorized_captures(
+            "tenant",
+            "project",
+            source_ids=("github",),
+            classifications=("internal",),
+            limit=2,
+        )
+
+    assert [row.record_id for row in projected] == [expected.capture_id]
+
+
 def test_memory_transaction_rolls_back_all_metadata_rows():
     store = MemoryMetadataStore()
     row = HostedRecord(tenant_id="tenant", project_id="project", record_kind="idempotency", record_id="one", revision=1, payload={}, created_at=NOW, updated_at=NOW)
