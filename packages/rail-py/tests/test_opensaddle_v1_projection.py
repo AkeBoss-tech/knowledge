@@ -96,7 +96,9 @@ def test_direct_evidence_projection_validates_normative_schema_and_digest_rules(
     record = {key: value for key, value in citation.items() if key != "record_digest"}
     from krail.provider.opensaddle_v1 import canonical_json
 
-    assert citation["record_digest"]["value"] == hashlib.sha256(canonical_json(record)).hexdigest()
+    assert citation["record_digest"]["value"] == hashlib.sha256(
+        canonical_json(record)
+    ).hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -163,19 +165,80 @@ def test_projection_digest_canonicalization_is_rfc8785_and_rejects_unsafe_intege
         canonical_json({"unsafe": 9_007_199_254_740_992})
 
 
-def test_projection_groups_multiple_direct_citations_without_losing_structure() -> None:
+def test_projection_rejects_duplicate_evidence_records() -> None:
     ref = _ref()
     first = _packet(ref).items[0]
-    packet = _packet(ref, items=[first, first.model_copy(update={"locator": "section-two"})])
+    packet = _packet(ref, items=[first, first])
 
-    projected = project_direct_evidence_packet(
-        packet,
+    with pytest.raises(ProjectionError, match="duplicate evidence records"):
+        project_direct_evidence_packet(
+            packet,
+            source_bindings=bindings_by_exact_key(((ref, _binding(ref)),)),
+            authorization=AuthorizationProjection(authorized=True),
+        )
+
+
+def test_projection_accepts_supported_text_media_and_binds_unprojected_metadata() -> None:
+    ref = _ref()
+    plain = project_direct_evidence_packet(
+        _packet(ref),
         source_bindings=bindings_by_exact_key(((ref, _binding(ref)),)),
+        authorization=AuthorizationProjection(authorized=True),
+    )["results"][0]["citations"][0]
+    rich_item = _packet(ref).items[0].model_copy(
+        update={"media_type": "text/markdown", "relevance": 0.5}
+    )
+    rich = project_direct_evidence_packet(
+        _packet(ref, items=[rich_item]),
+        source_bindings=bindings_by_exact_key(((ref, _binding(ref)),)),
+        authorization=AuthorizationProjection(authorized=True),
+    )["results"][0]["citations"][0]
+
+    assert rich["content"] == plain["content"]
+    assert "media_type" not in rich and "relevance" not in rich
+    assert rich["evidence_id"] != plain["evidence_id"]
+    assert rich["record_digest"] != plain["record_digest"]
+
+
+def test_projection_rejects_untyped_or_binary_media() -> None:
+    ref = _ref()
+    item = _packet(ref).items[0].model_copy(update={"media_type": "application/json"})
+
+    with pytest.raises(ProjectionError, match="supported UTF-8 text"):
+        project_direct_evidence_packet(
+            _packet(ref, items=[item]),
+            source_bindings=bindings_by_exact_key(((ref, _binding(ref)),)),
+            authorization=AuthorizationProjection(authorized=True),
+        )
+
+
+def test_projection_preserves_contiguous_citation_order_and_rejects_interleaving() -> None:
+    first_ref = _ref()
+    second_ref = _ref(resource_id="docs/second")
+    first = _packet(first_ref).items[0]
+    first_later = first.model_copy(update={"locator": "section-two"})
+    second = EvidenceItem(
+        source=second_ref,
+        locator="docs/second#utf8:0-22",
+        excerpt=CONTENT,
+    )
+    bindings = bindings_by_exact_key(
+        ((first_ref, _binding(first_ref)), (second_ref, _binding(second_ref)))
+    )
+    contiguous = project_direct_evidence_packet(
+        _packet(first_ref, items=[first, first_later, second]),
+        source_bindings=bindings,
         authorization=AuthorizationProjection(authorized=True),
     )
 
-    assert len(projected["results"]) == 1
-    assert [item["locator"] for item in projected["results"][0]["citations"]] == [
+    assert [citation["locator"] for result in contiguous["results"] for citation in result["citations"]] == [
         {"kind": "span", "unit": "bytes", "start": 0, "end": 22},
         {"kind": "fragment", "value": "section-two"},
+        {"kind": "span", "unit": "bytes", "start": 0, "end": 22},
     ]
+    with pytest.raises(ProjectionError, match="interleaved"):
+        project_direct_evidence_packet(
+            _packet(first_ref, items=[first, second, first_later]),
+            source_bindings=bindings,
+            authorization=AuthorizationProjection(authorized=True),
+        )

@@ -8,6 +8,8 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from krail.epistemic_history import OperationContext
+from krail.provider.opensaddle_v1 import canonical_json
 from krail.provider.resources import (
     CONTEXT_BRIEF_BUNDLE,
     PROVIDER_CONTRACT,
@@ -15,7 +17,12 @@ from krail.provider.resources import (
     resource_json,
     verify_manifest,
 )
-from rail.wire_bundle import build_context_brief_bundle, bundle_json
+from rail.context_brief import context_brief_digest
+from rail.wire_bundle import (
+    build_context_brief_bundle,
+    build_context_brief_models,
+    bundle_json,
+)
 
 
 PINNED = {
@@ -61,18 +68,29 @@ def test_context_brief_bundle_is_reproducible_manifested_and_digest_pinned() -> 
     assert packaged == bundle_json()
     assert bundle == build_context_brief_bundle()
     assert bundle["bundle_version"] == "krail.context-brief.bundle.v1"
-    assert bundle["descriptor_digest"] == bundle["provider_descriptor"]["descriptor_digest"]
+    wire = bundle["wire_capability_descriptor"]
+    assert bundle["wire_descriptor_digest"] == wire["descriptor_digest"]
+    wire_body = {key: value for key, value in wire.items() if key != "descriptor_digest"}
+    assert wire["descriptor_digest"] == "sha256:" + hashlib.sha256(
+        canonical_json(wire_body)
+    ).hexdigest()
+    assert bundle["internal_descriptor_digest"] == bundle[
+        "internal_provider_descriptor_provenance"
+    ]["descriptor_digest"]
+    assert bundle["wire_descriptor_digest"] != bundle["internal_descriptor_digest"]
+    assert manifest["wire_descriptor_digest"] == bundle["wire_descriptor_digest"]
     assert manifest["files"][0]["sha256"] == hashlib.sha256(packaged).hexdigest()
 
 
 def test_context_brief_golden_values_validate_projected_embedded_schemas() -> None:
     bundle = resource_json(CONTEXT_BRIEF_BUNDLE, "bundle.json")
     checker = FormatChecker()
+    wire_operation = bundle["wire_capability_descriptor"]["operations"][0]
 
-    Draft202012Validator(bundle["schemas"]["request"], format_checker=checker).validate(
+    Draft202012Validator(wire_operation["input_schema"], format_checker=checker).validate(
         bundle["golden"]["request"]
     )
-    Draft202012Validator(bundle["schemas"]["result"], format_checker=checker).validate(
+    Draft202012Validator(wire_operation["output_schema"], format_checker=checker).validate(
         bundle["golden"]["result"]
     )
     repository = bundle["golden"]["request"]["repository"]
@@ -86,7 +104,72 @@ def test_context_brief_golden_values_validate_projected_embedded_schemas() -> No
         bundle["golden"]["provider_evidence_response"]
     )
     assert "contract_version" not in bundle["golden"]["request"]
-    assert bundle["wire_projection"]["context_brief_contract"] == bundle["bundle_version"]
+    assert bundle["capability_mapping"]["context_brief_contract"] == bundle["bundle_version"]
+
+
+def test_internal_descriptor_is_provenance_only_and_rejects_wire_golden() -> None:
+    bundle = resource_json(CONTEXT_BRIEF_BUNDLE, "bundle.json")
+    internal = bundle["internal_provider_descriptor_provenance"]
+    operation = next(
+        item for item in internal["operations"] if item["operation_id"] == "context_brief"
+    )
+
+    assert list(
+        Draft202012Validator(operation["input_schema"]).iter_errors(
+            bundle["golden"]["request"]
+        )
+    )
+    assert list(
+        Draft202012Validator(operation["output_schema"]).iter_errors(
+            bundle["golden"]["result"]
+        )
+    )
+    assert operation["input_schema"] != bundle["wire_capability_descriptor"][
+        "operations"
+    ][0]["input_schema"]
+
+
+def test_golden_brief_uses_complete_production_digest_semantics() -> None:
+    request, brief, _bindings, _authorization = build_context_brief_models()
+    bundle = build_context_brief_bundle()
+
+    values = {
+        "repository": brief.repository,
+        "issue": brief.issue,
+        "evaluated_at": brief.evaluated_at,
+        "evidence": brief.evidence,
+        "assertions": brief.assertions,
+        "freshness": brief.freshness,
+        "conflicts": brief.conflicts,
+        "gaps": brief.gaps,
+        "omissions": brief.omissions,
+        "ranking_trace": brief.ranking_trace,
+        "processing_versions": brief.processing_versions,
+        "operation_context": request.operation_context,
+        "truncated": brief.truncated,
+    }
+    recomputed = context_brief_digest(**values)
+
+    assert recomputed == brief.brief_digest
+    assert recomputed == bundle["golden"]["result"]["brief_digest"]
+    assert recomputed == brief.domain_event_ref.event_digest
+    assert recomputed == bundle["golden"]["result"]["domain_event_ref"]["event_digest"]
+    changed_correlation = context_brief_digest(
+        **{
+            **values,
+            "operation_context": OperationContext(
+                operation_id="operation/fixture-context-brief",
+                correlation_id="correlation/changed",
+            ),
+        }
+    )
+    changed_gaps = context_brief_digest(
+        **{**values, "gaps": brief.gaps + (brief.gaps[0].model_copy(update={"code": "changed-gap"}),)}
+    )
+    changed_ranking = context_brief_digest(
+        **{**values, "ranking_trace": tuple(reversed(brief.ranking_trace))}
+    )
+    assert len({recomputed, changed_correlation, changed_gaps, changed_ranking}) == 4
 
 
 def test_regenerator_is_idempotent() -> None:

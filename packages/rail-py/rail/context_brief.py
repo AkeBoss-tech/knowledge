@@ -156,6 +156,48 @@ class ContextBrief(StrictModel):
     truncated: bool = False
 
 
+def context_brief_digest(
+    *,
+    repository: ResourceRef,
+    issue: ResourceRef,
+    evaluated_at: datetime,
+    evidence: EvidencePacket,
+    assertions: tuple[ContextAssertion, ...],
+    freshness: tuple[FreshnessAssessment, ...],
+    conflicts: tuple[EvidenceConflict, ...],
+    gaps: tuple[EvidenceGap, ...],
+    omissions: tuple[AuthorizationOmission, ...],
+    ranking_trace: tuple[RankingTraceEntry, ...],
+    processing_versions: tuple[ProcessingVersion, ...],
+    operation_context: OperationContext | None,
+    truncated: bool,
+) -> str:
+    """Digest the complete production Context Brief semantic body."""
+
+    return _digest(
+        {
+            "schema_version": CONTEXT_BRIEF_VERSION,
+            "repository": repository.model_dump(mode="json"),
+            "issue": issue.model_dump(mode="json"),
+            "evaluated_at": evaluated_at.isoformat(),
+            "evidence": evidence.model_dump(mode="json"),
+            "assertions": [item.model_dump(mode="json") for item in assertions],
+            "freshness": [item.model_dump(mode="json") for item in freshness],
+            "conflicts": [item.model_dump(mode="json") for item in conflicts],
+            "gaps": [item.model_dump(mode="json") for item in gaps],
+            "omissions": [item.model_dump(mode="json") for item in omissions],
+            "ranking_trace": [item.model_dump(mode="json") for item in ranking_trace],
+            "processing_versions": [
+                item.model_dump(mode="json") for item in processing_versions
+            ],
+            "operation_context": (
+                operation_context.model_dump(mode="json") if operation_context else None
+            ),
+            "truncated": truncated,
+        }
+    )
+
+
 class ContextBriefService:
     """Read-only context assembly; history recording is an explicit local step."""
 
@@ -250,23 +292,21 @@ class ContextBriefService:
             evidence = evidence.model_copy(update={"truncated": True})
         omissions = (AuthorizationOmission(),) if request.authorization_omission else ()
 
-        body = {
-            "schema_version": CONTEXT_BRIEF_VERSION,
-            "repository": request.repository.model_dump(mode="json"),
-            "issue": request.issue.model_dump(mode="json"),
-            "evaluated_at": request.evaluated_at.isoformat(),
-            "evidence": evidence.model_dump(mode="json"),
-            "assertions": [item.model_dump(mode="json") for item in assertions],
-            "freshness": [item.model_dump(mode="json") for item in freshness],
-            "conflicts": [item.model_dump(mode="json") for item in conflicts],
-            "gaps": [item.model_dump(mode="json") for item in gaps],
-            "omissions": [item.model_dump(mode="json") for item in omissions],
-            "ranking_trace": [item.model_dump(mode="json") for item in ranking_trace],
-            "processing_versions": [item.model_dump(mode="json") for item in request.processing_versions],
-            "operation_context": request.operation_context.model_dump(mode="json") if request.operation_context else None,
-            "truncated": truncated,
-        }
-        brief_digest = _digest(body)
+        brief_digest = context_brief_digest(
+            repository=request.repository,
+            issue=request.issue,
+            evaluated_at=request.evaluated_at,
+            evidence=evidence,
+            assertions=assertions,
+            freshness=freshness,
+            conflicts=conflicts,
+            gaps=tuple(gaps),
+            omissions=omissions,
+            ranking_trace=ranking_trace,
+            processing_versions=request.processing_versions,
+            operation_context=request.operation_context,
+            truncated=truncated,
+        )
         event_ref = DomainEventRef.for_digest(
             event_type="krail.context-brief-assembled.v1",
             digest=brief_digest,
@@ -387,6 +427,7 @@ __all__ = [
     "ContextBrief",
     "ContextBriefRequest",
     "ContextBriefService",
+    "context_brief_digest",
     "EvidenceConflict",
     "EvidenceGap",
     "FreshnessAssessment",

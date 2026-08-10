@@ -24,13 +24,14 @@ WIRE_CONTRACT_ID = "krail.provider.v1"
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}$")
 _TYPE_NAME = re.compile(r"^[a-z][a-z0-9_.-]{0,99}$")
 _UTF8_LOCATOR = re.compile(r"^.+#utf8:(\d+)-(\d+)$")
+_TEXT_MEDIA_TYPES = frozenset({"text/plain", "text/markdown"})
 _REASON_CODES = frozenset(
     {"policy_filtered", "scope_filtered", "classification_filtered"}
 )
 
 
 class ProjectionError(ValueError):
-    """The source value cannot be projected without changing its semantics."""
+    """The source value cannot be projected under the bounded wire profile."""
 
 
 def canonical_json(value: Any) -> bytes:
@@ -180,18 +181,22 @@ def _citation(
     item: EvidenceItem,
     resource: dict[str, Any],
 ) -> dict[str, Any]:
+    if item.media_type not in _TEXT_MEDIA_TYPES:
+        raise ProjectionError(
+            "evidence media_type is not an explicitly supported UTF-8 text type"
+        )
     excerpt_digest = {"algorithm": "sha-256", "value": _sha256(item.excerpt.encode("utf-8"))}
     locator = _locator(item.locator)
     identity = {
         "resource": resource,
         "locator": locator,
         "excerpt_digest": excerpt_digest,
-        "media_type": item.media_type,
-        "relevance": item.relevance,
+        "internal_media_type": item.media_type,
+        "internal_relevance": item.relevance,
     }
     identity_digest = _sha256(canonical_json(identity))
     evidence_id = f"evidence/{identity_digest[:32]}"
-    record_body = {
+    wire_body = {
         "evidence_id": evidence_id,
         "relation": "direct",
         "resource": resource,
@@ -200,10 +205,10 @@ def _citation(
         "content": item.excerpt,
     }
     return {
-        **record_body,
+        **wire_body,
         "record_digest": {
             "algorithm": "sha-256",
-            "value": _sha256(canonical_json(record_body)),
+            "value": _sha256(canonical_json(wire_body)),
         },
     }
 
@@ -230,21 +235,31 @@ def project_direct_evidence_packet(
         raise ProjectionError("packet_id is outside OpenSaddle v1 identifier bounds")
 
     results: list[dict[str, Any]] = []
-    result_indexes: dict[tuple[str, str, str, str, str], int] = {}
+    completed: set[tuple[str, str, str, str, str]] = set()
+    current_key: tuple[str, str, str, str, str] | None = None
+    evidence_ids: set[str] = set()
     for item in packet.items:
         key = item.source.exact_key
+        if current_key is not None and key != current_key:
+            completed.add(current_key)
+        if key in completed:
+            raise ProjectionError(
+                "interleaved resource citations cannot preserve global KRAIL item order"
+            )
         binding = source_bindings.get(key)
         if binding is None:
             raise ProjectionError("every direct evidence source requires an explicit binding")
         resource = project_direct_resource_ref(item.source, binding)
         citation = _citation(item, resource)
-        if key in result_indexes:
-            citations = results[result_indexes[key]]["citations"]
+        if citation["evidence_id"] in evidence_ids:
+            raise ProjectionError("duplicate evidence records are not projectable")
+        evidence_ids.add(citation["evidence_id"])
+        if key == current_key:
+            citations = results[-1]["citations"]
             if len(citations) >= 50:
                 raise ProjectionError("direct citation count exceeds OpenSaddle v1 bounds")
             citations.append(citation)
         else:
-            result_indexes[key] = len(results)
             results.append(
                 {
                     "resource": resource,
@@ -252,6 +267,7 @@ def project_direct_evidence_packet(
                     "citations": [citation],
                 }
             )
+            current_key = key
     if not results or len(results) > 100:
         raise ProjectionError("projected evidence result count is outside OpenSaddle v1 bounds")
     return {
