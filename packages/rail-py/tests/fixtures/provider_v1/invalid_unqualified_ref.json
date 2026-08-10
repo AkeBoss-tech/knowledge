@@ -1,5 +1,5 @@
 {
-  "contract": "krail.provider.v1",
+  "contract": "krail.provider.model.v1",
   "authority": "local-project",
   "resource_type": "topic",
   "resource_id": "topics/provider-contract.md",

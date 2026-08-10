@@ -26,3 +26,18 @@ application seam as `provider_capability` and `provider_context_brief`.
 KRAIL remains standalone: publication and Context Brief assembly require no
 OpenSaddle import, hosted service, external action, credential, or approval
 system.
+
+## OpenSaddle wire bundle
+
+The installable package includes a language-neutral fixture at
+`krail/resources/contracts/krail.context-brief.v1/bundle.json`. Its manifest
+pins the descriptor digest, projected request/result schemas, and a golden
+repository-plus-issue exchange whose resource provenance uses OpenSaddle's
+normative `ResourceRef` and `SourceVersion` shape. Consumers can load and verify
+the assets through `krail.provider.resources` without importing the `rail`
+runtime.
+
+The projection is intentionally fail-closed: it requires caller-supplied direct
+source bindings and an explicit successful authorization decision, rejects
+derived or truncated evidence, and does not reinterpret KRAIL's query-based
+`retrieve_evidence` input as OpenSaddle's exact-ref operation.

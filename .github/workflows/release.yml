@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e 'packages/rail-py[local]' -e packages/mcp-server
-          python -m pip install pytest
+          python -m pip install pytest jsonschema
 
       - name: Run release tests
         run: |
@@ -46,6 +46,10 @@ jobs:
             packages/rail-py/tests/test_source_dependencies.py \
             packages/rail-py/tests/test_think.py \
             packages/rail-py/tests/test_workflows.py \
+            packages/rail-py/tests/test_provider_v1.py \
+            packages/rail-py/tests/test_capability_publication.py \
+            packages/rail-py/tests/test_opensaddle_v1_projection.py \
+            packages/rail-py/tests/test_wire_contract_resources.py \
             packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_sources_affected_passes_source_ids \

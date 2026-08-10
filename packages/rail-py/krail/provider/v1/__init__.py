@@ -21,7 +21,10 @@ from pydantic import (
 )
 
 
-CONTRACT_ID = "krail.provider.v1"
+# KRAIL's Python-native model is not the external language-neutral
+# ``krail.provider.v1`` wire protocol. Keep the import path stable while using a
+# distinct discriminator so the incompatible shapes cannot be confused.
+CONTRACT_ID = "krail.provider.model.v1"
 MAX_SEARCH_RESULTS = 100
 MAX_FIND_RESULTS = 100
 MAX_RESOURCE_BYTES = 1_048_576
@@ -54,7 +57,7 @@ class ContractModel(BaseModel):
     """Strict base for every provider-v1 wire model."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    contract: Literal["krail.provider.v1"] = CONTRACT_ID
+    contract: Literal["krail.provider.model.v1"] = CONTRACT_ID
 
 
 ProviderCapability = Literal[
