@@ -375,6 +375,7 @@ def test_phase3_python_provider_and_cli_are_equivalent(tmp_path: Path, capsys) -
 
 def test_phase3_outcome_envelope_is_strict_and_requires_exact_prior(tmp_path: Path) -> None:
     request = _outcome()
+    project = _project(tmp_path)
     envelope = OutcomeIngestEnvelope(request=request)
     payload = envelope.model_dump(mode="json")
     payload["unexpected"] = "not-accepted"
@@ -389,8 +390,38 @@ def test_phase3_outcome_envelope_is_strict_and_requires_exact_prior(tmp_path: Pa
         }
     )
     with pytest.raises(ValueError, match="exact prior observation"):
-        _project(tmp_path).ingest_outcome_evidence(
-            OutcomeIngestEnvelope(request=missing_prior)
+        project.ingest_outcome_evidence(OutcomeIngestEnvelope(request=missing_prior))
+
+    prior = project.ingest_outcome_evidence(OutcomeIngestEnvelope(request=request))
+    superseding_request = _superseding_request(request, prior)
+    wrong_prior = project.ingest_outcome_evidence(
+        OutcomeIngestEnvelope(
+            request=request.model_copy(
+                update={
+                    "observation": request.observation.model_copy(
+                        update={"observed_at": request.observation.observed_at + timedelta(seconds=1)}
+                    )
+                }
+            )
+        )
+    )
+    wrong_envelope = OutcomeIngestEnvelope(
+        request=superseding_request,
+        prior_observation=wrong_prior,
+    )
+    for invoke in (
+        project.ingest_outcome_evidence,
+        project.provider.ingest_outcome_evidence,
+    ):
+        with pytest.raises(ValueError, match="explicitly supersede"):
+            invoke(wrong_envelope)
+    with pytest.raises(ValueError, match="explicitly supersede"):
+        rail_cli.cmd_provider(
+            project,
+            argparse.Namespace(
+                provider_command="ingest-outcome-evidence",
+                request=wrong_envelope.model_dump_json(),
+            ),
         )
 
 

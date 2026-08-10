@@ -399,6 +399,31 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         outcome_service.ingest(superseding_request, previous=prior).model_dump(mode="json")
     )
 
+    missing_prior = json.loads(
+        server.provider_ingest_outcome_evidence(
+            OutcomeIngestEnvelope(request=superseding_request).model_dump_json()
+        )
+    )
+    assert missing_prior["error"]["code"] == "invalid_arguments"
+    wrong_prior = outcome_service.ingest(
+        outcome.model_copy(
+            update={
+                "observation": outcome.observation.model_copy(
+                    update={"observed_at": outcome.observation.observed_at + timedelta(seconds=1)}
+                )
+            }
+        )
+    )
+    wrong_parent = json.loads(
+        server.provider_ingest_outcome_evidence(
+            OutcomeIngestEnvelope(
+                request=superseding_request,
+                prior_observation=wrong_prior,
+            ).model_dump_json()
+        )
+    )
+    assert wrong_parent["error"]["code"] == "invalid_arguments"
+
     utf8_payload = envelope.model_dump(mode="json")
     utf8_payload["request"]["observation"]["bounded_summary"] = "é" * 2048
     utf8_payload["request"]["semantic_assertions"][0]["text"] = "é" * 8192
