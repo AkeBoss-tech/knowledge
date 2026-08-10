@@ -47,6 +47,7 @@ from rail.semantic.repository import (
     PostgresSemanticStore,
     SemanticRepository,
 )
+from rail.semantic.operations import SemanticOperationsService
 
 __all__ = [
     "Alias",
@@ -82,6 +83,7 @@ __all__ = [
     "SemanticPack",
     "SemanticPackService",
     "SemanticRepository",
+    "SemanticOperationsService",
     "SemanticRevision",
     "SemanticType",
     "ValidationFinding",

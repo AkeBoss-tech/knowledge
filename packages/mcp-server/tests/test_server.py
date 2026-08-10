@@ -318,10 +318,45 @@ def test_mcp_contract_exposes_all_provider_v1_reads():
         "provider_context_brief",
         "provider_assemble_verification_evidence",
         "provider_ingest_outcome_evidence",
+        "provider_semantic_operation",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",
     }
+
+
+def test_mcp_semantic_operation_is_equivalent_to_provider(monkeypatch):
+    import hashlib
+
+    from krail.provider.semantic import ResolveEntityRequest, ResolveEntityResult, SemanticReadScope, OperationTrace
+
+    body = {
+        "tenant_id": "tenant-a", "project_id": "project-a", "subject_id": "user/alice",
+        "allowed_authorities": ["https://github.example.test"],
+        "allowed_resource_types": [], "policy_digest": "sha256:" + "a" * 64,
+    }
+    scope_digest = "sha256:" + hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    request = ResolveEntityRequest(scope=SemanticReadScope(**body, scope_digest=scope_digest), query="42")
+    result = ResolveEntityResult(
+        trace=OperationTrace(
+            operation="resolve_entity", request_digest="sha256:" + "b" * 64,
+            snapshot_digest="sha256:" + "c" * 64, processing_version="semantic/1",
+            processing_digest="sha256:" + "d" * 64,
+        )
+    )
+
+    class _Provider:
+        def semantic_operation(self, operation, actual):
+            assert operation == "resolve_entity" and actual == request
+            return result
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+    assert json.loads(server.provider_semantic_operation("resolve_entity", request.model_dump_json())) == result.model_dump(mode="json")
 
 
 def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monkeypatch):

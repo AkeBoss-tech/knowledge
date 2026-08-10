@@ -21,6 +21,16 @@ from krail.provider.v1 import (
 )
 from rail.bootstrap import bootstrap_future_project
 from rail.context_brief import ContextBriefRequest
+from krail.provider.semantic import (
+    AssembleCrossSourceEvidenceRequest,
+    CompareObservationsRequest,
+    ExplainConflictRequest,
+    GetEntityRequest,
+    ListOntologyPackagesRequest,
+    ListOntologyProposalHistoryRequest,
+    ResolveEntityRequest,
+    TraverseRelationshipsRequest,
+)
 from rail.docs import query_builtin_doc, search_builtin_docs
 from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
 from rail.manifest import ManifestValidationError
@@ -204,6 +214,19 @@ def cmd_provider(project: rail.Project, args: argparse.Namespace):
         result = provider.ingest_outcome_evidence(
             OutcomeIngestEnvelope.model_validate_json(args.request),
         )
+    elif command == "semantic":
+        models = {
+            "resolve_entity": ResolveEntityRequest,
+            "get_entity": GetEntityRequest,
+            "traverse_relationships": TraverseRelationshipsRequest,
+            "compare_observations": CompareObservationsRequest,
+            "explain_conflict": ExplainConflictRequest,
+            "assemble_cross_source_evidence": AssembleCrossSourceEvidenceRequest,
+            "list_ontology_packages": ListOntologyPackagesRequest,
+            "list_ontology_proposal_history": ListOntologyProposalHistoryRequest,
+        }
+        model = models[args.operation]
+        result = provider.semantic_operation(args.operation, model.model_validate_json(args.request))
     elif command == "explain":
         result = provider.explain(ExplainRequest(question=args.question, refs=[_provider_ref(item) for item in args.ref or []], max_evidence_items=args.max_evidence_items))
     elif command == "lineage":
@@ -988,6 +1011,19 @@ def main():
         "request",
         help="Strict OutcomeIngestEnvelope JSON including any exact prior observation",
     )
+    provider_semantic = provider_subs.add_parser(
+        "semantic", help="Run one bounded policy-shaped semantic graph operation",
+    )
+    provider_semantic.add_argument(
+        "operation",
+        choices=(
+            "resolve_entity", "get_entity", "traverse_relationships",
+            "compare_observations", "explain_conflict",
+            "assemble_cross_source_evidence", "list_ontology_packages",
+            "list_ontology_proposal_history",
+        ),
+    )
+    provider_semantic.add_argument("request", help="Strict semantic operation request JSON")
     provider_explain = provider_subs.add_parser("explain", help="Explain from bounded exact evidence")
     provider_explain.add_argument("question")
     provider_explain.add_argument("--ref", action="append", help="ResourceRef JSON")

@@ -101,6 +101,25 @@ class KnowledgeApplicationService:
         self.capability_publication = LocalCapabilityPublication()
         self.verification_evidence = VerificationEvidenceService()
         self.outcome_observations = OutcomeObservationService()
+        from rail.semantic import JsonSemanticStore, SemanticOperationsService, SemanticRepository
+
+        semantic_repository = SemanticRepository(
+            JsonSemanticStore(runtime.project_path / ".krail" / "semantic.json"),
+            tenant_id="local",
+            project_id=runtime.project_path.name,
+        )
+        def authorize_local_semantic_scope(scope):
+            # Local mode is composed under the operating-system user's project
+            # authority. Hosted deployments inject their signed live verifier.
+            if scope.tenant_id != "local" or scope.project_id != runtime.project_path.name:
+                raise PermissionError("semantic scope is unavailable")
+            return scope
+
+        self.semantic_operations = SemanticOperationsService(
+            semantic_repository,
+            cursor_key=hashlib.sha256(("krail.semantic-cursor:" + str(runtime.project_path)).encode()).digest(),
+            authorize_scope=authorize_local_semantic_scope,
+        )
 
     def context_brief(self, request):
         """Assemble a bounded brief without performing provider or external writes."""
@@ -116,6 +135,12 @@ class KnowledgeApplicationService:
             envelope.request,
             previous=envelope.prior_observation,
         )
+
+    def semantic_operation(self, operation: str, request):
+        method = getattr(self.semantic_operations, operation, None)
+        if method is None or operation.startswith("_"):
+            raise ValueError("semantic operation is not published")
+        return method(request)
 
     def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
         return self.runtime._search_impl(query, **kwargs)
@@ -191,6 +216,9 @@ class LocalKnowledgeProvider:
 
     def ingest_outcome_evidence(self, envelope):
         return self.application.ingest_outcome_evidence(envelope)
+
+    def semantic_operation(self, operation: str, request):
+        return self.application.semantic_operation(operation, request)
 
     def describe_types(self, request: DescribeTypesRequest) -> DescribeTypesResult:
         del request
