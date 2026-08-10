@@ -284,6 +284,22 @@ class HostedRepository:
 
     def read_capture(self, capture_id: str) -> tuple[CaptureRecord, bytes]:
         capture = self.capture_metadata(capture_id)
+        return self.read_capture_record(capture)
+
+    def read_capture_record(
+        self, capture: CaptureRecord
+    ) -> tuple[CaptureRecord, bytes]:
+        """Read bytes for an exact, previously resolved capture revision.
+
+        Callers that authorize from capture metadata must use this method so a
+        concurrent update cannot replace the authorized revision between the
+        policy decision and the object read.
+        """
+        if (
+            capture.tenant_id != self.tenant_id
+            or capture.project_id != self.project_id
+        ):
+            raise IntegrityFailure("capture metadata belongs to a different scope")
         content = self.objects.get(capture.object_key)
         if len(content) != capture.byte_size or _digest(content) != capture.content_digest:
             raise IntegrityFailure("capture object does not match immutable metadata")

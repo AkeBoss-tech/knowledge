@@ -14,6 +14,7 @@ from rail.hosted import (
     AccessDenied,
     AuditUnavailable,
     CaptureRecord,
+    ConcurrencyConflict,
     CursorInvalid,
     FileObjectStore,
     GovernedHostedRepository,
@@ -269,6 +270,209 @@ def test_revocation_is_rechecked_after_prior_allowed_decision():
         service.read_capture(context, "capture-1")
 
 
+def test_read_is_bound_to_the_exact_revision_that_was_authorized(monkeypatch):
+    service, authority, _ = governed()
+    admin = issue(authority)
+    first = capture(service, admin, content=b"authorized-v1")
+    restricted = issue(
+        authority,
+        claims(
+            actions=("capture.read",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="restricted-reader",
+        ),
+    )
+    authorize = service._authorize
+    raced = False
+
+    def authorize_then_replace(*args, **kwargs):
+        nonlocal raced
+        result = authorize(*args, **kwargs)
+        if kwargs.get("target") == first.capture_id and not raced:
+            raced = True
+            service.repository.capture(
+                first.capture_id,
+                b"restricted-v2",
+                source_id="private-source",
+                classification="restricted",
+                media_type="text/plain",
+                created_at=NOW,
+                idempotency_key="idem-racing-v2",
+                expected_revision=1,
+            )
+        return result
+
+    monkeypatch.setattr(service, "_authorize", authorize_then_replace)
+
+    returned, content = service.read_capture(restricted, first.capture_id)
+
+    assert raced is True
+    assert returned == first
+    assert content == b"authorized-v1"
+    current, current_content = service.repository.read_capture(first.capture_id)
+    assert current.revision == 2
+    assert current.source_id == "private-source"
+    assert current.classification == "restricted"
+    assert current_content == b"restricted-v2"
+
+
+def test_update_authorizes_both_current_and_proposed_policy_scope():
+    service, authority, _ = governed()
+    admin = issue(authority)
+    original = capture(
+        service,
+        admin,
+        source="slack",
+        classification="restricted",
+        content=b"restricted-v1",
+    )
+    github_writer = issue(
+        authority,
+        claims(
+            actions=("capture.write",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="github-writer",
+        ),
+    )
+
+    with pytest.raises(AccessDenied, match="^access denied$"):
+        service.capture(
+            github_writer,
+            original.capture_id,
+            b"github-v2",
+            source_id="github",
+            classification="internal",
+            media_type="text/plain",
+            created_at=NOW,
+            idempotency_key="idem-unauthorized-overwrite",
+            expected_revision=original.revision,
+        )
+
+    assert service.repository.read_capture(original.capture_id) == (
+        original,
+        b"restricted-v1",
+    )
+
+
+def test_create_collision_authorizes_current_scope_before_revealing_conflict():
+    objects = MemoryObjectStore()
+    service, authority, _ = governed(objects=objects)
+    admin = issue(authority)
+    visible = capture(service, admin, "visible", content=b"visible-v1")
+    hidden = capture(
+        service,
+        admin,
+        "hidden",
+        source="slack",
+        classification="restricted",
+        content=b"hidden-v1",
+    )
+    github_writer = issue(
+        authority,
+        claims(
+            actions=("capture.write",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="github-create-writer",
+        ),
+    )
+    original_objects = dict(objects.objects)
+
+    with pytest.raises(ConcurrencyConflict, match="expected revision 0, found 1"):
+        service.capture(
+            github_writer,
+            visible.capture_id,
+            b"visible-collision",
+            source_id="github",
+            classification="internal",
+            media_type="text/plain",
+            created_at=NOW,
+            idempotency_key="idem-visible-collision",
+        )
+    assert objects.objects == original_objects
+
+    with pytest.raises(AccessDenied, match="^access denied$"):
+        service.capture(
+            github_writer,
+            hidden.capture_id,
+            b"hidden-collision",
+            source_id="github",
+            classification="internal",
+            media_type="text/plain",
+            created_at=NOW,
+            idempotency_key="idem-hidden-collision",
+        )
+    assert objects.objects == original_objects
+
+    created = service.capture(
+        github_writer,
+        "missing",
+        b"new-capture",
+        source_id="github",
+        classification="internal",
+        media_type="text/plain",
+        created_at=NOW,
+        idempotency_key="idem-missing-create",
+    )
+    assert created.capture_id == "missing"
+    assert service.repository.read_capture("missing")[1] == b"new-capture"
+    assert len(objects.objects) == len(original_objects) + 1
+
+
+def test_erase_cas_is_bound_to_the_exact_revision_that_was_authorized(monkeypatch):
+    service, authority, _ = governed()
+    admin = issue(authority)
+    original = capture(service, admin, content=b"authorized-v1")
+    restricted = issue(
+        authority,
+        claims(
+            actions=("capture.erase",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="restricted-eraser",
+        ),
+    )
+    authorize = service._authorize
+    raced = False
+
+    def authorize_then_replace(*args, **kwargs):
+        nonlocal raced
+        result = authorize(*args, **kwargs)
+        if kwargs.get("target") == original.capture_id and not raced:
+            raced = True
+            service.repository.capture(
+                original.capture_id,
+                b"restricted-v2",
+                source_id="slack",
+                classification="restricted",
+                media_type="text/plain",
+                created_at=NOW,
+                idempotency_key="idem-erase-racing-v2",
+                expected_revision=original.revision,
+            )
+        return result
+
+    monkeypatch.setattr(service, "_authorize", authorize_then_replace)
+
+    with pytest.raises(ConcurrencyConflict, match="expected revision 2, found 1"):
+        service.erase(
+            restricted,
+            original.capture_id,
+            erased_at=NOW,
+            reason="privacy request",
+            expected_revision=2,
+        )
+
+    current, content = service.repository.read_capture(original.capture_id)
+    assert raced is True
+    assert current.revision == 2
+    assert current.source_id == "slack"
+    assert current.classification == "restricted"
+    assert content == b"restricted-v2"
+
+
 def test_audit_outage_fails_closed_before_mutation_or_object_read():
     objects = MemoryObjectStore()
     audit = MemoryAuditLedger()
@@ -278,6 +482,40 @@ def test_audit_outage_fails_closed_before_mutation_or_object_read():
     with pytest.raises(AuditUnavailable):
         capture(service, context)
     assert objects.objects == {}
+
+
+@pytest.mark.parametrize("operation", ["read", "erase"])
+@pytest.mark.parametrize("target", ["visible", "missing"])
+def test_audit_outage_does_not_reveal_target_existence(operation, target):
+    service, authority, audit = governed()
+    admin = issue(authority)
+    record = capture(service, admin, "visible")
+    restricted = issue(
+        authority,
+        claims(
+            actions=("capture.read", "capture.erase"),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="restricted-audit-outage",
+        ),
+    )
+    audit.available = False
+
+    with pytest.raises(
+        AuditUnavailable, match="^authorization audit sink is unavailable$"
+    ):
+        if operation == "read":
+            service.read_capture(restricted, target)
+        else:
+            service.erase(
+                restricted,
+                target,
+                erased_at=NOW,
+                reason="privacy request",
+                expected_revision=record.revision,
+            )
+
+    assert service.repository.capture_metadata("visible") == record
 
 
 def test_erasure_removes_policy_and_every_revision_object():

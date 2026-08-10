@@ -34,7 +34,7 @@ from rail.hosted.models import (
     DataClassification,
     ProjectionRecord,
 )
-from rail.hosted.repository import HostedRepository
+from rail.hosted.repository import ConcurrencyConflict, HostedRepository
 
 NonEmpty = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)
@@ -463,8 +463,13 @@ class GovernedHostedRepository:
                     reason_code=reason,
                     occurred_at=now,
                 )
-            finally:
-                raise AccessDenied()
+            except AuditUnavailable:
+                # Preserve one fail-closed surface for authorized, denied, and
+                # absent targets while the required audit sink is unavailable.
+                # Masking this only for denied targets creates an existence
+                # oracle because an allowed existing target exposes the outage.
+                raise
+            raise AccessDenied()
         self._record_audit(
             context_digest=context.context_digest,
             claims=claims,
@@ -536,6 +541,9 @@ class GovernedHostedRepository:
         retention_until: datetime | None = None,
         expected_revision: int = 0,
     ) -> CaptureRecord:
+        self._preauthorize_context_scope_action(
+            context, "capture.write", target=capture_id
+        )
         self._authorize(
             context,
             "capture.write",
@@ -543,6 +551,31 @@ class GovernedHostedRepository:
             classification=classification,
             target=capture_id,
         )
+        try:
+            current = self.repository.capture_metadata(capture_id)
+        except KeyError:
+            if expected_revision > 0:
+                self._authorize(
+                    context,
+                    "capture.write",
+                    source_id="*",
+                    classification="*",
+                    target=capture_id,
+                    require_unrestricted=True,
+                )
+        else:
+            self._authorize(
+                context,
+                "capture.write",
+                source_id=current.source_id or "*",
+                classification=current.classification or "*",
+                target=capture_id,
+            )
+            if expected_revision != current.revision:
+                raise ConcurrencyConflict(
+                    f"expected revision {expected_revision}, "
+                    f"found {current.revision}"
+                )
         return self.repository.capture(
             capture_id,
             content,
@@ -580,7 +613,7 @@ class GovernedHostedRepository:
             classification=capture.classification or "*",
             target=capture_id,
         )
-        return self.repository.read_capture(capture_id)
+        return self.repository.read_capture_record(capture)
 
     def erase(
         self,
@@ -613,6 +646,10 @@ class GovernedHostedRepository:
             classification=capture.classification or "*",
             target=capture_id,
         )
+        if expected_revision != capture.revision:
+            raise ConcurrencyConflict(
+                f"expected revision {expected_revision}, found {capture.revision}"
+            )
         self.repository.erase(
             capture_id,
             erased_at=erased_at,
