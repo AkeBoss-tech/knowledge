@@ -30,11 +30,25 @@ bounded domain store, not a SQL or graph-query product surface.
 ## Semantic packs
 
 A semantic pack is an immutable version of software-vertical type IDs and
-source mappings. Its canonical content digest excludes only the external
-signature envelope; the signature must bind that digest. Pack evaluations bind
-the exact pack, processing implementation, deterministic quality metrics, and
-baseline drift codes. Packs and evaluations never publish provider operations;
-the Phase 5.2 layer consumes these records.
+source mappings. Its canonical content digest excludes only the unverified
+external signature envelope and the resulting verification record. An envelope
+is signature material, not proof that a signature is valid.
+
+`SemanticPackService` requires an injected `PackSignatureVerifier` before it
+opens a persistence transaction. The verifier receives a digest-bound request
+containing tenant, project, pack ID, pack version, exact content digest,
+signature issuer/key/algorithm, and admission time. It must perform the real
+cryptographic and trust-policy checks. KRAIL admits only a `trusted` result whose
+request and signature identity match exactly; untrusted, revoked, expired,
+unsupported, replayed, or malformed results fail closed without persisting the
+pack. The stored pack retains only audit-safe verifier version/digest, trust
+policy digest, reason code, validity, request digest, and signature identity.
+Tests use a deterministic fake verifier and make no production cryptographic
+claim.
+
+Pack evaluations bind the exact pack, processing implementation, deterministic
+quality metrics, and baseline drift codes. Packs and evaluations never publish
+provider operations; the Phase 5.2 layer consumes these records.
 
 ## Editable proposals, immutable publication
 

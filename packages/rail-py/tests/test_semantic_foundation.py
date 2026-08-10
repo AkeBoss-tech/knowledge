@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from krail.provider.v1 import ResourceRef
@@ -20,6 +20,8 @@ from rail.semantic import (
     OntologyMigrationOperation,
     PackMapping,
     PackSignature,
+    PackSignatureAdmissionError,
+    PackSignatureVerification,
     PostgresSemanticStore,
     ReviewerQuestion,
     SemanticPack,
@@ -167,7 +169,22 @@ def semantic_pack(*, version: str = "1.0.0", revision: int = 1) -> SemanticPack:
                 signature="fixture",
                 signed_at=NOW,
             ),
-        ).model_dump(mode="json", exclude={"content_digest", "signature"})
+        ).model_dump(
+            mode="json",
+            exclude={"content_digest", "signature", "signature_verification"},
+        )
+    )
+    signature = canonical_digest(
+        {
+            "issuer": "https://trust.example.test",
+            "key_id": "key-1",
+            "algorithm": "external-attestation",
+            "tenant_id": values["tenant_id"],
+            "project_id": values["project_id"],
+            "pack_id": values["pack_id"],
+            "pack_version": values["version"],
+            "content_digest": digest,
+        }
     )
     return SemanticPack(
         **values,
@@ -177,9 +194,96 @@ def semantic_pack(*, version: str = "1.0.0", revision: int = 1) -> SemanticPack:
             key_id="key-1",
             algorithm="external-attestation",
             signed_digest=digest,
-            signature="fixture-signature",
+            signature=signature,
             signed_at=NOW,
         ),
+    )
+
+
+class DeterministicPackSignatureVerifier:
+    """Test-only cryptographic/trust boundary; production supplies its own verifier."""
+
+    def __init__(self) -> None:
+        self.key_status: dict[tuple[str, str, str], str] = {
+            (
+                "https://trust.example.test",
+                "key-1",
+                "external-attestation",
+            ): "trusted"
+        }
+        self.calls = []
+        self.replay: PackSignatureVerification | None = None
+
+    def verify(self, request):
+        self.calls.append(request)
+        if self.replay is not None:
+            return self.replay
+        envelope = request.envelope
+        identity = (envelope.issuer, envelope.key_id, envelope.algorithm)
+        status = self.key_status.get(identity, "untrusted")
+        expected_signature = canonical_digest(
+            {
+                "issuer": envelope.issuer,
+                "key_id": envelope.key_id,
+                "algorithm": envelope.algorithm,
+                "tenant_id": request.tenant_id,
+                "project_id": request.project_id,
+                "pack_id": request.pack_id,
+                "pack_version": request.pack_version,
+                "content_digest": request.content_digest,
+            }
+        )
+        if status == "trusted" and envelope.signature != expected_signature:
+            status = "untrusted"
+        return PackSignatureVerification(
+            status=status,
+            request_digest=request.request_digest,
+            issuer=envelope.issuer,
+            key_id=envelope.key_id,
+            algorithm=envelope.algorithm,
+            verifier_id="test-pack-verifier",
+            verifier_version="1.0.0",
+            verifier_digest=DIGEST_A,
+            trust_policy_digest=DIGEST_B,
+            reason_code="signature-verified" if status == "trusted" else f"key-{status}",
+            verified_at=NOW,
+            valid_until=NOW + timedelta(hours=1),
+        )
+
+
+def resign_pack(
+    pack: SemanticPack,
+    *,
+    issuer: str = "https://trust.example.test",
+    key_id: str = "key-1",
+    algorithm: str = "external-attestation",
+    signature: str | None = None,
+) -> SemanticPack:
+    calculated_signature = canonical_digest(
+        {
+            "issuer": issuer,
+            "key_id": key_id,
+            "algorithm": algorithm,
+            "tenant_id": pack.tenant_id,
+            "project_id": pack.project_id,
+            "pack_id": pack.pack_id,
+            "pack_version": pack.version,
+            "content_digest": pack.content_digest,
+        }
+    )
+    return SemanticPack.model_validate(
+        {
+            **pack.model_dump(mode="python"),
+            "signature": {
+                "issuer": issuer,
+                "key_id": key_id,
+                "algorithm": algorithm,
+                "signed_digest": pack.content_digest,
+                "signature": signature or calculated_signature,
+                "signed_at": NOW,
+            },
+            "signature_verification": None,
+        }
     )
 
 
@@ -330,9 +434,11 @@ def test_local_semantic_store_parity(adapter, tmp_path):
 
 def test_pack_signature_quality_drift_and_immutable_version():
     repo = repository()
-    service = SemanticPackService(repo)
+    service = SemanticPackService(repo, DeterministicPackSignatureVerifier())
     pack = semantic_pack()
-    service.publish(pack, expected_revision=0, published_at=NOW)
+    published = service.publish(pack, expected_revision=0, published_at=NOW)
+    assert published.signature_verification is not None
+    assert published.signature_verification.status == "trusted"
     with pytest.raises(ConcurrencyConflict):
         service.publish(pack, expected_revision=0, published_at=NOW)
     with pytest.raises(ValueError, match="immutable"):
@@ -363,6 +469,91 @@ def test_pack_signature_quality_drift_and_immutable_version():
         baseline=baseline,
     )
     assert current.drift_codes == ("coverage-regression", "conflict-regression")
+
+
+@pytest.mark.parametrize(
+    ("status", "algorithm"),
+    [
+        ("untrusted", "external-attestation"),
+        ("revoked", "external-attestation"),
+        ("unsupported", "rsa-sha1"),
+    ],
+)
+def test_untrusted_revoked_or_unsupported_pack_never_persists(status, algorithm):
+    repo = repository()
+    verifier = DeterministicPackSignatureVerifier()
+    pack = resign_pack(
+        semantic_pack(),
+        issuer="https://attacker.invalid" if status == "untrusted" else "https://trust.example.test",
+        key_id="attacker-key" if status == "untrusted" else "key-1",
+        algorithm=algorithm,
+        signature="forged-signature" if status == "untrusted" else None,
+    )
+    verifier.key_status[(pack.signature.issuer, pack.signature.key_id, algorithm)] = status
+    with pytest.raises(PackSignatureAdmissionError) as denied:
+        SemanticPackService(repo, verifier).publish(
+            pack, expected_revision=0, published_at=NOW
+        )
+    assert denied.value.status == status
+    assert repo.store.list("tenant-a", "project-a", kind="semantic_pack") == []
+
+
+def test_expired_signature_verification_never_persists():
+    repo = repository()
+
+    class ExpiredVerifier(DeterministicPackSignatureVerifier):
+        def verify(self, request):
+            decision = super().verify(request)
+            return PackSignatureVerification.model_validate(
+                {
+                    **decision.model_dump(mode="python"),
+                    "verified_at": NOW - timedelta(hours=2),
+                    "valid_until": NOW - timedelta(hours=1),
+                }
+            )
+
+    with pytest.raises(PackSignatureAdmissionError) as denied:
+        SemanticPackService(repo, ExpiredVerifier()).publish(
+            semantic_pack(), expected_revision=0, published_at=NOW
+        )
+    assert denied.value.status == "expired"
+    assert repo.store.list("tenant-a", "project-a", kind="semantic_pack") == []
+
+
+def test_key_rotation_admits_new_key_and_rejects_revoked_old_key():
+    verifier = DeterministicPackSignatureVerifier()
+    verifier.key_status[("https://trust.example.test", "key-1", "external-attestation")] = "revoked"
+    old_repo = repository()
+    with pytest.raises(PackSignatureAdmissionError) as denied:
+        SemanticPackService(old_repo, verifier).publish(
+            semantic_pack(), expected_revision=0, published_at=NOW
+        )
+    assert denied.value.status == "revoked"
+    new_pack = resign_pack(semantic_pack(version="1.0.1"), key_id="key-2")
+    verifier.key_status[("https://trust.example.test", "key-2", "external-attestation")] = "trusted"
+    published = SemanticPackService(repository(), verifier).publish(
+        new_pack, expected_revision=0, published_at=NOW
+    )
+    assert published.signature_verification is not None
+    assert published.signature_verification.key_id == "key-2"
+
+
+def test_signature_decision_cannot_replay_across_pack_version_or_request_context():
+    verifier = DeterministicPackSignatureVerifier()
+    service = SemanticPackService(repository(), verifier)
+    first = semantic_pack(version="1.0.0")
+    first_request = service.verification_request(first, admitted_at=NOW)
+    verifier.replay = verifier.verify(first_request)
+    second = semantic_pack(version="1.0.1")
+    with pytest.raises(ValueError, match="digest does not match"):
+        SemanticPack.model_validate(
+            {**first.model_dump(mode="python"), "version": "1.0.1"}
+        )
+    with pytest.raises(PackSignatureAdmissionError, match="request-mismatch"):
+        service.publish(second, expected_revision=0, published_at=NOW)
+    assert service.repository.store.list(
+        "tenant-a", "project-a", kind="semantic_pack"
+    ) == []
 
 
 def test_agent_draft_rebase_compare_review_and_explicit_publish():
@@ -904,6 +1095,29 @@ class FakeConnection:
 
     def rollback(self):
         self.rolled_back = True
+
+
+def test_postgres_pack_signature_denial_happens_before_transaction_or_write():
+    connections = []
+
+    def connect(_dsn):
+        connections.append(FakeConnection())
+        return connections[-1]
+
+    store = PostgresSemanticStore("postgresql://unused", connect=connect)
+    repo = repository(store)
+    verifier = DeterministicPackSignatureVerifier()
+    pack = resign_pack(
+        semantic_pack(),
+        issuer="https://attacker.invalid",
+        key_id="attacker-key",
+        signature="forged-signature",
+    )
+    with pytest.raises(PackSignatureAdmissionError):
+        SemanticPackService(repo, verifier).publish(
+            pack, expected_revision=0, published_at=NOW
+        )
+    assert connections == []
 
 
 def test_postgres_semantic_store_uses_scoped_cas_table():

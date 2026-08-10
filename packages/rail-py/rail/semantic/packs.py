@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
@@ -28,10 +28,17 @@ class PackMapping(StrictModel):
     transform: Literal["identity", "normalize-text", "parse-timestamp", "resource-ref"]
 
 
-class PackSignature(StrictModel):
+PackTrustStatus = Literal[
+    "trusted", "untrusted", "revoked", "expired", "unsupported"
+]
+
+
+class PackSignatureEnvelope(StrictModel):
+    """Unverified signature material supplied with a semantic pack."""
+
     issuer: NonEmpty
     key_id: NonEmpty
-    algorithm: Literal["ed25519", "ecdsa-p256-sha256", "external-attestation"]
+    algorithm: Token
     signed_digest: Digest
     signature: NonEmpty
     signed_at: datetime
@@ -42,6 +49,86 @@ class PackSignature(StrictModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("signature timestamp must include a timezone")
         return value
+
+
+PackSignature = PackSignatureEnvelope
+
+
+class PackSignatureVerificationRequest(ScopedModel):
+    schema_version: Literal["krail.semantic-pack-signature-request.v1"] = (
+        "krail.semantic-pack-signature-request.v1"
+    )
+    pack_id: Token
+    pack_version: NonEmpty
+    content_digest: Digest
+    envelope: PackSignatureEnvelope
+    admitted_at: datetime
+    request_digest: Digest
+
+    @field_validator("admitted_at")
+    @classmethod
+    def admission_time_requires_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("signature admission timestamp must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def request_digest_matches(self) -> PackSignatureVerificationRequest:
+        calculated = canonical_digest(
+            self.model_dump(mode="json", exclude={"request_digest"})
+        )
+        if self.request_digest != calculated:
+            raise ValueError("signature verification request digest does not match")
+        if self.envelope.signed_digest != self.content_digest:
+            raise ValueError("signature envelope does not bind pack content")
+        return self
+
+
+class PackSignatureVerification(StrictModel):
+    """Audit-safe result from an injected trust and cryptographic verifier."""
+
+    status: PackTrustStatus
+    request_digest: Digest
+    issuer: NonEmpty
+    key_id: NonEmpty
+    algorithm: Token
+    verifier_id: NonEmpty
+    verifier_version: NonEmpty
+    verifier_digest: Digest
+    trust_policy_digest: Digest
+    reason_code: Token
+    verified_at: datetime
+    valid_until: datetime | None = None
+
+    @field_validator("verified_at", "valid_until")
+    @classmethod
+    def verification_time_requires_timezone(
+        cls, value: datetime | None
+    ) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("signature verification timestamps must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validity_is_ordered(self) -> PackSignatureVerification:
+        if self.valid_until is not None and self.valid_until <= self.verified_at:
+            raise ValueError("signature verification validity must end after verification")
+        return self
+
+
+class PackSignatureVerifier(Protocol):
+    def verify(
+        self, request: PackSignatureVerificationRequest
+    ) -> PackSignatureVerification: ...
+
+
+class PackSignatureAdmissionError(ValueError):
+    """Typed, audit-safe denial before a semantic pack reaches persistence."""
+
+    def __init__(self, status: PackTrustStatus, reason_code: str) -> None:
+        self.status = status
+        self.reason_code = reason_code
+        super().__init__(f"semantic pack signature {status}: {reason_code}")
 
 
 class SemanticPack(ScopedModel):
@@ -55,12 +142,16 @@ class SemanticPack(ScopedModel):
     migration_proposal_ids: tuple[NonEmpty, ...] = ()
     provenance: EvidenceProvenance
     content_digest: Digest
-    signature: PackSignature
+    signature: PackSignatureEnvelope
+    signature_verification: PackSignatureVerification | None = None
     revision: int = Field(ge=1)
 
     def calculated_digest(self) -> str:
         return canonical_digest(
-            self.model_dump(mode="json", exclude={"content_digest", "signature"})
+            self.model_dump(
+                mode="json",
+                exclude={"content_digest", "signature", "signature_verification"},
+            )
         )
 
     @model_validator(mode="after")
@@ -69,6 +160,16 @@ class SemanticPack(ScopedModel):
             raise ValueError("semantic pack digest does not match content")
         if self.signature.signed_digest != self.content_digest:
             raise ValueError("semantic pack signature must bind its content digest")
+        if self.signature_verification is not None:
+            verification = self.signature_verification
+            if verification.status != "trusted":
+                raise ValueError("persisted semantic packs require trusted verification")
+            if (
+                verification.issuer != self.signature.issuer
+                or verification.key_id != self.signature.key_id
+                or verification.algorithm != self.signature.algorithm
+            ):
+                raise ValueError("signature verification identity does not match envelope")
         if len(self.type_ids) != len(set(self.type_ids)):
             raise ValueError("semantic pack type IDs must be unique")
         if len({item.mapping_id for item in self.mappings}) != len(self.mappings):
@@ -128,18 +229,69 @@ class PackEvaluation(ScopedModel):
 
 
 class SemanticPackService:
-    def __init__(self, repository: SemanticRepository) -> None:
+    def __init__(
+        self, repository: SemanticRepository, verifier: PackSignatureVerifier
+    ) -> None:
         self.repository = repository
+        self.verifier = verifier
+
+    @staticmethod
+    def verification_request(
+        pack: SemanticPack, *, admitted_at: datetime
+    ) -> PackSignatureVerificationRequest:
+        values = {
+            "tenant_id": pack.tenant_id,
+            "project_id": pack.project_id,
+            "pack_id": pack.pack_id,
+            "pack_version": pack.version,
+            "content_digest": pack.content_digest,
+            "envelope": pack.signature,
+            "admitted_at": admitted_at,
+        }
+        return PackSignatureVerificationRequest(
+            **values, request_digest=canonical_digest(
+                PackSignatureVerificationRequest.model_construct(
+                    **values, request_digest="sha256:" + "0" * 64
+                ).model_dump(mode="json", exclude={"request_digest"})
+            )
+        )
 
     def publish(
         self, pack: SemanticPack, *, expected_revision: int, published_at: datetime
     ) -> SemanticPack:
         if expected_revision != 0 or pack.revision != 1:
             raise ValueError("semantic pack versions are immutable")
+        request = self.verification_request(pack, admitted_at=published_at)
+        verification = self.verifier.verify(request)
+        if verification.request_digest != request.request_digest:
+            raise PackSignatureAdmissionError("untrusted", "verification-request-mismatch")
+        if (
+            verification.issuer != pack.signature.issuer
+            or verification.key_id != pack.signature.key_id
+            or verification.algorithm != pack.signature.algorithm
+        ):
+            raise PackSignatureAdmissionError("untrusted", "verification-identity-mismatch")
+        if verification.status != "trusted":
+            raise PackSignatureAdmissionError(
+                verification.status, verification.reason_code
+            )
+        if verification.verified_at > published_at:
+            raise PackSignatureAdmissionError("untrusted", "verification-from-future")
+        if (
+            verification.valid_until is not None
+            and published_at >= verification.valid_until
+        ):
+            raise PackSignatureAdmissionError("expired", "verification-expired")
+        admitted_pack = SemanticPack.model_validate(
+            {
+                **pack.model_dump(mode="python"),
+                "signature_verification": verification,
+            }
+        )
         return self.repository._save(
             "semantic_pack",
             f"{pack.pack_id}@{pack.version}",
-            pack,
+            admitted_pack,
             expected_revision=expected_revision,
             at=published_at,
         )
