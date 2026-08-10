@@ -8,20 +8,27 @@ adapters; the local JSON implementation has the same observable semantics.
 from __future__ import annotations
 
 import base64
+import binascii
 import copy
 import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import RLock, local
-from typing import Any, Callable, Iterator, Protocol
+from typing import Any, Protocol
 
-from rail.hosted.models import BackupBundle, CaptureRecord, HostedRecord, ProjectionRecord
-from rail.hosted.object_store import ImmutableObjectStore
 from krail.provider.v1 import ResourceRef
+from rail.hosted.models import (
+    BackupBundle,
+    CaptureRecord,
+    HostedRecord,
+    ProjectionRecord,
+)
+from rail.hosted.object_store import ImmutableObjectStore
 
 
 class ConcurrencyConflict(RuntimeError): pass
@@ -244,13 +251,13 @@ class HostedRepository:
         identity = hashlib.sha256(capture_id.encode("utf-8")).hexdigest()
         return f"{identity}:{revision:020d}"
 
-    def capture(self, capture_id: str, content: bytes, *, media_type: str, created_at: datetime, retention_until: datetime | None = None, expected_revision: int = 0, idempotency_key: str) -> CaptureRecord:
+    def capture(self, capture_id: str, content: bytes, *, media_type: str, created_at: datetime, retention_until: datetime | None = None, expected_revision: int = 0, idempotency_key: str, source_id: str = "default", classification: str = "internal") -> CaptureRecord:
         if not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
         if len(content) > MAX_CAPTURE_BYTES:
             raise ValueError(f"capture exceeds {MAX_CAPTURE_BYTES} bytes")
         content_digest = _digest(content)
-        command_digest = _digest(_canonical({"capture_id": capture_id, "content_digest": content_digest, "media_type": media_type, "retention_until": retention_until.isoformat() if retention_until else None, "expected_revision": expected_revision}))
+        command_digest = _digest(_canonical({"capture_id": capture_id, "content_digest": content_digest, "media_type": media_type, "retention_until": retention_until.isoformat() if retention_until else None, "expected_revision": expected_revision, "source_id": source_id, "classification": classification}))
         object_key = _object_key(self.tenant_id, self.project_id, content_digest)
         self.objects.put_if_absent(object_key, content)
         with self.metadata.transaction():
@@ -266,7 +273,7 @@ class HostedRepository:
             actual = current.revision if current else 0
             if actual != expected_revision:
                 raise ConcurrencyConflict(f"expected revision {expected_revision}, found {actual}")
-            capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=self._resource_ref(capture_id, content_digest), revision=actual + 1, content_digest=content_digest, object_key=object_key, media_type=media_type, byte_size=len(content), created_at=created_at, retention_until=retention_until)
+            capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, source_id=source_id, classification=classification, resource_ref=self._resource_ref(capture_id, content_digest), revision=actual + 1, content_digest=content_digest, object_key=object_key, media_type=media_type, byte_size=len(content), created_at=created_at, retention_until=retention_until)
             row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture", record_id=capture_id, revision=capture.revision, payload=capture.model_dump(mode="json"), created_at=current.created_at if current else created_at, updated_at=created_at)
             self.metadata.put(row, expected_revision=actual)
             revision_row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture_revision", record_id=self._revision_record_id(capture_id, capture.revision), revision=1, payload=capture.model_dump(mode="json"), created_at=created_at, updated_at=created_at)
@@ -276,17 +283,31 @@ class HostedRepository:
             return capture
 
     def read_capture(self, capture_id: str) -> tuple[CaptureRecord, bytes]:
+        capture = self.capture_metadata(capture_id)
+        content = self.objects.get(capture.object_key)
+        if len(content) != capture.byte_size or _digest(content) != capture.content_digest:
+            raise IntegrityFailure("capture object does not match immutable metadata")
+        return capture, content
+
+    def capture_metadata(self, capture_id: str) -> CaptureRecord:
+        """Read exact metadata without fetching object bytes for policy preflight."""
         with self.metadata.transaction():
             row = self.metadata.get(self.tenant_id, self.project_id, "capture", capture_id)
         if row is None:
             raise KeyError(capture_id)
         if row.payload.get("state") == "erased":
             raise KeyError(capture_id)
-        capture = CaptureRecord.model_validate(row.payload)
-        content = self.objects.get(capture.object_key)
-        if len(content) != capture.byte_size or _digest(content) != capture.content_digest:
-            raise IntegrityFailure("capture object does not match immutable metadata")
-        return capture, content
+        return CaptureRecord.model_validate(row.payload)
+
+    def capture_records(self) -> list[CaptureRecord]:
+        """Return current active metadata in deterministic order, never object bytes."""
+        with self.metadata.transaction():
+            rows = self.metadata.list(self.tenant_id, self.project_id, kind="capture")
+        return [
+            CaptureRecord.model_validate(row.payload)
+            for row in rows
+            if row.payload.get("state", "active") == "active"
+        ]
 
     def rebuild_projection(self, projection_id: str, builder: Callable[[list[CaptureRecord]], dict[str, Any]], *, rebuilt_at: datetime, projection_kind: str = "search") -> ProjectionRecord:
         with self.metadata.transaction():
@@ -316,12 +337,12 @@ class HostedRepository:
                 raise ConcurrencyConflict(f"expected revision {expected_revision}, found {current.revision}")
             revision_rows = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture_revision") if row.payload.get("capture_id") == capture_id and row.payload.get("state", "active") != "erased"]
             object_keys = {capture.object_key} | {row.payload["object_key"] for row in revision_rows}
-            tombstone_capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=None, revision=current.revision + 1, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
+            tombstone_capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, source_id=None, classification=None, resource_ref=None, revision=current.revision + 1, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
             tombstone = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture", record_id=capture_id, revision=current.revision + 1, payload=tombstone_capture.model_dump(mode="json"), created_at=current.created_at, updated_at=erased_at)
             self.metadata.put(tombstone, expected_revision=current.revision)
             for revision_row in revision_rows:
                 revision_capture = CaptureRecord.model_validate(revision_row.payload)
-                erased_revision = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=None, revision=revision_capture.revision, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=revision_capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
+                erased_revision = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, source_id=None, classification=None, resource_ref=None, revision=revision_capture.revision, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=revision_capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
                 row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture_revision", record_id=revision_row.record_id, revision=revision_row.revision + 1, payload=erased_revision.model_dump(mode="json"), created_at=revision_row.created_at, updated_at=erased_at)
                 self.metadata.put(row, expected_revision=revision_row.revision)
             active_revision_rows = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture_revision") if row.payload.get("state", "active") != "erased"]
@@ -352,6 +373,15 @@ class HostedRepository:
             key = row.payload.get("object_key")
             if key:
                 value = self.objects.get(key)
+                expected_digest = row.payload.get("content_digest")
+                expected_size = row.payload.get("byte_size")
+                if (
+                    not isinstance(expected_digest, str)
+                    or _object_key(self.tenant_id, self.project_id, expected_digest) != key
+                    or _digest(value) != expected_digest
+                    or len(value) != expected_size
+                ):
+                    raise IntegrityFailure("backup source object does not match immutable metadata")
                 total_bytes += len(value)
                 if total_bytes > MAX_BACKUP_BYTES:
                     raise ValueError(f"backup exceeds {MAX_BACKUP_BYTES} object bytes")
@@ -368,14 +398,43 @@ class HostedRepository:
             raise ValueError("backup authority does not match repository scope")
         if len(bundle.records) > MAX_BACKUP_RECORDS:
             raise ValueError(f"backup exceeds {MAX_BACKUP_RECORDS} records")
+        referenced_keys: set[str] = set()
+        for row in bundle.records:
+            if (row.tenant_id, row.project_id) != (self.tenant_id, self.project_id):
+                raise IntegrityFailure("backup record escapes repository scope")
+            payload_scope = (row.payload.get("tenant_id"), row.payload.get("project_id"))
+            if any(value is not None for value in payload_scope) and payload_scope != (
+                self.tenant_id,
+                self.project_id,
+            ):
+                raise IntegrityFailure("backup payload escapes repository scope")
+            if row.record_kind in {"capture", "capture_revision"}:
+                capture = CaptureRecord.model_validate(row.payload)
+                if capture.object_key is not None:
+                    referenced_keys.add(capture.object_key)
+        if set(bundle.objects) != referenced_keys:
+            raise IntegrityFailure("backup object inventory does not match durable references")
         total_bytes = 0
+        decoded_objects: dict[str, bytes] = {}
         for key, encoded in bundle.objects.items():
-            value = base64.b64decode(encoded, validate=True)
+            try:
+                value = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise IntegrityFailure("backup object encoding is invalid") from exc
             total_bytes += len(value)
             if total_bytes > MAX_BACKUP_BYTES:
                 raise ValueError(f"backup exceeds {MAX_BACKUP_BYTES} object bytes")
             if _object_key(self.tenant_id, self.project_id, _digest(value)) != key:
                 raise IntegrityFailure("backup object key does not match content")
+            decoded_objects[key] = value
+        for row in bundle.records:
+            if row.record_kind in {"capture", "capture_revision"}:
+                capture = CaptureRecord.model_validate(row.payload)
+                if capture.object_key is not None:
+                    value = decoded_objects[capture.object_key]
+                    if _digest(value) != capture.content_digest or len(value) != capture.byte_size:
+                        raise IntegrityFailure("backup object does not match capture metadata")
+        for key, value in decoded_objects.items():
             self.objects.put_if_absent(key, value)
         with self.metadata.transaction():
             for row in bundle.records:
