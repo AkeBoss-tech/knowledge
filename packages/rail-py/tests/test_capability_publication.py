@@ -25,7 +25,7 @@ def test_descriptor_is_stable_digest_addressed_read_only_and_bounded() -> None:
     assert first.capability_id == CAPABILITY_ID
     assert first.semantic_version == "1.0.0"
     assert first.descriptor_digest.startswith("sha256:")
-    assert first.descriptor_digest == "sha256:9c1ea808056fd566401adc111b2d9254325210b81e75460eff85a3a875499507"
+    assert first.descriptor_digest == "sha256:4774697e69cff4db9831a80c51678be68a62c2ad13393941ae03db029fb76cf2"
     assert {item.operation_id for item in first.operations} == {"retrieve_evidence", "context_brief"}
     assert all(item.input_schema["additionalProperties"] is False for item in first.operations)
     assert all(item.output_schema["additionalProperties"] is False for item in first.operations)

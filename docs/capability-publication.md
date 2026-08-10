@@ -51,8 +51,12 @@ or OpenSaddle wire compatibility.
 
 The shared `krail.capability-descriptor.v1` effect shape is intentionally not
 extended. Richer local-effect metadata would require a separately versioned
-descriptor schema and codec bundle so strict v1 consumers and the accepted
-`krail.context-brief` descriptor digest remain stable.
+descriptor schema and codec bundle so strict v1 consumers are not changed in
+place. The composed release deliberately identifies its Python-native schemas
+as `krail.provider.model.v1`; internal capability digests therefore differ from
+the pre-convergence model, while the separately identified OpenSaddle wire
+descriptor atomically pins the normative projected schemas and its internal
+descriptor provenance.
 
 Python callers use `project.assemble_verification_evidence(request)` and
 `project.ingest_outcome_evidence(envelope)`. The strict outcome envelope carries
