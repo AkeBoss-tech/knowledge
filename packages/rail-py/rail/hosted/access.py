@@ -707,15 +707,13 @@ class GovernedHostedRepository:
             classification="*",
             target="capture-page",
         )
-        rows = self.repository.capture_records()
-        if len(rows) > MAX_AUTHORIZATION_SCAN_RECORDS:
+        visible, omitted = self.repository.capture_records_for_scope(
+            source_ids=claims.source_ids,
+            classifications=claims.classifications,
+            max_records=MAX_AUTHORIZATION_SCAN_RECORDS,
+        )
+        if len(visible) > MAX_AUTHORIZATION_SCAN_RECORDS:
             raise ValueError("authorization scan bound exceeded")
-        visible = [
-            row
-            for row in rows
-            if ("*" in claims.source_ids or row.source_id in claims.source_ids)
-            and row.classification in claims.classifications
-        ]
         snapshot = self._snapshot_digest(visible)
         offset = 0
         if cursor is not None:
@@ -749,7 +747,6 @@ class GovernedHostedRepository:
                     "offset": next_offset,
                 }
             )
-        omitted = len(visible) != len(rows)
         return CapturePage(
             items=tuple(page),
             next_cursor=next_cursor,

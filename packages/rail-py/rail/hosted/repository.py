@@ -325,6 +325,44 @@ class HostedRepository:
             if row.payload.get("state", "active") == "active"
         ]
 
+    def capture_records_for_scope(
+        self,
+        *,
+        source_ids: tuple[str, ...],
+        classifications: tuple[DataClassification, ...],
+        max_records: int,
+    ) -> tuple[list[CaptureRecord], bool]:
+        """Return a bounded policy-shaped metadata snapshot.
+
+        Filtering stays inside the repository boundary so hidden population
+        cannot alter the caller-visible page or error surface. One extra
+        authorized record is retained solely to signal that the caller's own
+        visible snapshot exceeds the configured bound.
+        """
+        if max_records < 0:
+            raise ValueError("max_records must not be negative")
+        with self.metadata.transaction():
+            rows = self.metadata.list(
+                self.tenant_id, self.project_id, kind="capture"
+            )
+        wildcard_source = "*" in source_ids
+        allowed_classifications = frozenset(classifications)
+        visible: list[CaptureRecord] = []
+        omitted = False
+        for row in rows:
+            if row.payload.get("state", "active") != "active":
+                continue
+            capture = CaptureRecord.model_validate(row.payload)
+            allowed = (
+                (wildcard_source or capture.source_id in source_ids)
+                and capture.classification in allowed_classifications
+            )
+            if not allowed:
+                omitted = True
+            elif len(visible) <= max_records:
+                visible.append(capture)
+        return visible, omitted
+
     def rebuild_projection(self, projection_id: str, builder: Callable[[list[CaptureRecord]], dict[str, Any]], *, rebuilt_at: datetime, projection_kind: str = "search") -> ProjectionRecord:
         with self.metadata.transaction():
             rows = self.metadata.list(self.tenant_id, self.project_id, kind="capture")

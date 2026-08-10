@@ -259,6 +259,16 @@ def test_opaque_cursor_is_context_scope_and_snapshot_bound():
     with pytest.raises(CursorInvalid):
         service.list_captures(admin, cursor=first.next_cursor)
 
+    other_service, other_authority, _ = governed(
+        tenant="tenant-b", project="project-b"
+    )
+    other_context = issue(
+        other_authority,
+        claims(tenant="tenant-b", project="project-b", nonce="other-scope"),
+    )
+    with pytest.raises(CursorInvalid):
+        other_service.list_captures(other_context, cursor=first.next_cursor)
+
 
 def test_revocation_is_rechecked_after_prior_allowed_decision():
     revocations = MemoryRevocationRegistry()
@@ -619,6 +629,51 @@ def test_authorization_scan_is_bounded(monkeypatch):
     monkeypatch.setattr(hosted_access, "MAX_AUTHORIZATION_SCAN_RECORDS", 0)
     with pytest.raises(ValueError, match="scan bound"):
         service.list_captures(context)
+
+
+def test_hidden_population_cannot_trigger_visible_scan_bound_or_change_cursor(
+    monkeypatch,
+):
+    service, authority, _ = governed()
+    admin = issue(authority)
+    visible = capture(service, admin, "visible")
+    restricted = issue(
+        authority,
+        claims(
+            actions=("capture.list",),
+            sources=("github",),
+            classifications=("internal",),
+            nonce="bounded-list",
+        ),
+    )
+    monkeypatch.setattr(hosted_access, "MAX_AUTHORIZATION_SCAN_RECORDS", 1)
+
+    baseline = service.list_captures(restricted)
+    capture(
+        service,
+        admin,
+        "hidden-below-old-threshold",
+        source="slack",
+        classification="restricted",
+    )
+    below = service.list_captures(restricted)
+    capture(
+        service,
+        admin,
+        "hidden-above-old-threshold",
+        source="slack",
+        classification="restricted",
+    )
+    above = service.list_captures(restricted)
+
+    assert baseline.items == below.items == above.items == (visible,)
+    assert baseline.next_cursor == below.next_cursor == above.next_cursor is None
+    assert below.authorization == above.authorization
+    assert above.authorization.reason_codes == ("policy_filtered",)
+
+    capture(service, admin, "second-visible")
+    with pytest.raises(ValueError, match="scan bound"):
+        service.list_captures(restricted)
 
 
 def test_capture_idempotency_binds_source_and_classification():
