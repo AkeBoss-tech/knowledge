@@ -87,4 +87,16 @@ These are migration decisions, not instructions to rewrite the packages in Phase
 | Remove | generic subprocess/code execution, LLM analysis hooks, universal SQL-mirror aspirations | Do not expose as core KRAIL capabilities; delete only in a separately verified cleanup. |
 
 No disposition introduces enterprise execution, autonomous planning, arbitrary
-SQL/SPARQL, a graph database, hosted Postgres, or a universal event ledger.
+SQL/SPARQL, a graph database, or a universal event ledger.
+
+## Phase 4 optional hosted composition
+
+The Phase 1 inventory above remains authoritative for local projects. A
+customer-hosted deployment may instead select the bounded
+`rail.hosted.HostedRepository` as the sole authority for immutable capture
+metadata and bytes in that deployment. Its Postgres schema is metadata-only;
+it is not an arbitrary SQL surface or a second writer for a local Git project.
+Tenant/project keys, exact `ResourceRef` values, optimistic revisions,
+idempotency records, object digests, retention, and erasure are enforced at the
+repository boundary. Rebuildable projections never become authority. See
+[`hosted-storage.md`](hosted-storage.md) for composition and recovery details.
