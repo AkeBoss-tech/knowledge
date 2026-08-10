@@ -8,6 +8,7 @@ the later Phase 5 operations layer.
 from rail.semantic.induction import OntologyInductionService
 from rail.semantic.models import (
     Alias,
+    AliasAssignment,
     CandidateConcept,
     CandidateMapping,
     CandidateRelationship,
@@ -16,13 +17,15 @@ from rail.semantic.models import (
     EntityMerge,
     Fact,
     ObservedStructure,
-    OntologyMigrationProposal,
-    OntologyChangeOperation,
     OntologyChangeComparison,
+    OntologyChangeOperation,
     OntologyChangeSet,
+    OntologyMigrationOperation,
+    OntologyMigrationProposal,
     OntologyPackage,
     OntologyPackageVersion,
     ReviewerQuestion,
+    SemanticRevision,
     SemanticType,
     ValidationFinding,
 )
@@ -42,6 +45,7 @@ from rail.semantic.repository import (
 
 __all__ = [
     "Alias",
+    "AliasAssignment",
     "CandidateConcept",
     "CandidateMapping",
     "CandidateRelationship",
@@ -52,11 +56,12 @@ __all__ = [
     "JsonSemanticStore",
     "MemorySemanticStore",
     "ObservedStructure",
-    "OntologyInductionService",
-    "OntologyMigrationProposal",
-    "OntologyChangeOperation",
     "OntologyChangeComparison",
+    "OntologyChangeOperation",
     "OntologyChangeSet",
+    "OntologyInductionService",
+    "OntologyMigrationOperation",
+    "OntologyMigrationProposal",
     "OntologyPackage",
     "OntologyPackageVersion",
     "PackEvaluation",
@@ -67,6 +72,7 @@ __all__ = [
     "SemanticPack",
     "SemanticPackService",
     "SemanticRepository",
+    "SemanticRevision",
     "SemanticType",
     "ValidationFinding",
 ]

@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-
 from krail.provider.v1 import ResourceRef
 from rail.hosted import ConcurrencyConflict
 from rail.semantic import (
     Alias,
     CandidateConcept,
+    CandidateRelationship,
     Conflict,
     Entity,
     Fact,
@@ -17,6 +17,7 @@ from rail.semantic import (
     ObservedStructure,
     OntologyChangeOperation,
     OntologyInductionService,
+    OntologyMigrationOperation,
     PackMapping,
     PackSignature,
     PostgresSemanticStore,
@@ -33,7 +34,8 @@ from rail.semantic.models import (
     FactObject,
     canonical_digest,
 )
-from rail.semantic.packs import PackEvaluation, QualityMetric
+from rail.semantic.packs import QualityMetric
+from rail.semantic.repository import SemanticRow
 
 NOW = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 DIGEST_A = "sha256:" + "a" * 64
@@ -58,6 +60,8 @@ def evidence(resource_id: str = "issue-42") -> EvidenceProvenance:
 
 
 def entity(entity_id: str, *, revision: int = 1) -> Entity:
+    if "://" not in entity_id:
+        entity_id = f"krail+semantic://github.example.test/{entity_id}"
     return Entity(
         tenant_id="tenant-a",
         project_id="project-a",
@@ -72,6 +76,25 @@ def entity(entity_id: str, *, revision: int = 1) -> Entity:
 def repository(store=None) -> SemanticRepository:
     return SemanticRepository(
         store or MemorySemanticStore(), tenant_id="tenant-a", project_id="project-a"
+    )
+
+
+def put_issue_type(repo: SemanticRepository) -> SemanticType:
+    return repo.put_type(
+        SemanticType(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            type_id="software.issue",
+            type_kind="entity",
+            label="Issue",
+            description="A tracked software issue",
+            pack_id="software-change",
+            pack_version="1.0.0",
+            provenance=evidence("type-source"),
+            revision=1,
+        ),
+        expected_revision=0,
+        at=NOW,
     )
 
 
@@ -92,6 +115,23 @@ def change_operation(operation_id: str = "op-1") -> OntologyChangeOperation:
         target_kind="concept",
         target_id="software.issue",
         after={"label": "Issue"},
+    )
+
+
+def observed_structure(
+    observation_id: str = "observation-1", resource_id: str = "issue-42"
+) -> ObservedStructure:
+    provenance = evidence(resource_id)
+    return ObservedStructure(
+        tenant_id="tenant-a",
+        project_id="project-a",
+        observation_id=observation_id,
+        source=provenance.evidence[0],
+        structure_kind="record",
+        path="$.issue",
+        sample_digest=DIGEST_A,
+        occurrence_count=10,
+        provenance=provenance,
     )
 
 
@@ -158,6 +198,22 @@ def test_semantic_kernel_requires_evidence_and_limited_valid_time():
         revision=1,
     )
     repo.put_type(semantic_type, expected_revision=0, at=NOW)
+    repo.put_type(
+        SemanticType(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            type_id="software.resolved-by",
+            type_kind="relationship",
+            label="Resolved by",
+            description="Issue resolution relationship",
+            pack_id="software-change",
+            pack_version="1.0.0",
+            provenance=evidence("relationship-type-source"),
+            revision=1,
+        ),
+        expected_revision=0,
+        at=NOW,
+    )
     issue = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
     pull_request = repo.put_entity(entity("pr-9"), expected_revision=0, at=NOW)
     fact = Fact(
@@ -192,6 +248,23 @@ def test_semantic_kernel_requires_evidence_and_limited_valid_time():
 
 def test_conflicts_are_explicit_and_merge_split_is_reversible():
     repo = repository()
+    put_issue_type(repo)
+    repo.put_type(
+        SemanticType(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            type_id="software.status",
+            type_kind="relationship",
+            label="Status",
+            description="Observed or asserted software status",
+            pack_id="software-change",
+            pack_version="1.0.0",
+            provenance=evidence("status-type"),
+            revision=1,
+        ),
+        expected_revision=0,
+        at=NOW,
+    )
     first = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
     second = repo.put_entity(entity("issue-alias"), expected_revision=0, at=NOW)
     for fact_id, literal in (("open", "open"), ("closed", "closed")):
@@ -242,6 +315,7 @@ def test_local_semantic_store_parity(adapter, tmp_path):
         else JsonSemanticStore(tmp_path / "semantic.json")
     )
     repo = repository(store)
+    put_issue_type(repo)
     stored = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
     with pytest.raises(ConcurrencyConflict):
         repo.put_entity(
@@ -261,6 +335,10 @@ def test_pack_signature_quality_drift_and_immutable_version():
     service.publish(pack, expected_revision=0, published_at=NOW)
     with pytest.raises(ConcurrencyConflict):
         service.publish(pack, expected_revision=0, published_at=NOW)
+    with pytest.raises(ValueError, match="immutable"):
+        service.publish(
+            semantic_pack(revision=2), expected_revision=1, published_at=NOW
+        )
     baseline = service.build_evaluation(
         evaluation_id="eval-1",
         pack=pack,
@@ -341,7 +419,7 @@ def test_agent_draft_rebase_compare_review_and_explicit_publish():
         path="$.issue",
         sample_digest=DIGEST_A,
         occurrence_count=10,
-        provenance=evidence("observed-source"),
+        provenance=evidence(),
     )
     concept = CandidateConcept(
         candidate_id="concept-1",
@@ -366,19 +444,19 @@ def test_agent_draft_rebase_compare_review_and_explicit_publish():
             reviewed_content_digest=version.content_digest,
             at=NOW,
         )
-    service.begin_review(package.package_id, at=NOW)
+    reviewing = service.begin_review(package.package_id, at=NOW)
     reviewed = service.review(
         package.package_id,
         reviewer="user/reviewer",
-        review_digest=DIGEST_B,
+        review_digest=service.review_decision_digest(
+            reviewing, version, reviewer="user/reviewer", accepted=True
+        ),
         accepted=True,
         at=NOW,
     )
     assert reviewed.state == "reviewed"
     with pytest.raises(ConcurrencyConflict, match="stale"):
-        service.publish(
-            package.package_id, reviewed_content_digest=DIGEST_A, at=NOW
-        )
+        service.publish(package.package_id, reviewed_content_digest=DIGEST_A, at=NOW)
     published = service.publish(
         package.package_id,
         reviewed_content_digest=version.content_digest,
@@ -423,21 +501,366 @@ def test_blocking_findings_and_open_questions_prevent_review_acceptance():
             ),
         ),
         reviewer_questions=(
-            ReviewerQuestion(question_id="question-1", prompt="Which status wins?"),
+            ReviewerQuestion(
+                question_id="question-1",
+                prompt="Which status wins?",
+                evidence=evidence().evidence,
+            ),
         ),
         change_set=draft,
         provenance=evidence(),
     )
     package = service.propose(version, draft, proposed_at=NOW)
-    service.begin_review(package.package_id, at=NOW)
+    reviewing = service.begin_review(package.package_id, at=NOW)
     with pytest.raises(ValueError, match="blocking"):
         service.review(
             package.package_id,
             reviewer="user/reviewer",
-            review_digest=DIGEST_B,
+            review_digest=service.review_decision_digest(
+                reviewing, version, reviewer="user/reviewer", accepted=True
+            ),
             accepted=True,
             at=NOW,
         )
+
+
+def test_authority_qualified_entities_alias_history_and_reversible_reassignment():
+    repo = repository()
+    with pytest.raises(ValueError, match="entity_id"):
+        Entity(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            entity_id="issue-42",
+            type_id="software.issue",
+            canonical_name="Issue 42",
+            provenance=evidence(),
+            revision=1,
+        )
+    put_issue_type(repo)
+
+    first = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
+    second = repo.put_entity(entity("issue-43"), expected_revision=0, at=NOW)
+    alias = repo.put_alias(
+        Alias(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            alias_id="issue-number-42",
+            entity_id=first.entity_id,
+            value="#42",
+            normalized_value="42",
+            provenance=evidence("alias-source"),
+            revision=1,
+        ),
+        expected_revision=0,
+        at=NOW,
+    )
+    with pytest.raises(ValueError, match="reassign_alias"):
+        repo.put_alias(
+            Alias.model_validate(
+                {
+                    **alias.model_dump(mode="python"),
+                    "entity_id": second.entity_id,
+                    "revision": 2,
+                }
+            ),
+            expected_revision=1,
+            at=NOW,
+        )
+    assignment = repo.reassign_alias(
+        assignment_id="assignment-1",
+        alias_id=alias.alias_id,
+        to_entity_id=second.entity_id,
+        provenance=evidence("alias-reassignment"),
+        applied_at=NOW,
+    )
+    assert repo.get("alias", alias.alias_id).entity_id == second.entity_id
+    reversed_assignment = repo.reverse_alias_reassignment(
+        assignment.assignment_id, reversed_at=NOW
+    )
+    assert reversed_assignment.state == "reversed"
+    assert repo.get("alias", alias.alias_id).entity_id == first.entity_id
+    assert [
+        item.source_revision for item in repo.revisions("alias", alias.alias_id)
+    ] == [
+        1,
+        2,
+        3,
+    ]
+    assert [
+        item.source_revision
+        for item in repo.revisions("alias_assignment", assignment.assignment_id)
+    ] == [1, 2]
+
+
+def test_fact_predicates_and_observed_lineage_are_closed_and_exact():
+    repo = repository()
+    issue_type = SemanticType(
+        tenant_id="tenant-a",
+        project_id="project-a",
+        type_id="software.issue",
+        type_kind="entity",
+        label="Issue",
+        description="Issue type",
+        pack_id="software-change",
+        pack_version="1.0.0",
+        provenance=evidence("type-source"),
+        revision=1,
+    )
+    repo.put_type(issue_type, expected_revision=0, at=NOW)
+    issue = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
+    invalid_fact = Fact(
+        tenant_id="tenant-a",
+        project_id="project-a",
+        fact_id="fact-invalid",
+        subject_entity_id=issue.entity_id,
+        relationship_type_id=issue_type.type_id,
+        object=FactObject(literal="open"),
+        assertion_kind="observation",
+        confidence=1,
+        provenance=evidence("fact-source"),
+        revision=1,
+    )
+    with pytest.raises(ValueError, match="must be a relationship"):
+        repo.put_fact(invalid_fact, expected_revision=0, at=NOW)
+    with pytest.raises(ValueError):
+        FactObject(literal="x" * 4097)
+    with pytest.raises(ValueError):
+        FactObject(literal=float("inf"))
+    with pytest.raises(ValueError, match="exact provenance"):
+        ObservedStructure(
+            tenant_id="tenant-a",
+            project_id="project-a",
+            observation_id="mismatched-source",
+            source=evidence("source-a").evidence[0],
+            structure_kind="field",
+            path="$.status",
+            sample_digest=DIGEST_A,
+            occurrence_count=1,
+            provenance=evidence("source-b"),
+        )
+
+
+def test_type_identity_is_immutable_and_revision_lookup_has_no_prefix_collision():
+    repo = repository()
+    semantic_type = put_issue_type(repo)
+    with pytest.raises(ValueError, match="immutable"):
+        repo.put_type(
+            SemanticType.model_validate(
+                {
+                    **semantic_type.model_dump(mode="python"),
+                    "type_kind": "relationship",
+                    "revision": 2,
+                }
+            ),
+            expected_revision=1,
+            at=NOW,
+        )
+    issue = repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
+    for alias_id in ("prefix", "prefix:child"):
+        repo.put_alias(
+            Alias(
+                tenant_id="tenant-a",
+                project_id="project-a",
+                alias_id=alias_id,
+                entity_id=issue.entity_id,
+                value=alias_id,
+                normalized_value=alias_id,
+                provenance=evidence(alias_id),
+                revision=1,
+            ),
+            expected_revision=0,
+            at=NOW,
+        )
+    assert [
+        revision.source_record_id for revision in repo.revisions("alias", "prefix")
+    ] == ["prefix"]
+
+
+def test_induction_referential_integrity_and_typed_bounded_changes():
+    service = OntologyInductionService(repository())
+    observation = observed_structure()
+    concept = CandidateConcept(
+        candidate_id="concept-1",
+        type_id="software.issue",
+        label="Issue",
+        description="Tracked issue",
+        observation_ids=(observation.observation_id,),
+        confidence=0.9,
+    )
+    draft = service.build_change_set(
+        change_set_id="integrity-change",
+        package_id="software-change",
+        operations=(change_operation(),),
+        authorship=authorship(),
+        created_at=NOW,
+    )
+    with pytest.raises(ValueError, match="concepts IDs must be unique"):
+        service.build_version(
+            package_id="software-change",
+            version="1.0.0",
+            observations=(observation,),
+            concepts=(concept, concept),
+            change_set=draft,
+            provenance=evidence(),
+        )
+    with pytest.raises(ValueError, match="unknown candidates"):
+        service.build_version(
+            package_id="software-change",
+            version="1.0.0",
+            observations=(observation,),
+            concepts=(concept,),
+            findings=(
+                ValidationFinding(
+                    finding_id="finding-1",
+                    severity="warning",
+                    code="ambiguous",
+                    message="Ambiguous candidate",
+                    candidate_ids=("missing-candidate",),
+                ),
+            ),
+            change_set=draft,
+            provenance=evidence(),
+        )
+    with pytest.raises(ValueError, match="proposed concept types"):
+        service.build_version(
+            package_id="software-change",
+            version="1.0.0",
+            observations=(observation,),
+            concepts=(concept,),
+            relationships=(
+                CandidateRelationship(
+                    candidate_id="relationship-1",
+                    relationship_type_id="software.resolved-by",
+                    source_type_id="software.issue",
+                    target_type_id="software.pull-request",
+                    observation_ids=(observation.observation_id,),
+                    confidence=0.8,
+                ),
+            ),
+            change_set=draft,
+            provenance=evidence(),
+        )
+    with pytest.raises(ValueError):
+        OntologyMigrationOperation(
+            operation_id="migration-op-1",
+            operation="add",
+            target_kind="concept",
+            target_id="software.issue",
+            after={"nested": {"unbounded": "shape"}},
+        )
+
+
+def test_persisted_drafts_cannot_be_substituted_and_transitions_revalidate():
+    service = OntologyInductionService(repository())
+    original = service.build_change_set(
+        change_set_id="persisted-change",
+        package_id="software-change",
+        operations=(change_operation(),),
+        authorship=authorship(),
+        created_at=NOW,
+    )
+    service.rebase_draft(
+        original,
+        new_change_set_id="rebased-change",
+        new_base_version="1.0.0",
+        new_base_digest=DIGEST_A,
+        at=NOW,
+    )
+    substituted = service.build_change_set(
+        change_set_id=original.change_set_id,
+        package_id=original.package_id,
+        operations=(change_operation("different-operation"),),
+        authorship=authorship(),
+        created_at=NOW,
+    )
+    with pytest.raises(ConcurrencyConflict, match="differs from caller"):
+        service.rebase_draft(
+            substituted,
+            new_change_set_id="forged-rebase",
+            new_base_version="1.0.0",
+            new_base_digest=DIGEST_A,
+            at=NOW,
+        )
+
+    draft = service.build_change_set(
+        change_set_id="proposal-change",
+        package_id="other-package",
+        operations=(change_operation(),),
+        authorship=authorship(),
+        created_at=NOW,
+    )
+    observation = observed_structure()
+    version = service.build_version(
+        package_id="other-package",
+        version="1.0.0",
+        observations=(observation,),
+        change_set=draft,
+        provenance=evidence(),
+    )
+    package = service.propose(version, draft, proposed_at=NOW)
+    with pytest.raises(ValueError, match="timezone"):
+        service.begin_review(package.package_id, at=NOW.replace(tzinfo=None))
+
+
+def test_review_binds_exact_content_and_package_can_publish_multiple_versions():
+    repo = repository()
+    service = OntologyInductionService(repo)
+    observation = observed_structure()
+
+    def publish(version_name: str, draft_id: str, *, base=None):
+        draft = service.build_change_set(
+            change_set_id=draft_id,
+            package_id="software-change",
+            operations=(change_operation(f"op-{version_name}"),),
+            authorship=authorship(),
+            created_at=NOW,
+            base_version=base[0] if base else None,
+            base_digest=base[1] if base else None,
+        )
+        version = service.build_version(
+            package_id="software-change",
+            version=version_name,
+            observations=(observation,),
+            change_set=draft,
+            provenance=evidence(),
+        )
+        package = service.propose(version, draft, proposed_at=NOW)
+        reviewing = service.begin_review(package.package_id, at=NOW)
+        with pytest.raises(ValueError, match="exact review decision"):
+            service.review(
+                package.package_id,
+                reviewer="user/reviewer",
+                review_digest=DIGEST_B,
+                accepted=True,
+                at=NOW,
+            )
+        reviewed = service.review(
+            package.package_id,
+            reviewer="user/reviewer",
+            review_digest=service.review_decision_digest(
+                reviewing, version, reviewer="user/reviewer", accepted=True
+            ),
+            accepted=True,
+            at=NOW,
+        )
+        assert reviewed.reviewed_content_digest == version.content_digest
+        return version, service.publish(
+            package.package_id,
+            reviewed_content_digest=version.content_digest,
+            at=NOW,
+        )
+
+    version_1, package_1 = publish("1.0.0", "change-v1")
+    version_2, package_2 = publish(
+        "2.0.0",
+        "change-v2",
+        base=(package_1.published_version, version_1.content_digest),
+    )
+    assert package_2.published_version == version_2.version
+    assert [
+        item.source_revision
+        for item in repo.revisions("ontology_package", "software-change")
+    ] == list(range(1, 9))
 
 
 class FakeCursor:
@@ -485,13 +908,31 @@ class FakeConnection:
 
 def test_postgres_semantic_store_uses_scoped_cas_table():
     connection = FakeConnection()
-    store = PostgresSemanticStore(
-        "postgresql://unused", connect=lambda dsn: connection
-    )
-    repo = repository(store)
-    repo.put_entity(entity("issue-42"), expected_revision=0, at=NOW)
+    store = PostgresSemanticStore("postgresql://unused", connect=lambda dsn: connection)
+    with store.transaction():
+        store.get(
+            "tenant-a",
+            "project-a",
+            "entity",
+            "krail+semantic://github.example.test/issue-42",
+            for_update=True,
+        )
+        store.put(
+            SemanticRow(
+                tenant_id="tenant-a",
+                project_id="project-a",
+                record_kind="entity",
+                record_id="krail+semantic://github.example.test/issue-42",
+                revision=1,
+                payload=entity("issue-42").model_dump(mode="json"),
+                created_at=NOW,
+                updated_at=NOW,
+            ),
+            expected_revision=0,
+        )
     sql = "\n".join(statement for statement, _ in connection.statements)
     assert "krail_semantic_record" in sql
     assert "tenant_id,project_id,record_kind,record_id" in sql
     assert "ON CONFLICT DO NOTHING" in sql
+    assert "FOR UPDATE" in sql
     assert connection.committed and not connection.rolled_back

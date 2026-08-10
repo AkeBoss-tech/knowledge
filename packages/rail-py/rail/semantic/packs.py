@@ -78,7 +78,10 @@ class SemanticPack(ScopedModel):
 
 class QualityMetric(StrictModel):
     metric: Literal[
-        "mapping-coverage", "evidence-coverage", "conflict-rate", "unresolved-alias-rate"
+        "mapping-coverage",
+        "evidence-coverage",
+        "conflict-rate",
+        "unresolved-alias-rate",
     ]
     value: float = Field(ge=0, le=1)
     sample_size: int = Field(ge=0)
@@ -131,6 +134,8 @@ class SemanticPackService:
     def publish(
         self, pack: SemanticPack, *, expected_revision: int, published_at: datetime
     ) -> SemanticPack:
+        if expected_revision != 0 or pack.revision != 1:
+            raise ValueError("semantic pack versions are immutable")
         return self.repository._save(
             "semantic_pack",
             f"{pack.pack_id}@{pack.version}",
@@ -163,13 +168,15 @@ class SemanticPackService:
                 "mapping-coverage", 0
             ):
                 drift.append("coverage-regression")
-            if current.get("conflict-rate", 0) > prior.get(
-                "conflict-rate", 0
-            ) + regression_threshold:
+            if (
+                current.get("conflict-rate", 0)
+                > prior.get("conflict-rate", 0) + regression_threshold
+            ):
                 drift.append("conflict-regression")
-            if current.get("unresolved-alias-rate", 0) > prior.get(
-                "unresolved-alias-rate", 0
-            ) + regression_threshold:
+            if (
+                current.get("unresolved-alias-rate", 0)
+                > prior.get("unresolved-alias-rate", 0) + regression_threshold
+            ):
                 drift.append("alias-regression")
         values = {
             "tenant_id": pack.tenant_id,

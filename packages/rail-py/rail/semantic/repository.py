@@ -18,12 +18,15 @@ from pydantic import BaseModel
 from rail.hosted.repository import ConcurrencyConflict
 from rail.semantic.models import (
     Alias,
+    AliasAssignment,
     Conflict,
     Entity,
     EntityMerge,
     EvidenceProvenance,
     Fact,
+    SemanticRevision,
     SemanticType,
+    canonical_digest,
 )
 
 SemanticKind = Literal[
@@ -31,6 +34,7 @@ SemanticKind = Literal[
     "entity",
     "fact",
     "alias",
+    "alias_assignment",
     "conflict",
     "entity_merge",
     "semantic_pack",
@@ -38,6 +42,7 @@ SemanticKind = Literal[
     "ontology_package",
     "ontology_package_version",
     "ontology_change_set",
+    "semantic_revision",
 ]
 
 
@@ -57,7 +62,13 @@ class SemanticStore(Protocol):
     @contextmanager
     def transaction(self) -> Iterator[None]: ...
     def get(
-        self, tenant_id: str, project_id: str, kind: SemanticKind, record_id: str
+        self,
+        tenant_id: str,
+        project_id: str,
+        kind: SemanticKind,
+        record_id: str,
+        *,
+        for_update: bool = False,
     ) -> SemanticRow | None: ...
     def put(self, row: SemanticRow, *, expected_revision: int) -> None: ...
     def list(
@@ -92,7 +103,13 @@ class MemorySemanticStore:
                 self._snapshot = None
 
     def get(
-        self, tenant_id: str, project_id: str, kind: SemanticKind, record_id: str
+        self,
+        tenant_id: str,
+        project_id: str,
+        kind: SemanticKind,
+        record_id: str,
+        *,
+        for_update: bool = False,
     ) -> SemanticRow | None:
         return self._rows.get(self._key(tenant_id, project_id, kind, record_id))
 
@@ -228,12 +245,19 @@ class PostgresSemanticStore:
         return SemanticRow.model_validate(payload)
 
     def get(
-        self, tenant_id: str, project_id: str, kind: SemanticKind, record_id: str
+        self,
+        tenant_id: str,
+        project_id: str,
+        kind: SemanticKind,
+        record_id: str,
+        *,
+        for_update: bool = False,
     ) -> SemanticRow | None:
         with self._connection().cursor() as cursor:
+            suffix = " FOR UPDATE" if for_update else ""
             cursor.execute(
                 "SELECT record FROM krail_semantic_record WHERE tenant_id=%s "
-                "AND project_id=%s AND record_kind=%s AND record_id=%s",
+                "AND project_id=%s AND record_kind=%s AND record_id=%s" + suffix,
                 (tenant_id, project_id, kind, record_id),
             )
             return self._decode(cursor.fetchone())
@@ -297,8 +321,10 @@ MODEL_BY_KIND: dict[SemanticKind, type[BaseModel]] = {
     "entity": Entity,
     "fact": Fact,
     "alias": Alias,
+    "alias_assignment": AliasAssignment,
     "conflict": Conflict,
     "entity_merge": EntityMerge,
+    "semantic_revision": SemanticRevision,
 }
 
 
@@ -332,36 +358,76 @@ class SemanticRepository:
     ) -> None:
         """Atomically persist a bounded set of exact semantic revisions."""
         with self.store.transaction():
-            for kind, record_id, value, expected_revision in items:
-                if (
-                    getattr(value, "tenant_id", self.tenant_id) != self.tenant_id
-                    or getattr(value, "project_id", self.project_id)
-                    != self.project_id
-                ):
-                    raise ValueError("semantic record belongs to a different scope")
-                revision = getattr(value, "revision", expected_revision + 1)
-                if revision != expected_revision + 1:
-                    raise ConcurrencyConflict(
-                        "semantic record revision does not advance CAS"
-                    )
-                current = self.store.get(
-                    self.tenant_id, self.project_id, kind, record_id
+            self._save_many_in_transaction(items, at=at)
+
+    def _save_many_in_transaction(
+        self,
+        items: tuple[tuple[SemanticKind, str, BaseModel, int], ...],
+        *,
+        at: datetime,
+    ) -> None:
+        """Persist records while the caller holds the repository transaction."""
+        for kind, record_id, value, expected_revision in items:
+            if (
+                getattr(value, "tenant_id", self.tenant_id) != self.tenant_id
+                or getattr(value, "project_id", self.project_id) != self.project_id
+            ):
+                raise ValueError("semantic record belongs to a different scope")
+            revision = getattr(value, "revision", expected_revision + 1)
+            if revision != expected_revision + 1:
+                raise ConcurrencyConflict(
+                    "semantic record revision does not advance CAS"
                 )
-                row = SemanticRow(
+            current = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                kind,
+                record_id,
+                for_update=True,
+            )
+            row = SemanticRow(
+                tenant_id=self.tenant_id,
+                project_id=self.project_id,
+                record_kind=kind,
+                record_id=record_id,
+                revision=revision,
+                payload=value.model_dump(mode="json"),
+                created_at=current.created_at if current else at,
+                updated_at=at,
+            )
+            self.store.put(row, expected_revision=expected_revision)
+            revision_payload = value.model_dump(mode="json")
+            revision_id = f"{kind}:{record_id}:{revision:020d}"
+            revision_record = SemanticRevision(
+                tenant_id=self.tenant_id,
+                project_id=self.project_id,
+                revision_id=revision_id,
+                source_kind=kind,
+                source_record_id=record_id,
+                source_revision=revision,
+                payload_digest=canonical_digest(revision_payload),
+                payload=revision_payload,
+                recorded_at=at,
+            )
+            self.store.put(
+                SemanticRow(
                     tenant_id=self.tenant_id,
                     project_id=self.project_id,
-                    record_kind=kind,
-                    record_id=record_id,
-                    revision=revision,
-                    payload=value.model_dump(mode="json"),
-                    created_at=current.created_at if current else at,
+                    record_kind="semantic_revision",
+                    record_id=revision_id,
+                    revision=1,
+                    payload=revision_record.model_dump(mode="json"),
+                    created_at=at,
                     updated_at=at,
-                )
-                self.store.put(row, expected_revision=expected_revision)
+                ),
+                expected_revision=0,
+            )
 
     def put_type(
         self, value: SemanticType, *, expected_revision: int, at: datetime
     ) -> SemanticType:
+        if expected_revision != 0 or value.revision != 1:
+            raise ValueError("semantic types are immutable; publish a new type ID")
         return self._save(
             "type", value.type_id, value, expected_revision=expected_revision, at=at
         )
@@ -369,58 +435,131 @@ class SemanticRepository:
     def put_entity(
         self, value: Entity, *, expected_revision: int, at: datetime
     ) -> Entity:
-        return self._save(
-            "entity",
-            value.entity_id,
-            value,
-            expected_revision=expected_revision,
-            at=at,
-        )
-
-    def put_fact(
-        self, value: Fact, *, expected_revision: int, at: datetime
-    ) -> Fact:
         with self.store.transaction():
-            if self.store.get(
-                self.tenant_id, self.project_id, "entity", value.subject_entity_id
-            ) is None:
+            type_row = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "type",
+                value.type_id,
+                for_update=True,
+            )
+            if type_row is None:
+                raise ValueError("entity semantic type does not exist")
+            semantic_type = SemanticType.model_validate(type_row.payload)
+            if semantic_type.type_kind != "entity":
+                raise ValueError("entity semantic type must be an entity type")
+            current = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "entity",
+                value.entity_id,
+                for_update=True,
+            )
+            if current is not None:
+                persisted = Entity.model_validate(current.payload)
+                if (persisted.state, persisted.merged_into) != (
+                    value.state,
+                    value.merged_into,
+                ):
+                    raise ValueError(
+                        "entity merge state changes require merge/split operations"
+                    )
+            self._save_many_in_transaction(
+                (("entity", value.entity_id, value, expected_revision),), at=at
+            )
+            return value
+
+    def put_fact(self, value: Fact, *, expected_revision: int, at: datetime) -> Fact:
+        with self.store.transaction():
+            if (
+                self.store.get(
+                    self.tenant_id,
+                    self.project_id,
+                    "entity",
+                    value.subject_entity_id,
+                    for_update=True,
+                )
+                is None
+            ):
                 raise ValueError("fact subject entity does not exist")
-            if value.object.entity_id and self.store.get(
-                self.tenant_id, self.project_id, "entity", value.object.entity_id
-            ) is None:
+            if (
+                value.object.entity_id
+                and self.store.get(
+                    self.tenant_id,
+                    self.project_id,
+                    "entity",
+                    value.object.entity_id,
+                    for_update=True,
+                )
+                is None
+            ):
                 raise ValueError("fact object entity does not exist")
-        return self._save(
-            "fact", value.fact_id, value, expected_revision=expected_revision, at=at
-        )
+            relationship = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "type",
+                value.relationship_type_id,
+                for_update=True,
+            )
+            if relationship is None:
+                raise ValueError("fact relationship type does not exist")
+            relationship_type = SemanticType.model_validate(relationship.payload)
+            if relationship_type.type_kind != "relationship":
+                raise ValueError("fact relationship type must be a relationship")
+            self._save_many_in_transaction(
+                (("fact", value.fact_id, value, expected_revision),), at=at
+            )
+            return value
 
-    def put_alias(
-        self, value: Alias, *, expected_revision: int, at: datetime
-    ) -> Alias:
+    def put_alias(self, value: Alias, *, expected_revision: int, at: datetime) -> Alias:
         with self.store.transaction():
-            if self.store.get(
-                self.tenant_id, self.project_id, "entity", value.entity_id
-            ) is None:
+            if (
+                self.store.get(
+                    self.tenant_id,
+                    self.project_id,
+                    "entity",
+                    value.entity_id,
+                    for_update=True,
+                )
+                is None
+            ):
                 raise ValueError("alias entity does not exist")
-        return self._save(
-            "alias", value.alias_id, value, expected_revision=expected_revision, at=at
-        )
+            current = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "alias",
+                value.alias_id,
+                for_update=True,
+            )
+            if current is not None:
+                persisted = Alias.model_validate(current.payload)
+                if persisted.entity_id != value.entity_id:
+                    raise ValueError("alias entity changes require reassign_alias")
+            self._save_many_in_transaction(
+                (("alias", value.alias_id, value, expected_revision),), at=at
+            )
+            return value
 
     def put_conflict(
         self, value: Conflict, *, expected_revision: int, at: datetime
     ) -> Conflict:
         with self.store.transaction():
             for fact_id in value.fact_ids:
-                if self.store.get(
-                    self.tenant_id, self.project_id, "fact", fact_id
-                ) is None:
+                if (
+                    self.store.get(
+                        self.tenant_id,
+                        self.project_id,
+                        "fact",
+                        fact_id,
+                        for_update=True,
+                    )
+                    is None
+                ):
                     raise ValueError("conflict fact does not exist")
-        return self._save(
-            "conflict",
-            value.conflict_id,
-            value,
-            expected_revision=expected_revision,
-            at=at,
-        )
+            self._save_many_in_transaction(
+                (("conflict", value.conflict_id, value, expected_revision),), at=at
+            )
+            return value
 
     def get(self, kind: SemanticKind, record_id: str) -> BaseModel:
         with self.store.transaction():
@@ -431,6 +570,132 @@ class SemanticRepository:
         if model is None:
             raise ValueError(f"record kind {kind} requires its owning service")
         return model.model_validate(row.payload)
+
+    def revisions(self, kind: SemanticKind, record_id: str) -> list[SemanticRevision]:
+        with self.store.transaction():
+            rows = self.store.list(
+                self.tenant_id, self.project_id, kind="semantic_revision"
+            )
+        revisions = [SemanticRevision.model_validate(row.payload) for row in rows]
+        return [
+            revision
+            for revision in revisions
+            if revision.source_kind == kind and revision.source_record_id == record_id
+        ]
+
+    def reassign_alias(
+        self,
+        *,
+        assignment_id: str,
+        alias_id: str,
+        to_entity_id: str,
+        provenance: EvidenceProvenance,
+        applied_at: datetime,
+    ) -> AliasAssignment:
+        with self.store.transaction():
+            alias_row = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "alias",
+                alias_id,
+                for_update=True,
+            )
+            target_row = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "entity",
+                to_entity_id,
+                for_update=True,
+            )
+            if alias_row is None or target_row is None:
+                raise KeyError("alias reassignment records must exist")
+            alias = Alias.model_validate(alias_row.payload)
+            target = Entity.model_validate(target_row.payload)
+            if target.state != "active":
+                raise ConcurrencyConflict("alias target must be active")
+            reassigned = Alias.model_validate(
+                {
+                    **alias.model_dump(mode="python"),
+                    "entity_id": to_entity_id,
+                    "revision": alias.revision + 1,
+                }
+            )
+            event = AliasAssignment(
+                tenant_id=self.tenant_id,
+                project_id=self.project_id,
+                assignment_id=assignment_id,
+                alias_id=alias_id,
+                from_entity_id=alias.entity_id,
+                to_entity_id=to_entity_id,
+                provenance=provenance,
+                applied_at=applied_at,
+                revision=1,
+            )
+            self._save_many_in_transaction(
+                (
+                    ("alias", alias_id, reassigned, alias.revision),
+                    ("alias_assignment", assignment_id, event, 0),
+                ),
+                at=applied_at,
+            )
+            return event
+
+    def reverse_alias_reassignment(
+        self, assignment_id: str, *, reversed_at: datetime
+    ) -> AliasAssignment:
+        with self.store.transaction():
+            assignment_row = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "alias_assignment",
+                assignment_id,
+                for_update=True,
+            )
+            if assignment_row is None:
+                raise KeyError(assignment_id)
+            assignment = AliasAssignment.model_validate(assignment_row.payload)
+            if assignment.state == "reversed":
+                return assignment
+            alias_row = self.store.get(
+                self.tenant_id,
+                self.project_id,
+                "alias",
+                assignment.alias_id,
+                for_update=True,
+            )
+            if alias_row is None:
+                raise KeyError(assignment.alias_id)
+            alias = Alias.model_validate(alias_row.payload)
+            if alias.entity_id != assignment.to_entity_id:
+                raise ConcurrencyConflict("alias no longer matches assignment target")
+            restored = Alias.model_validate(
+                {
+                    **alias.model_dump(mode="python"),
+                    "entity_id": assignment.from_entity_id,
+                    "revision": alias.revision + 1,
+                }
+            )
+            reversed_assignment = AliasAssignment.model_validate(
+                {
+                    **assignment.model_dump(mode="python"),
+                    "state": "reversed",
+                    "reversed_at": reversed_at,
+                    "revision": assignment.revision + 1,
+                }
+            )
+            self._save_many_in_transaction(
+                (
+                    ("alias", alias.alias_id, restored, alias.revision),
+                    (
+                        "alias_assignment",
+                        assignment.assignment_id,
+                        reversed_assignment,
+                        assignment.revision,
+                    ),
+                ),
+                at=reversed_at,
+            )
+            return reversed_assignment
 
     def merge_entities(
         self,
@@ -443,10 +708,18 @@ class SemanticRepository:
     ) -> EntityMerge:
         with self.store.transaction():
             source_row = self.store.get(
-                self.tenant_id, self.project_id, "entity", source_entity_id
+                self.tenant_id,
+                self.project_id,
+                "entity",
+                source_entity_id,
+                for_update=True,
             )
             target_row = self.store.get(
-                self.tenant_id, self.project_id, "entity", target_entity_id
+                self.tenant_id,
+                self.project_id,
+                "entity",
+                target_entity_id,
+                for_update=True,
             )
             if source_row is None or target_row is None:
                 raise KeyError("merge entities must exist")
@@ -456,8 +729,9 @@ class SemanticRepository:
             )
             if source.state != "active" or target.state != "active":
                 raise ConcurrencyConflict("merge requires active entities")
-            merged = source.model_copy(
-                update={
+            merged = Entity.model_validate(
+                {
+                    **source.model_dump(mode="python"),
                     "state": "merged",
                     "merged_into": target.entity_id,
                     "revision": source.revision + 1,
@@ -475,38 +749,23 @@ class SemanticRepository:
                 applied_at=applied_at,
                 revision=1,
             )
-            self.store.put(
-                SemanticRow(
-                    tenant_id=self.tenant_id,
-                    project_id=self.project_id,
-                    record_kind="entity",
-                    record_id=source.entity_id,
-                    revision=merged.revision,
-                    payload=merged.model_dump(mode="json"),
-                    created_at=source_row.created_at,
-                    updated_at=applied_at,
+            self._save_many_in_transaction(
+                (
+                    ("entity", source.entity_id, merged, source.revision),
+                    ("entity_merge", merge_id, event, 0),
                 ),
-                expected_revision=source.revision,
+                at=applied_at,
             )
-            self.store.put(
-                SemanticRow(
-                    tenant_id=self.tenant_id,
-                    project_id=self.project_id,
-                    record_kind="entity_merge",
-                    record_id=merge_id,
-                    revision=1,
-                    payload=event.model_dump(mode="json"),
-                    created_at=applied_at,
-                    updated_at=applied_at,
-                ),
-                expected_revision=0,
-            )
-        return event
+            return event
 
     def split_merge(self, merge_id: str, *, reversed_at: datetime) -> EntityMerge:
         with self.store.transaction():
             merge_row = self.store.get(
-                self.tenant_id, self.project_id, "entity_merge", merge_id
+                self.tenant_id,
+                self.project_id,
+                "entity_merge",
+                merge_id,
+                for_update=True,
             )
             if merge_row is None:
                 raise KeyError(merge_id)
@@ -514,51 +773,38 @@ class SemanticRepository:
             if merge.state == "reversed":
                 return merge
             source_row = self.store.get(
-                self.tenant_id, self.project_id, "entity", merge.source_entity_id
+                self.tenant_id,
+                self.project_id,
+                "entity",
+                merge.source_entity_id,
+                for_update=True,
             )
             if source_row is None:
                 raise KeyError(merge.source_entity_id)
             source = Entity.model_validate(source_row.payload)
             if source.state != "merged" or source.merged_into != merge.target_entity_id:
                 raise ConcurrencyConflict("merge source no longer matches merge event")
-            restored = source.model_copy(
-                update={
+            restored = Entity.model_validate(
+                {
+                    **source.model_dump(mode="python"),
                     "state": "active",
                     "merged_into": None,
                     "revision": source.revision + 1,
                 }
             )
-            reversed_merge = merge.model_copy(
-                update={
+            reversed_merge = EntityMerge.model_validate(
+                {
+                    **merge.model_dump(mode="python"),
                     "state": "reversed",
                     "reversed_at": reversed_at,
                     "revision": merge.revision + 1,
                 }
             )
-            self.store.put(
-                SemanticRow(
-                    tenant_id=self.tenant_id,
-                    project_id=self.project_id,
-                    record_kind="entity",
-                    record_id=source.entity_id,
-                    revision=restored.revision,
-                    payload=restored.model_dump(mode="json"),
-                    created_at=source_row.created_at,
-                    updated_at=reversed_at,
+            self._save_many_in_transaction(
+                (
+                    ("entity", source.entity_id, restored, source.revision),
+                    ("entity_merge", merge_id, reversed_merge, merge.revision),
                 ),
-                expected_revision=source.revision,
+                at=reversed_at,
             )
-            self.store.put(
-                SemanticRow(
-                    tenant_id=self.tenant_id,
-                    project_id=self.project_id,
-                    record_kind="entity_merge",
-                    record_id=merge_id,
-                    revision=reversed_merge.revision,
-                    payload=reversed_merge.model_dump(mode="json"),
-                    created_at=merge_row.created_at,
-                    updated_at=reversed_at,
-                ),
-                expected_revision=merge.revision,
-            )
-        return reversed_merge
+            return reversed_merge

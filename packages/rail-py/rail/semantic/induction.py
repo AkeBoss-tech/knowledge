@@ -9,6 +9,7 @@ from rail.semantic.models import (
     CandidateConcept,
     CandidateMapping,
     CandidateRelationship,
+    DraftAuthorship,
     EvidenceProvenance,
     ObservedStructure,
     OntologyChangeComparison,
@@ -20,7 +21,6 @@ from rail.semantic.models import (
     ReviewerQuestion,
     ValidationFinding,
     canonical_digest,
-    DraftAuthorship,
 )
 from rail.semantic.repository import SemanticRepository
 
@@ -46,6 +46,19 @@ class OntologyInductionService:
         change_set: OntologyChangeSet,
         provenance: EvidenceProvenance,
     ) -> OntologyPackageVersion:
+        groups = (
+            ("observations", observations, "observation_id"),
+            ("concepts", concepts, "candidate_id"),
+            ("relationships", relationships, "candidate_id"),
+            ("mappings", mappings, "candidate_id"),
+            ("findings", findings, "finding_id"),
+            ("reviewer questions", reviewer_questions, "question_id"),
+            ("migration proposals", migration_proposals, "migration_id"),
+        )
+        for label, items, attribute in groups:
+            identifiers = [getattr(item, attribute) for item in items]
+            if len(identifiers) != len(set(identifiers)):
+                raise ValueError(f"{label} IDs must be unique")
         observed_ids = {item.observation_id for item in observations}
         referenced = {
             observation_id
@@ -54,6 +67,28 @@ class OntologyInductionService:
         }
         if not referenced.issubset(observed_ids):
             raise ValueError("ontology candidates reference unknown observations")
+        candidate_ids = {
+            item.candidate_id for item in (*concepts, *relationships, *mappings)
+        }
+        candidate_count = len(concepts) + len(relationships) + len(mappings)
+        if len(candidate_ids) != candidate_count:
+            raise ValueError("candidate IDs must be globally unique")
+        review_references = {
+            candidate_id
+            for item in (*findings, *reviewer_questions)
+            for candidate_id in item.candidate_ids
+        }
+        if not review_references.issubset(candidate_ids):
+            raise ValueError("review records reference unknown candidates")
+        concept_type_ids = {item.type_id for item in concepts}
+        if any(
+            item.source_type_id not in concept_type_ids
+            or item.target_type_id not in concept_type_ids
+            for item in relationships
+        ):
+            raise ValueError("candidate relationships require proposed concept types")
+        if any(item.target_type_id not in concept_type_ids for item in mappings):
+            raise ValueError("candidate mappings require a proposed concept type")
         if any(
             item.tenant_id != self.repository.tenant_id
             or item.project_id != self.repository.project_id
@@ -168,14 +203,53 @@ class OntologyInductionService:
                 "ontology_change_set",
                 change_set.change_set_id,
             )
-        expected_change_revision = stored_change_set.revision if stored_change_set else 0
-        proposed_change_set = change_set.model_copy(
-            update={
+            stored_package = self.repository.store.get(
+                self.repository.tenant_id,
+                self.repository.project_id,
+                "ontology_package",
+                version.package_id,
+            )
+        if stored_change_set is not None:
+            persisted_change_set = OntologyChangeSet.model_validate(
+                stored_change_set.payload
+            )
+            if persisted_change_set != change_set:
+                raise ConcurrencyConflict(
+                    "persisted ontology draft differs from caller"
+                )
+        else:
+            persisted_change_set = change_set
+        expected_change_revision = (
+            stored_change_set.revision if stored_change_set else change_set.revision
+        )
+        proposed_change_set = OntologyChangeSet.model_validate(
+            {
+                **persisted_change_set.model_dump(mode="python"),
                 "state": "proposed",
                 "updated_at": proposed_at,
                 "revision": expected_change_revision + 1,
             }
         )
+        current_package = (
+            OntologyPackage.model_validate(stored_package.payload)
+            if stored_package is not None
+            else None
+        )
+        if current_package is not None and current_package.state not in {
+            "published",
+            "rejected",
+        }:
+            raise ConcurrencyConflict("ontology package already has an active proposal")
+        if current_package is not None and current_package.state == "published":
+            prior_version = self._version(current_package)
+            if (
+                change_set.base_version != current_package.published_version
+                or change_set.base_digest != prior_version.content_digest
+            ):
+                raise ConcurrencyConflict(
+                    "new proposal must bind the published package head"
+                )
+        expected_package_revision = stored_package.revision if stored_package else 0
         package = OntologyPackage(
             tenant_id=self.repository.tenant_id,
             project_id=self.repository.project_id,
@@ -187,12 +261,25 @@ class OntologyInductionService:
             base_version=change_set.base_version,
             base_digest=change_set.base_digest,
             authorship=change_set.authorship,
-            created_at=proposed_at,
+            created_at=current_package.created_at if current_package else proposed_at,
             updated_at=proposed_at,
-            revision=1,
+            revision=expected_package_revision + 1,
+        )
+        change_items = (
+            (
+                (
+                    "ontology_change_set",
+                    change_set.change_set_id,
+                    change_set,
+                    0,
+                ),
+            )
+            if stored_change_set is None
+            else ()
         )
         self.repository._save_many(
-            (
+            change_items
+            + (
                 (
                     "ontology_change_set",
                     change_set.change_set_id,
@@ -205,7 +292,12 @@ class OntologyInductionService:
                     version,
                     0,
                 ),
-                ("ontology_package", package.package_id, package, 0),
+                (
+                    "ontology_package",
+                    package.package_id,
+                    package,
+                    expected_package_revision,
+                ),
             ),
             at=proposed_at,
         )
@@ -240,16 +332,32 @@ class OntologyInductionService:
                 "ontology_change_set",
                 current.change_set_id,
             )
-        expected_current_revision = stored_current.revision if stored_current else 0
-        superseded = current.model_copy(
-            update={
+        if stored_current is None:
+            persisted_current = current
+            expected_current_revision = current.revision
+        else:
+            persisted_current = OntologyChangeSet.model_validate(stored_current.payload)
+            if persisted_current != current:
+                raise ConcurrencyConflict(
+                    "persisted ontology draft differs from caller"
+                )
+            expected_current_revision = stored_current.revision
+        superseded = OntologyChangeSet.model_validate(
+            {
+                **persisted_current.model_dump(mode="python"),
                 "state": "superseded",
                 "updated_at": at,
                 "revision": expected_current_revision + 1,
             }
         )
+        current_items = (
+            (("ontology_change_set", current.change_set_id, current, 0),)
+            if stored_current is None
+            else ()
+        )
         self.repository._save_many(
-            (
+            current_items
+            + (
                 (
                     "ontology_change_set",
                     current.change_set_id,
@@ -310,18 +418,44 @@ class OntologyInductionService:
             raise KeyError(record_id)
         return OntologyPackageVersion.model_validate(row.payload)
 
+    @staticmethod
+    def review_decision_digest(
+        package: OntologyPackage,
+        version: OntologyPackageVersion,
+        *,
+        reviewer: str,
+        accepted: bool,
+    ) -> str:
+        """Bind a review attestation to the exact proposed semantic content."""
+        return canonical_digest(
+            {
+                "schema_version": "krail.ontology-review-decision.v1",
+                "package_id": package.package_id,
+                "proposed_version": package.proposed_version,
+                "change_set_digest": package.change_set_digest,
+                "content_digest": version.content_digest,
+                "reviewer": reviewer,
+                "decision": "accept" if accepted else "reject",
+            }
+        )
+
     def begin_review(self, package_id: str, *, at: datetime) -> OntologyPackage:
         current = self._package(package_id)
         if current.state != "proposal":
             raise ConcurrencyConflict("only proposals can enter review")
-        updated = current.model_copy(
-            update={"state": "in-review", "updated_at": at, "revision": 2}
+        updated = OntologyPackage.model_validate(
+            {
+                **current.model_dump(mode="python"),
+                "state": "in-review",
+                "updated_at": at,
+                "revision": current.revision + 1,
+            }
         )
         return self.repository._save(
             "ontology_package",
             package_id,
             updated,
-            expected_revision=1,
+            expected_revision=current.revision,
             at=at,
         )
 
@@ -340,13 +474,22 @@ class OntologyInductionService:
             raise ConcurrencyConflict("package is not in review")
         if accepted and any(item.severity == "blocking" for item in version.findings):
             raise ValueError("blocking validation findings prevent acceptance")
-        if accepted and any(item.state == "open" for item in version.reviewer_questions):
+        if accepted and any(
+            item.state == "open" for item in version.reviewer_questions
+        ):
             raise ValueError("open reviewer questions prevent acceptance")
-        updated = current.model_copy(
-            update={
+        expected_review_digest = self.review_decision_digest(
+            current, version, reviewer=reviewer, accepted=accepted
+        )
+        if review_digest != expected_review_digest:
+            raise ValueError("review digest does not bind the exact review decision")
+        updated = OntologyPackage.model_validate(
+            {
+                **current.model_dump(mode="python"),
                 "state": "reviewed" if accepted else "rejected",
                 "reviewer": reviewer,
                 "review_digest": review_digest,
+                "reviewed_content_digest": version.content_digest if accepted else None,
                 "updated_at": at,
                 "revision": current.revision + 1,
             }
@@ -372,8 +515,11 @@ class OntologyInductionService:
             raise ConcurrencyConflict("only reviewed ontology packages can publish")
         if reviewed_content_digest != version.content_digest:
             raise ConcurrencyConflict("reviewed ontology digest is stale")
-        published = current.model_copy(
-            update={
+        if current.reviewed_content_digest != version.content_digest:
+            raise ConcurrencyConflict("durable review does not bind ontology content")
+        published = OntologyPackage.model_validate(
+            {
+                **current.model_dump(mode="python"),
                 "state": "published",
                 "published_version": current.proposed_version,
                 "updated_at": at,
