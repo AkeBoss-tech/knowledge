@@ -119,6 +119,45 @@ def test_shared_content_is_deleted_only_after_last_reference_is_erased():
     assert not objects.contains(two.object_key)
 
 
+def test_update_then_erase_deletes_every_historical_object_revision():
+    objects = MemoryObjectStore()
+    repo = repository(objects=objects)
+    first = repo.capture("capture", b"v1", media_type="text/plain", created_at=NOW, idempotency_key="v1")
+    second = repo.capture("capture", b"v2", media_type="text/plain", created_at=NOW, expected_revision=1, idempotency_key="v2")
+    assert objects.contains(first.object_key) and objects.contains(second.object_key)
+    repo.erase("capture", erased_at=NOW, reason="request", expected_revision=2)
+    assert not objects.contains(first.object_key)
+    assert not objects.contains(second.object_key)
+    repo.erase("capture", erased_at=NOW, reason="request", expected_revision=2)
+    with pytest.raises(ConcurrencyConflict):
+        repo.erase("capture", erased_at=NOW, reason="stale", expected_revision=1)
+
+
+def test_historical_shared_object_survives_until_last_capture_is_erased():
+    objects = MemoryObjectStore()
+    repo = repository(objects=objects)
+    shared = repo.capture("one", b"shared", media_type="text/plain", created_at=NOW, idempotency_key="one-v1")
+    repo.capture("one", b"one-v2", media_type="text/plain", created_at=NOW, expected_revision=1, idempotency_key="one-v2")
+    repo.capture("two", b"shared", media_type="text/plain", created_at=NOW, idempotency_key="two-v1")
+    repo.erase("one", erased_at=NOW, reason="request", expected_revision=2)
+    assert objects.contains(shared.object_key)
+    repo.erase("two", erased_at=NOW, reason="request", expected_revision=1)
+    assert not objects.contains(shared.object_key)
+
+
+def test_backup_restore_preserves_revision_reachability():
+    source = repository()
+    first = source.capture("capture", b"v1", media_type="text/plain", created_at=NOW, idempotency_key="v1")
+    second = source.capture("capture", b"v2", media_type="text/plain", created_at=NOW, expected_revision=1, idempotency_key="v2")
+    bundle = source.backup(created_at=NOW)
+    assert {first.object_key, second.object_key} == set(bundle.objects)
+    metadata, objects = MemoryMetadataStore(), MemoryObjectStore()
+    target = repository(metadata, objects)
+    target.restore(bundle)
+    target.erase("capture", erased_at=NOW, reason="request", expected_revision=2)
+    assert objects.objects == {}
+
+
 def test_atomic_json_and_file_adapters_match_memory_semantics(tmp_path):
     repo = repository(JsonMetadataStore(tmp_path / "metadata.json"), FileObjectStore(tmp_path / "objects"))
     record = repo.capture("a", b"hello", media_type="text/plain", created_at=NOW, idempotency_key="a")
@@ -176,4 +215,5 @@ def test_packaged_migration_has_digest_addressed_rollback():
     assert migration.up_digest.startswith("sha256:")
     assert migration.down_digest.startswith("sha256:")
     assert "PRIMARY KEY (tenant_id, project_id, record_kind, record_id)" in migration.up_sql
+    assert "capture_revision" in migration.up_sql
     assert "DROP TABLE IF EXISTS krail_hosted_record" in migration.down_sql

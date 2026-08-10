@@ -12,7 +12,9 @@ HostedRepository
 
 The repository is scoped by an opaque tenant ID and project ID. Metadata keys
 always include both values. Captures use content-addressed immutable objects,
-optimistic aggregate revisions, and command-digest-bound idempotency keys.
+optimistic aggregate revisions, command-digest-bound idempotency keys, and an
+immutable revision-reference ledger so every historical object remains
+reachable for backup and eventual erasure.
 Projections are explicitly rebuildable and omitted from backups. Erasure leaves
 only a non-sensitive tombstone and deletes bytes after the final scoped
 reference disappears. Retention uses the same erasure path.
@@ -26,8 +28,9 @@ that has exported and verified its data is in
 `0001_hosted_records.down.sql`. KRAIL does not read credentials from project
 files and does not create cloud resources.
 
-The metadata transaction commits capture metadata and its idempotency record
-atomically. Object bytes are uploaded first under their SHA-256-derived key.
+The metadata transaction commits current capture metadata, its immutable
+revision reference, and its idempotency record atomically. Object bytes are
+uploaded first under their SHA-256-derived key.
 That makes retry safe; a database failure can leave only an unreferenced,
 content-addressed object, which an operator may remove with an inventory-based
 garbage collector.
@@ -35,7 +38,7 @@ garbage collector.
 ## Backup, restore, and rebuild
 
 `HostedRepository.backup()` creates a digest-protected, tenant/project-bound
-bundle containing durable capture/idempotency metadata and referenced object
+bundle containing durable capture/revision/idempotency metadata and referenced object
 bytes. It excludes projections. `restore()` verifies the bundle digest and every
 object key before inserting records and refuses to overwrite divergent state.
 After restore, call `rebuild_projection()` for each configured projection.

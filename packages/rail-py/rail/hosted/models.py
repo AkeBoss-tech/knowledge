@@ -12,7 +12,7 @@ from krail.provider.v1 import ResourceRef
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
 Digest = Annotated[str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")]
-RecordKind = Literal["capture", "projection", "idempotency", "tombstone"]
+RecordKind = Literal["capture", "capture_revision", "projection", "idempotency", "tombstone"]
 CaptureState = Literal["active", "tombstoned", "erased"]
 
 

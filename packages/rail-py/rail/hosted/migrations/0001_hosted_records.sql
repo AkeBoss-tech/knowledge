@@ -3,7 +3,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS krail_hosted_record (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
-    record_kind text NOT NULL CHECK (record_kind IN ('capture','projection','idempotency','tombstone')),
+    record_kind text NOT NULL CHECK (record_kind IN ('capture','capture_revision','projection','idempotency','tombstone')),
     record_id text NOT NULL,
     revision bigint NOT NULL CHECK (revision >= 1),
     record jsonb NOT NULL,

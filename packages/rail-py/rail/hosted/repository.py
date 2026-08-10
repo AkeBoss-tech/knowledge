@@ -239,6 +239,11 @@ class HostedRepository:
         authority = f"krail+hosted://capture-authority/{_scope_digest(self.tenant_id, self.project_id)}"
         return ResourceRef(authority=authority, resource_type="capture", resource_id=capture_id, version=f"content:{content_digest.removeprefix('sha256:')}", digest=content_digest)
 
+    @staticmethod
+    def _revision_record_id(capture_id: str, revision: int) -> str:
+        identity = hashlib.sha256(capture_id.encode("utf-8")).hexdigest()
+        return f"{identity}:{revision:020d}"
+
     def capture(self, capture_id: str, content: bytes, *, media_type: str, created_at: datetime, retention_until: datetime | None = None, expected_revision: int = 0, idempotency_key: str) -> CaptureRecord:
         if not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
@@ -264,6 +269,8 @@ class HostedRepository:
             capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=self._resource_ref(capture_id, content_digest), revision=actual + 1, content_digest=content_digest, object_key=object_key, media_type=media_type, byte_size=len(content), created_at=created_at, retention_until=retention_until)
             row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture", record_id=capture_id, revision=capture.revision, payload=capture.model_dump(mode="json"), created_at=current.created_at if current else created_at, updated_at=created_at)
             self.metadata.put(row, expected_revision=actual)
+            revision_row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture_revision", record_id=self._revision_record_id(capture_id, capture.revision), revision=1, payload=capture.model_dump(mode="json"), created_at=created_at, updated_at=created_at)
+            self.metadata.put(revision_row, expected_revision=0)
             idem = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="idempotency", record_id=idempotency_key, revision=1, payload={"command_digest": command_digest, "capture_id": capture_id}, created_at=created_at, updated_at=created_at)
             self.metadata.put(idem, expected_revision=0)
             return capture
@@ -300,17 +307,29 @@ class HostedRepository:
             current = self.metadata.get(self.tenant_id, self.project_id, "capture", capture_id)
             if current is None:
                 return
-            if current.revision != expected_revision:
-                raise ConcurrencyConflict(f"expected revision {expected_revision}, found {current.revision}")
             capture = CaptureRecord.model_validate(current.payload)
             if capture.state == "erased":
-                return
+                if expected_revision in {current.revision, current.revision - 1}:
+                    return
+                raise ConcurrencyConflict(f"expected revision {expected_revision}, found erased revision {current.revision}")
+            if current.revision != expected_revision:
+                raise ConcurrencyConflict(f"expected revision {expected_revision}, found {current.revision}")
+            revision_rows = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture_revision") if row.payload.get("capture_id") == capture_id and row.payload.get("state", "active") != "erased"]
+            object_keys = {capture.object_key} | {row.payload["object_key"] for row in revision_rows}
             tombstone_capture = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=None, revision=current.revision + 1, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
             tombstone = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture", record_id=capture_id, revision=current.revision + 1, payload=tombstone_capture.model_dump(mode="json"), created_at=current.created_at, updated_at=erased_at)
             self.metadata.put(tombstone, expected_revision=current.revision)
-            references = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture") if row.record_id != capture_id and row.payload.get("state", "active") != "erased" and row.payload.get("object_key") == capture.object_key]
-        if not references:
-            self.objects.delete(capture.object_key)
+            for revision_row in revision_rows:
+                revision_capture = CaptureRecord.model_validate(revision_row.payload)
+                erased_revision = CaptureRecord(tenant_id=self.tenant_id, project_id=self.project_id, capture_id=capture_id, resource_ref=None, revision=revision_capture.revision, content_digest=None, object_key=None, media_type=None, byte_size=None, created_at=revision_capture.created_at, retention_until=None, state="erased", erased_at=erased_at, erasure_reason_digest=_digest(reason.encode()))
+                row = HostedRecord(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="capture_revision", record_id=revision_row.record_id, revision=revision_row.revision + 1, payload=erased_revision.model_dump(mode="json"), created_at=revision_row.created_at, updated_at=erased_at)
+                self.metadata.put(row, expected_revision=revision_row.revision)
+            active_revision_rows = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture_revision") if row.payload.get("state", "active") != "erased"]
+            referenced_keys = {row.payload.get("object_key") for row in active_revision_rows}
+            active_current_rows = [row for row in self.metadata.list(self.tenant_id, self.project_id, kind="capture") if row.record_id != capture_id and row.payload.get("state", "active") != "erased"]
+            referenced_keys.update(row.payload.get("object_key") for row in active_current_rows)
+        for object_key in object_keys - referenced_keys:
+            self.objects.delete(object_key)
 
     def enforce_retention(self, *, as_of: datetime) -> list[str]:
         with self.metadata.transaction():
@@ -324,7 +343,7 @@ class HostedRepository:
 
     def backup(self, *, created_at: datetime) -> BackupBundle:
         with self.metadata.transaction():
-            records = [row for row in self.metadata.list(self.tenant_id, self.project_id) if row.record_kind in {"capture", "idempotency"}]
+            records = [row for row in self.metadata.list(self.tenant_id, self.project_id) if row.record_kind in {"capture", "capture_revision", "idempotency"}]
         if len(records) > MAX_BACKUP_RECORDS:
             raise ValueError(f"backup exceeds {MAX_BACKUP_RECORDS} records")
         objects: dict[str, str] = {}
