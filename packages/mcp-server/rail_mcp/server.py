@@ -33,8 +33,10 @@ from krail.provider.v1 import (
 )
 from rail.actions import ActionNotFoundError, ActionValidationError
 from rail.context_brief import ContextBriefRequest
+from rail.outcome_observations import OutcomeIngestEnvelope
 from rail.permissions import PermissionPolicy
 from rail.retrieval import reciprocal_rank_fusion
+from rail.verification_evidence import VerificationEvidenceRequest
 
 mcp = FastMCP("KRAIL")
 _original_mcp_tool = mcp.tool
@@ -50,6 +52,8 @@ STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
         "provider_get_resource",
         "provider_retrieve_evidence",
         "provider_context_brief",
+        "provider_assemble_verification_evidence",
+        "provider_ingest_outcome_evidence",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",
@@ -351,7 +355,7 @@ def provider_capability(
     """Publish or negotiate the digest-addressed read-only Context Brief capability."""
     provider = _get_project().provider
     if not consumer_version:
-        return _provider_result(provider.capability_descriptor())
+        return _provider_result(provider.capability_descriptor(capability_id))
     request = CapabilityNegotiationRequest(
         capability_id=capability_id,
         consumer_version=consumer_version,
@@ -400,6 +404,28 @@ def provider_context_brief(request_json: str) -> str:
     """Assemble a deterministic bounded Context Brief from an exact strict request."""
     request = _provider_request(request_json, ContextBriefRequest, "context_brief")
     return _provider_result(_get_project().provider.context_brief(request))
+
+
+@mcp.tool()
+def provider_assemble_verification_evidence(request_json: str) -> str:
+    """Interpret supplied bounded verification artifacts; never execute commands."""
+    request = _provider_request(
+        request_json,
+        VerificationEvidenceRequest,
+        "assemble_verification_evidence",
+    )
+    return _provider_result(_get_project().provider.assemble_verification_evidence(request))
+
+
+@mcp.tool()
+def provider_ingest_outcome_evidence(request_json: str) -> str:
+    """Interpret pinned provider state without fetching or mutating external state."""
+    envelope = _provider_request(
+        request_json,
+        OutcomeIngestEnvelope,
+        "ingest_outcome_evidence",
+    )
+    return _provider_result(_get_project().provider.ingest_outcome_evidence(envelope))
 
 
 @mcp.tool()

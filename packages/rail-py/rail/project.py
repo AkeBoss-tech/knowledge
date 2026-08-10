@@ -81,13 +81,21 @@ class Project:
             raise RuntimeError("context briefs require a local KRAIL application service")
         return self._backend.knowledge.application.context_brief(request)
 
-    def capability_descriptor(self):
-        """Publish the local provider's immutable Context Brief descriptor."""
-        return self.provider.capability_descriptor()
+    def capability_descriptor(self, capability_id: str = "krail.context-brief"):
+        """Publish one immutable local provider capability descriptor."""
+        return self.provider.capability_descriptor(capability_id)
 
     def negotiate_capability(self, request):
         """Check version/digest compatibility without granting authorization."""
         return self.provider.negotiate_capability(request)
+
+    def assemble_verification_evidence(self, request):
+        """Assemble verification evidence through the shared application service."""
+        return self.provider.assemble_verification_evidence(request)
+
+    def ingest_outcome_evidence(self, envelope):
+        """Interpret a pinned outcome through the shared application service."""
+        return self.provider.ingest_outcome_evidence(envelope)
 
     def datasets_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):

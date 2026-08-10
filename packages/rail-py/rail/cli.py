@@ -25,6 +25,8 @@ from rail.docs import query_builtin_doc, search_builtin_docs
 from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
 from rail.manifest import ManifestValidationError
 from rail.modes import DEFAULT_MODES, get_mode
+from rail.outcome_observations import OutcomeIngestEnvelope
+from rail.verification_evidence import VerificationEvidenceRequest
 
 RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
 
@@ -181,7 +183,7 @@ def cmd_provider(project: rail.Project, args: argparse.Namespace):
                 )
             )
         else:
-            result = provider.capability_descriptor()
+            result = provider.capability_descriptor(args.capability_id)
     elif command == "describe-types":
         result = provider.describe_types(DescribeTypesRequest())
     elif command == "search":
@@ -194,6 +196,14 @@ def cmd_provider(project: rail.Project, args: argparse.Namespace):
         result = provider.retrieve_evidence(RetrieveEvidenceRequest(query=args.query, resource_types=args.type or [], max_items=args.max_items, max_total_bytes=args.max_total_bytes))
     elif command == "context-brief":
         result = provider.context_brief(ContextBriefRequest.model_validate_json(args.request))
+    elif command == "assemble-verification-evidence":
+        result = provider.assemble_verification_evidence(
+            VerificationEvidenceRequest.model_validate_json(args.request)
+        )
+    elif command == "ingest-outcome-evidence":
+        result = provider.ingest_outcome_evidence(
+            OutcomeIngestEnvelope.model_validate_json(args.request),
+        )
     elif command == "explain":
         result = provider.explain(ExplainRequest(question=args.question, refs=[_provider_ref(item) for item in args.ref or []], max_evidence_items=args.max_evidence_items))
     elif command == "lineage":
@@ -942,7 +952,7 @@ def main():
     provider_subs = provider_parser.add_subparsers(dest="provider_command", required=True)
     provider_info = provider_subs.add_parser("info", help="Negotiate provider-v1 capabilities and version compatibility")
     provider_info.add_argument("--consumer-version")
-    provider_capability = provider_subs.add_parser("capability", help="Publish or negotiate the immutable Context Brief capability")
+    provider_capability = provider_subs.add_parser("capability", help="Publish or negotiate an immutable KRAIL capability")
     provider_capability.add_argument("--capability-id", default="krail.context-brief")
     provider_capability.add_argument("--consumer-version", help="Negotiate a semantic version; omit to publish the descriptor")
     provider_capability.add_argument("--descriptor-digest", help="Optionally pin the exact published descriptor digest")
@@ -965,6 +975,19 @@ def main():
     provider_evidence.add_argument("--max-total-bytes", type=int, default=131_072)
     provider_context = provider_subs.add_parser("context-brief", help="Assemble a bounded Context Brief from a strict JSON request")
     provider_context.add_argument("request", help="ContextBriefRequest JSON")
+    provider_verification = provider_subs.add_parser(
+        "assemble-verification-evidence",
+        help="Interpret supplied bounded verification artifacts without execution",
+    )
+    provider_verification.add_argument("request", help="VerificationEvidenceRequest JSON")
+    provider_outcome = provider_subs.add_parser(
+        "ingest-outcome-evidence",
+        help="Interpret an immutable provider observation without fetching newer state",
+    )
+    provider_outcome.add_argument(
+        "request",
+        help="Strict OutcomeIngestEnvelope JSON including any exact prior observation",
+    )
     provider_explain = provider_subs.add_parser("explain", help="Explain from bounded exact evidence")
     provider_explain.add_argument("question")
     provider_explain.add_argument("--ref", action="append", help="ResourceRef JSON")

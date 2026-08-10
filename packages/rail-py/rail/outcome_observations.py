@@ -158,6 +158,18 @@ class OutcomeObservation(StrictModel):
     domain_event_ref: DomainEventRef
 
 
+class OutcomeIngestEnvelope(StrictModel):
+    """Complete deterministic input for one outcome-ingestion operation.
+
+    The exact prior observation is part of the operation input rather than an
+    out-of-band argument so every public transport validates and digests the
+    same supersession state.
+    """
+
+    request: OutcomeIngestRequest
+    prior_observation: OutcomeObservation | None = None
+
+
 class OutcomeObservationService:
     """Pure ingestion that preserves provider state and never fetches newer state."""
 
@@ -257,6 +269,7 @@ __all__ = [
     "OutcomeAssertion",
     "OutcomeAssertionInput",
     "OutcomeEvidenceLinks",
+    "OutcomeIngestEnvelope",
     "OutcomeIngestRequest",
     "OutcomeObservation",
     "OutcomeObservationService",

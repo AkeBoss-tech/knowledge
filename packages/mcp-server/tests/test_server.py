@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import types
+from datetime import timedelta
 from pathlib import Path
 
 if "tomllib" not in sys.modules:
@@ -282,7 +283,8 @@ def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monk
             assert actual == request
             return type("Result", (), {"model_dump": lambda self, mode: {"brief": "same"}})()
 
-        def capability_descriptor(self):
+        def capability_descriptor(self, capability_id="krail.context-brief"):
+            assert capability_id == descriptor.capability_id
             return descriptor
 
         def negotiate_capability(self, actual):
@@ -314,10 +316,88 @@ def test_mcp_contract_exposes_all_provider_v1_reads():
         "provider_get_resource",
         "provider_retrieve_evidence",
         "provider_context_brief",
+        "provider_assemble_verification_evidence",
+        "provider_ingest_outcome_evidence",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",
     }
+
+
+def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monkeypatch):
+    from pathlib import Path
+
+    from rail.outcome_observations import (
+        OutcomeIngestEnvelope,
+        OutcomeIngestRequest,
+        OutcomeObservationService,
+    )
+    from rail.verification_evidence import VerificationEvidenceRequest, VerificationEvidenceService
+
+    fixtures = Path(__file__).parents[2] / "rail-py" / "tests" / "fixtures" / "evidence_foundation"
+    verification = VerificationEvidenceRequest.model_validate_json(
+        (fixtures / "verification_request.json").read_text(encoding="utf-8")
+    )
+    outcome = OutcomeIngestRequest.model_validate_json(
+        (fixtures / "outcome_request.json").read_text(encoding="utf-8")
+    )
+    verification_service = VerificationEvidenceService()
+    outcome_service = OutcomeObservationService()
+
+    class _Provider:
+        def assemble_verification_evidence(self, request):
+            return verification_service.assemble(request)
+
+        def ingest_outcome_evidence(self, envelope):
+            return outcome_service.ingest(
+                envelope.request,
+                previous=envelope.prior_observation,
+            )
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+    assert json.loads(server.provider_assemble_verification_evidence(verification.model_dump_json())) == (
+        verification_service.assemble(verification).model_dump(mode="json")
+    )
+    envelope = OutcomeIngestEnvelope(request=outcome)
+    assert json.loads(server.provider_ingest_outcome_evidence(envelope.model_dump_json())) == (
+        outcome_service.ingest(outcome).model_dump(mode="json")
+    )
+
+    prior = outcome_service.ingest(outcome)
+    prior_ref = outcome.observation.resource_ref
+    assert prior_ref is not None
+    newer_ref = prior_ref.model_copy(
+        update={
+            "version": "etag:pr-184-head-cccccccc",
+            "digest": "sha256:" + "d" * 64,
+        }
+    )
+    superseding_request = outcome.model_copy(
+        update={
+            "observation": outcome.observation.model_copy(
+                update={
+                    "observed_at": outcome.observation.observed_at + timedelta(minutes=5),
+                    "resource_ref": newer_ref,
+                    "provider_payload_digest": "sha256:" + "e" * 64,
+                    "supersedes_observation_digest": prior.observation_digest,
+                }
+            ),
+            "semantic_assertions": tuple(
+                item.model_copy(update={"source_ref": newer_ref})
+                for item in outcome.semantic_assertions
+            ),
+        }
+    )
+    superseding = OutcomeIngestEnvelope(
+        request=superseding_request,
+        prior_observation=prior,
+    )
+    assert json.loads(server.provider_ingest_outcome_evidence(superseding.model_dump_json())) == (
+        outcome_service.ingest(superseding_request, previous=prior).model_dump(mode="json")
+    )
 
 
 def test_action_errors_are_classified_as_client_errors(monkeypatch):

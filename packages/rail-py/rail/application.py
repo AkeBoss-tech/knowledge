@@ -95,12 +95,27 @@ class KnowledgeApplicationService:
             EpistemicHistory(runtime.project_path),
         )
         from rail.capability_publication import LocalCapabilityPublication
+        from rail.outcome_observations import OutcomeObservationService
+        from rail.verification_evidence import VerificationEvidenceService
 
         self.capability_publication = LocalCapabilityPublication()
+        self.verification_evidence = VerificationEvidenceService()
+        self.outcome_observations = OutcomeObservationService()
 
     def context_brief(self, request):
         """Assemble a bounded brief without performing provider or external writes."""
         return self.context_briefs.assemble(request)
+
+    def assemble_verification_evidence(self, request):
+        """Interpret supplied bounded artifacts without executing or mutating."""
+        return self.verification_evidence.assemble(request)
+
+    def ingest_outcome_evidence(self, envelope):
+        """Interpret a pinned provider observation without fetching newer state."""
+        return self.outcome_observations.ingest(
+            envelope.request,
+            previous=envelope.prior_observation,
+        )
 
     def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
         return self.runtime._search_impl(query, **kwargs)
@@ -160,9 +175,9 @@ class LocalKnowledgeProvider:
             diagnostic=diagnostic,
         )
 
-    def capability_descriptor(self):
-        """Publish the immutable Context Brief capability without granting access."""
-        return self.application.capability_publication.descriptor()
+    def capability_descriptor(self, capability_id: str = "krail.context-brief"):
+        """Publish an immutable KRAIL capability without granting access."""
+        return self.application.capability_publication.descriptor(capability_id)
 
     def negotiate_capability(self, request: CapabilityNegotiationRequest):
         return self.application.capability_publication.negotiate(request)
@@ -170,6 +185,12 @@ class LocalKnowledgeProvider:
     def context_brief(self, request):
         """Delegate to the accepted K2.1 service; do not duplicate assembly."""
         return self.application.context_brief(request)
+
+    def assemble_verification_evidence(self, request):
+        return self.application.assemble_verification_evidence(request)
+
+    def ingest_outcome_evidence(self, envelope):
+        return self.application.ingest_outcome_evidence(envelope)
 
     def describe_types(self, request: DescribeTypesRequest) -> DescribeTypesResult:
         del request
