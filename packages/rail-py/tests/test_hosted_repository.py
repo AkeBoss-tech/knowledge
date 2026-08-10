@@ -316,10 +316,15 @@ def test_memory_transaction_rolls_back_all_metadata_rows():
 
 def test_packaged_migration_has_digest_addressed_rollback():
     plan = migrations()
-    assert [item.version for item in plan] == ["0001_hosted_records"]
-    migration = plan[0]
-    assert migration.up_digest.startswith("sha256:")
-    assert migration.down_digest.startswith("sha256:")
-    assert "PRIMARY KEY (tenant_id, project_id, record_kind, record_id)" in migration.up_sql
-    assert "capture_revision" in migration.up_sql
-    assert "DROP TABLE IF EXISTS krail_hosted_record" in migration.down_sql
+    assert [item.version for item in plan] == [
+        "0001_hosted_records",
+        "0002_semantic_records",
+    ]
+    assert all(item.up_digest.startswith("sha256:") for item in plan)
+    assert all(item.down_digest.startswith("sha256:") for item in plan)
+    assert "PRIMARY KEY (tenant_id, project_id, record_kind, record_id)" in plan[0].up_sql
+    assert "capture_revision" in plan[0].up_sql
+    assert "DROP TABLE IF EXISTS krail_hosted_record" in plan[0].down_sql
+    assert "CREATE TABLE IF NOT EXISTS krail_semantic_record" in plan[1].up_sql
+    assert "ontology_change_set" in plan[1].up_sql
+    assert "DROP TABLE IF EXISTS krail_semantic_record" in plan[1].down_sql
