@@ -43,6 +43,7 @@ the v1 release.
 
 ## Reference And Operations
 
+- [Mac mini Codex Handoff](mac-mini-codex-handoff.md)
 - [Launch Tracker](launch-tracker.md)
 - [Listeners And Event Triggers](listeners.md)
 - [Generated Project Hygiene](generated-project-hygiene.md)
