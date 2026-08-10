@@ -399,6 +399,20 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         outcome_service.ingest(superseding_request, previous=prior).model_dump(mode="json")
     )
 
+    utf8_payload = envelope.model_dump(mode="json")
+    utf8_payload["request"]["observation"]["bounded_summary"] = "é" * 2048
+    utf8_payload["request"]["semantic_assertions"][0]["text"] = "é" * 8192
+    utf8_envelope = OutcomeIngestEnvelope.model_validate(utf8_payload)
+    assert json.loads(server.provider_ingest_outcome_evidence(utf8_envelope.model_dump_json())) == (
+        outcome_service.ingest(utf8_envelope.request).model_dump(mode="json")
+    )
+
+    oversized = utf8_envelope.model_dump(mode="json")
+    oversized["request"]["observation"]["bounded_summary"] = "é" * 2049
+    rejected = json.loads(server.provider_ingest_outcome_evidence(json.dumps(oversized)))
+    assert rejected["error"]["code"] == "invalid_arguments"
+    assert "4096 UTF-8 bytes" in rejected["error"]["message"]
+
 
 def test_action_errors_are_classified_as_client_errors(monkeypatch):
     from rail.actions import ActionNotFoundError, ActionValidationError

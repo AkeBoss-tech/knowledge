@@ -1,7 +1,7 @@
 {
   "descriptor_digests": {
     "krail.verification-evidence": "sha256:0886f1497688001da596a8b4c4ad78ba6f01d624af3e98acb563564d8866fb62",
-    "krail.outcome-evidence": "sha256:1564d69b63c5c5ac16b739bcc21fe4cff80553c5b1f09b2e41829c1d35f6908d"
+    "krail.outcome-evidence": "sha256:76f243924abddf48a6365edacf3129a5ca4f5d71f355f6effa64a73764d62cb3"
   },
   "changed_source_version": "etag:issue-184-v4",
   "diff_digest": "sha256:abababababababababababababababababababababababababababababababab",

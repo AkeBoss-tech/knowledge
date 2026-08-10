@@ -40,6 +40,10 @@ def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _utf8_size(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -84,6 +88,13 @@ class ProviderObservationInput(StrictModel):
             raise ValueError("outcome timestamps must include a timezone")
         return value
 
+    @field_validator("bounded_summary")
+    @classmethod
+    def _summary_is_byte_bounded(cls, value: str | None) -> str | None:
+        if value is not None and _utf8_size(value) > 4096:
+            raise ValueError("outcome bounded summary exceeds 4096 UTF-8 bytes")
+        return value
+
     @model_validator(mode="after")
     def _state_shape_is_non_leaking(self) -> "ProviderObservationInput":
         hidden = self.state in {"missing", "inaccessible", "redacted", "erased"}
@@ -104,6 +115,13 @@ class ProviderObservationInput(StrictModel):
 class OutcomeAssertionInput(StrictModel):
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16_384)]
     source_ref: ResourceRef
+
+    @field_validator("text")
+    @classmethod
+    def _text_is_byte_bounded(cls, value: str) -> str:
+        if _utf8_size(value) > 16_384:
+            raise ValueError("outcome assertion exceeds 16384 UTF-8 bytes")
+        return value
 
 
 class OutcomeAssertion(OutcomeAssertionInput):
@@ -152,10 +170,22 @@ class OutcomeObservation(StrictModel):
     retention_until: datetime | None
     erasure_reason_digest: Digest | None
     links: OutcomeEvidenceLinks
-    semantic_assertions: tuple[OutcomeAssertion, ...]
-    processing_versions: tuple[ProcessingVersion, ...]
+    semantic_assertions: tuple[OutcomeAssertion, ...] = Field(max_length=64)
+    processing_versions: tuple[ProcessingVersion, ...] = Field(min_length=1, max_length=16)
     drift: ObservationDrift | None = None
     domain_event_ref: DomainEventRef
+
+    @field_validator("bounded_summary")
+    @classmethod
+    def _summary_is_byte_bounded(cls, value: str | None) -> str | None:
+        if value is not None and _utf8_size(value) > 4096:
+            raise ValueError("outcome bounded summary exceeds 4096 UTF-8 bytes")
+        return value
+
+    @model_validator(mode="after")
+    def _digest_and_event_ref_match_content(self) -> "OutcomeObservation":
+        _validate_observation_integrity(self)
+        return self
 
 
 class OutcomeIngestEnvelope(StrictModel):
@@ -179,6 +209,8 @@ class OutcomeObservationService:
         *,
         previous: OutcomeObservation | None = None,
     ) -> OutcomeObservation:
+        if previous is not None:
+            _validate_observation_integrity(previous)
         supplied_parent = request.observation.supersedes_observation_digest
         if previous is None and supplied_parent is not None:
             raise ValueError("supersession requires the exact prior observation")
@@ -213,7 +245,7 @@ class OutcomeObservationService:
             )
             for item in request.semantic_assertions
         )
-        body = {
+        body = _observation_digest_body({
             "schema_version": OUTCOME_OBSERVATION_VERSION,
             "authority": "provider-observed",
             **request.observation.model_dump(mode="json"),
@@ -221,7 +253,7 @@ class OutcomeObservationService:
             "semantic_assertions": [item.model_dump(mode="json") for item in assertions],
             "processing_versions": [item.model_dump(mode="json") for item in request.processing_versions],
             "drift": drift.model_dump(mode="json") if drift else None,
-        }
+        })
         observation_digest = _digest(body)
         event_ref = DomainEventRef.for_digest(
             event_type="krail.provider-outcome-observed.v1",
@@ -260,6 +292,30 @@ class OutcomeObservationService:
         if not fields:
             raise ValueError("a superseding observation must explicitly change observed provider state or observation time")
         return ObservationDrift(prior_observation_digest=previous.observation_digest, changed_fields=tuple(fields))
+
+
+def _observation_digest_body(observation: OutcomeObservation | dict) -> dict:
+    """Return the exact canonical body covered by ``observation_digest``."""
+    if isinstance(observation, BaseModel):
+        payload = observation.model_dump(mode="json")
+    else:
+        payload = dict(observation)
+    payload.pop("observation_digest", None)
+    payload.pop("domain_event_ref", None)
+    return payload
+
+
+def _validate_observation_integrity(observation: OutcomeObservation) -> None:
+    expected_digest = _digest(_observation_digest_body(observation))
+    if observation.observation_digest != expected_digest:
+        raise ValueError("outcome observation digest does not match its canonical content")
+    expected_event_ref = DomainEventRef.for_digest(
+        event_type="krail.provider-outcome-observed.v1",
+        digest=expected_digest,
+        context=observation.links.operation_context,
+    )
+    if observation.domain_event_ref != expected_event_ref:
+        raise ValueError("outcome domain event reference does not match the canonical observation")
 
 
 __all__ = [

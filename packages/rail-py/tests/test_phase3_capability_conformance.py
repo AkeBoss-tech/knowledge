@@ -394,6 +394,39 @@ def test_phase3_outcome_envelope_is_strict_and_requires_exact_prior(tmp_path: Pa
         )
 
 
+def test_phase3_outcome_utf8_bounds_are_equivalent_across_python_provider_and_cli(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    request_payload = _outcome().model_dump(mode="json")
+    request_payload["observation"]["bounded_summary"] = "é" * 2048
+    request_payload["semantic_assertions"][0]["text"] = "é" * 8192
+    envelope = OutcomeIngestEnvelope(request=OutcomeIngestRequest.model_validate(request_payload))
+    project = _project(tmp_path)
+    python_result = project.ingest_outcome_evidence(envelope)
+    provider_result = project.provider.ingest_outcome_evidence(envelope)
+    rail_cli.cmd_provider(
+        project,
+        argparse.Namespace(
+            provider_command="ingest-outcome-evidence",
+            request=envelope.model_dump_json(),
+        ),
+    )
+    assert python_result == provider_result
+    assert json.loads(capsys.readouterr().out) == python_result.model_dump(mode="json")
+
+    oversized = envelope.model_dump(mode="json")
+    oversized["request"]["semantic_assertions"][0]["text"] = "é" * 8193
+    with pytest.raises(ValidationError, match="16384 UTF-8 bytes"):
+        rail_cli.cmd_provider(
+            project,
+            argparse.Namespace(
+                provider_command="ingest-outcome-evidence",
+                request=json.dumps(oversized),
+            ),
+        )
+
+
 def test_phase3_publication_has_no_external_runtime_or_codec_dependency() -> None:
     import rail.capability_publication as module
 

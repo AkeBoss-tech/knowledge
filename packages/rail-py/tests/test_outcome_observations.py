@@ -107,6 +107,71 @@ def test_new_provider_state_requires_explicit_supersession_and_records_drift() -
         )
 
 
+def test_supersession_rejects_forged_prior_content_and_event_reference() -> None:
+    service = OutcomeObservationService()
+    request = _request()
+    original = service.ingest(request)
+    original_ref = request.observation.resource_ref
+    assert original_ref is not None
+    new_ref = original_ref.model_copy(
+        update={"version": "etag:pr-184-head-forged", "digest": "sha256:" + "d" * 64}
+    )
+    superseding = request.model_copy(
+        update={
+            "observation": request.observation.model_copy(
+                update={
+                    "observed_at": NOW + timedelta(minutes=5),
+                    "resource_ref": new_ref,
+                    "provider_payload_digest": "sha256:" + "e" * 64,
+                    "supersedes_observation_digest": original.observation_digest,
+                }
+            ),
+            "semantic_assertions": tuple(
+                item.model_copy(update={"source_ref": new_ref})
+                for item in request.semantic_assertions
+            ),
+        }
+    )
+
+    forged_content = original.model_copy(update={"bounded_summary": "mutated after digest"})
+    with pytest.raises(ValueError, match="digest does not match"):
+        service.ingest(superseding, previous=forged_content)
+
+    forged_event = original.model_copy(
+        update={
+            "domain_event_ref": original.domain_event_ref.model_copy(
+                update={"event_digest": "sha256:" + "f" * 64}
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="event reference does not match"):
+        service.ingest(superseding, previous=forged_event)
+
+    serialized = original.model_dump(mode="json")
+    serialized["bounded_summary"] = "mutated serialized content"
+    with pytest.raises(ValidationError, match="digest does not match"):
+        OutcomeObservation.model_validate(serialized)
+
+
+def test_outcome_text_limits_are_enforced_as_utf8_bytes() -> None:
+    request_payload = _request().model_dump(mode="json")
+    request_payload["observation"]["bounded_summary"] = "é" * 2048
+    request_payload["semantic_assertions"][0]["text"] = "é" * 8192
+    accepted = OutcomeIngestRequest.model_validate(request_payload)
+    assert len(accepted.observation.bounded_summary.encode("utf-8")) == 4096
+    assert len(accepted.semantic_assertions[0].text.encode("utf-8")) == 16_384
+
+    oversized_summary = _request().model_dump(mode="json")
+    oversized_summary["observation"]["bounded_summary"] = "é" * 2049
+    with pytest.raises(ValidationError, match="4096 UTF-8 bytes"):
+        OutcomeIngestRequest.model_validate(oversized_summary)
+
+    oversized_assertion = _request().model_dump(mode="json")
+    oversized_assertion["semantic_assertions"][0]["text"] = "é" * 8193
+    with pytest.raises(ValidationError, match="16384 UTF-8 bytes"):
+        OutcomeIngestRequest.model_validate(oversized_assertion)
+
+
 @pytest.mark.parametrize("state", ["missing", "inaccessible", "redacted"])
 def test_unavailable_provider_states_are_non_leaking(state: str) -> None:
     request = _request()
