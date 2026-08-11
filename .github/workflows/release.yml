@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e 'packages/rail-py[local]' -e packages/mcp-server
-          python -m pip install pytest
+          python -m pip install pytest jsonschema
 
       - name: Run release tests
         run: |
@@ -46,6 +46,13 @@ jobs:
             packages/rail-py/tests/test_source_dependencies.py \
             packages/rail-py/tests/test_think.py \
             packages/rail-py/tests/test_workflows.py \
+            packages/rail-py/tests/test_provider_v1.py \
+            packages/rail-py/tests/test_capability_publication.py \
+            packages/rail-py/tests/test_opensaddle_v1_projection.py \
+            packages/rail-py/tests/test_wire_contract_resources.py \
+            packages/rail-py/tests/test_management_v1.py \
+            packages/rail-py/tests/test_krail_admin_adapter.py \
+            packages/rail-py/tests/test_krail_mutation_adapter.py \
             packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_sources_affected_passes_source_ids \
@@ -119,8 +126,40 @@ jobs:
           krail --version
           krail --local --path examples/minimal-project integrity status
           krail docs query knowledge-operations
+          krail-admin --help >/dev/null
+          krail-mutate --help >/dev/null
           pip install --find-links packages/rail-py/dist packages/mcp-server/dist/*.whl
           rail-mcp --help >/dev/null
+
+      - name: Inspect wheel contents and entrypoints
+        run: |
+          . .venv-release/bin/activate
+          python - <<'PY'
+          from importlib.metadata import distribution
+
+          expected = {
+              "krail/admin.py",
+              "krail/mutation.py",
+              "krail/management/v1.py",
+              "krail/management/stdio.py",
+              "krail/resources/contracts/krail.context-brief.v1/bundle.json",
+              "krail/resources/contracts/krail.provider.v1/manifest.json",
+          }
+          dist = distribution("krail")
+          files = {str(item) for item in dist.files or ()}
+          missing = sorted(expected - files)
+          if missing:
+              raise SystemExit(f"krail wheel is missing release files: {missing}")
+          scripts = {
+              entry.name for entry in dist.entry_points if entry.group == "console_scripts"
+          }
+          required_scripts = {"krail", "rail", "krail-managed", "krail-admin", "krail-mutate"}
+          if not required_scripts <= scripts:
+              raise SystemExit(f"krail wheel is missing entrypoints: {sorted(required_scripts - scripts)}")
+          if dist.version != "1.1.13":
+              raise SystemExit(f"unexpected KRAIL release version: {dist.version}")
+          print("KRAIL wheel contents and entrypoints verified")
+          PY
 
       - name: Upload krail distributions
         uses: actions/upload-artifact@v4

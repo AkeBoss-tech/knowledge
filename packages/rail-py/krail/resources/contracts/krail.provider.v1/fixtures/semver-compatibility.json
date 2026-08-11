@@ -1,0 +1,33 @@
+{
+  "range": ">=1.0.0,<2.0.0",
+  "vectors": [
+    {"version": "1.0.0-alpha", "compatible": false},
+    {"version": "1.0.0", "compatible": true},
+    {"version": "1.0.1-alpha", "compatible": true},
+    {"version": "1.9.9", "compatible": true},
+    {"version": "2.0.0-alpha", "compatible": true},
+    {"version": "2.0.0-rc.1", "compatible": true},
+    {"version": "2.0.0", "compatible": false}
+  ],
+  "invalid_versions": [
+    "1",
+    "1.0",
+    "01.0.0",
+    "1.01.0",
+    "1.0.01",
+    "1.0.0-01",
+    "1.0.0-alpha..1",
+    "1.0.0-alpha_1",
+    "v1.0.0"
+  ],
+  "invalid_ranges": [
+    "",
+    "1.0.0",
+    "^1.0.0",
+    ">=1.0.0,",
+    ",>=1.0.0,<2.0.0",
+    ">=1.0.0,,<2.0.0",
+    ">=1.0",
+    ">=1.0.0,<2.0.0-01"
+  ]
+}

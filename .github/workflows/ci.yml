@@ -26,7 +26,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e 'packages/rail-py[local]' -e packages/mcp-server
-          pip install pytest
+          pip install pytest jsonschema
       - name: Run package tests
         run: |
           PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
@@ -37,6 +37,13 @@ jobs:
             packages/rail-py/tests/test_source_dependencies.py \
             packages/rail-py/tests/test_think.py \
             packages/rail-py/tests/test_workflows.py \
+            packages/rail-py/tests/test_provider_v1.py \
+            packages/rail-py/tests/test_capability_publication.py \
+            packages/rail-py/tests/test_opensaddle_v1_projection.py \
+            packages/rail-py/tests/test_wire_contract_resources.py \
+            packages/rail-py/tests/test_management_v1.py \
+            packages/rail-py/tests/test_krail_admin_adapter.py \
+            packages/rail-py/tests/test_krail_mutation_adapter.py \
             packages/mcp-server/tests/test_server.py::test_mcp_graph_entities_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_vector_search_calls_project \
             packages/mcp-server/tests/test_server.py::test_mcp_sources_affected_passes_source_ids \
@@ -67,3 +74,19 @@ jobs:
           python -m build packages/rail-py
           python -m build packages/mcp-server
           python -m twine check packages/rail-py/dist/* packages/mcp-server/dist/*
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          wheel = next(Path("packages/rail-py/dist").glob("krail-*.whl"))
+          required = {
+              "krail/admin.py", "krail/mutation.py", "krail/management/v1.py",
+              "krail/management/stdio.py",
+              "krail/resources/contracts/krail.context-brief.v1/bundle.json",
+          }
+          with zipfile.ZipFile(wheel) as archive:
+              missing = sorted(required - set(archive.namelist()))
+          if missing:
+              raise SystemExit(f"wheel is missing release files: {missing}")
+          print(f"verified packaged adapters in {wheel.name}")
+          PY

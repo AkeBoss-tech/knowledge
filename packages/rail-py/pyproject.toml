@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "krail"
-version = "1.1.12"
+version = "1.1.13"
 description = "Local-first memory and workflows for serious AI agent projects"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,6 +38,7 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2",
     "pyyaml>=6",
+    "rfc8785>=0.1",
 ]
 
 [project.urls]
@@ -50,11 +51,20 @@ Issues = "https://github.com/AkeBoss-tech/knowledge/issues"
 analysis = ["numpy", "pandas", "statsmodels", "matplotlib"]
 local = ["owlready2", "duckdb"]
 embeddings = ["sentence-transformers>=2.7"]
+hosted = ["psycopg[binary]>=3.2"]
+hosted-s3 = ["boto3>=1.35"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rail*"]
+include = ["rail*", "krail*"]
+
+[tool.setuptools.package-data]
+krail = ["resources/**/*"]
+rail = ["hosted/migrations/*.sql"]
 
 [project.scripts]
 rail = "rail.cli:main"
 krail = "rail.cli:main"
+krail-managed = "krail.management.stdio:main"
+krail-admin = "krail.admin:main"
+krail-mutate = "krail.mutation:main"

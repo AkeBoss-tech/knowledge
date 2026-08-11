@@ -845,6 +845,21 @@ class KnowledgeRuntime:
     def __init__(self, project_path: str | Path):
         self.project_path = Path(project_path).resolve()
         self._actions: ActionRegistry | None = None
+        self._application = None
+
+    @property
+    def application(self):
+        """Return the shared application seam used by Python, CLI, and MCP."""
+        if self._application is None:
+            from rail.application import KnowledgeApplicationService
+
+            self._application = KnowledgeApplicationService(self)
+        return self._application
+
+    @property
+    def provider(self):
+        """Return the public provider-v1 implementation for this local project."""
+        return self.application.provider
 
     def action_registry(self) -> ActionRegistry:
         if self._actions is not None:
@@ -1484,6 +1499,9 @@ class KnowledgeRuntime:
         return enriched
 
     def search(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict[str, Any]:
+        return self.application.search(query, limit=limit, explain=explain, rag=rag)
+
+    def _search_impl(self, query: str, *, limit: int = 10, explain: bool = False, rag: bool = True) -> dict[str, Any]:
         terms = self._terms(query)
         if not terms:
             return {
@@ -1740,6 +1758,33 @@ class KnowledgeRuntime:
         return filtered
 
     def find(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        types: list[str] | None = None,
+        topic: str | None = None,
+        entity: str | None = None,
+        status: str | None = None,
+        freshness: str | None = None,
+        workflow: str | None = None,
+        explain: bool = False,
+        rag: bool = True,
+    ) -> dict[str, Any]:
+        return self.application.find(
+            query,
+            limit=limit,
+            types=types,
+            topic=topic,
+            entity=entity,
+            status=status,
+            freshness=freshness,
+            workflow=workflow,
+            explain=explain,
+            rag=rag,
+        )
+
+    def _find_impl(
         self,
         query: str,
         *,
@@ -3169,6 +3214,31 @@ class KnowledgeRuntime:
         entities: list[str] | None = None,
         entity_type: str | None = None,
     ) -> dict[str, Any]:
+        return self.application.capture(
+            text=text,
+            file_path=file_path,
+            url=url,
+            kind=kind,
+            workflow=workflow,
+            title=title,
+            topics=topics,
+            entities=entities,
+            entity_type=entity_type,
+        )
+
+    def _capture_impl(
+        self,
+        *,
+        text: str = "",
+        file_path: str | None = None,
+        url: str | None = None,
+        kind: str = "note",
+        workflow: str | None = None,
+        title: str | None = None,
+        topics: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
         content_parts: list[str] = []
         if text:
             content_parts.append(text.strip())
@@ -3234,6 +3304,9 @@ class KnowledgeRuntime:
         return {"mode": get_mode("research"), "source": "default"}
 
     def topic_list(self, *, include_inbox: bool = False) -> dict[str, Any]:
+        return self.application.topic_list(include_inbox=include_inbox)
+
+    def _topic_list_impl(self, *, include_inbox: bool = False) -> dict[str, Any]:
         topics_root = self.project_path / "topics"
         topics: list[dict[str, Any]] = []
         if not topics_root.exists():
@@ -3259,6 +3332,9 @@ class KnowledgeRuntime:
         return {"topics": topics}
 
     def inbox_list(self, *, include_handled: bool = False) -> dict[str, Any]:
+        return self.application.inbox_list(include_handled=include_handled)
+
+    def _inbox_list_impl(self, *, include_handled: bool = False) -> dict[str, Any]:
         inbox = self.project_path / "topics" / "inbox"
         captures: list[dict[str, Any]] = []
         if not inbox.exists():
@@ -3315,6 +3391,31 @@ class KnowledgeRuntime:
         return sorted(set(re.findall(r"https?://[^\s)\]>\"']+", text or "")))
 
     def topic_upsert(
+        self,
+        topic: str,
+        *,
+        title: str | None = None,
+        kind: str = "topic",
+        content: str = "",
+        source_path: str | None = None,
+        sources: list[str] | None = None,
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+        _skip_authorization: bool = False,
+    ) -> dict[str, Any]:
+        return self.application.topic_upsert(
+            topic,
+            title=title,
+            kind=kind,
+            content=content,
+            source_path=source_path,
+            sources=sources,
+            entities=entities,
+            entity_type=entity_type,
+            _skip_authorization=_skip_authorization,
+        )
+
+    def _topic_upsert_impl(
         self,
         topic: str,
         *,
@@ -3411,6 +3512,25 @@ class KnowledgeRuntime:
         }
 
     def inbox_promote(
+        self,
+        capture_path: str,
+        *,
+        topic: str,
+        title: str | None = None,
+        kind: str = "topic",
+        entities: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
+        return self.application.inbox_promote(
+            capture_path,
+            topic=topic,
+            title=title,
+            kind=kind,
+            entities=entities,
+            entity_type=entity_type,
+        )
+
+    def _inbox_promote_impl(
         self,
         capture_path: str,
         *,
@@ -4197,7 +4317,7 @@ boot();
         active = self.active_pack().get("active")
         return {"active": active, "suggestion": self.suggest_pack()["suggested"]}
 
-    def doctor(self) -> dict[str, Any]:
+    def doctor(self, *, check_cli_version: bool = True) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
 
@@ -4219,7 +4339,7 @@ boot();
         check("knowledge_mode", bool(active_mode.get("mode")), f"active mode: {active_mode['mode']['id']} ({active_mode['source']})")
         import rail as rail_package
 
-        executable = shutil.which("krail")
+        executable = shutil.which("krail") if check_cli_version else None
         executable_version: str | None = None
         executable_error: str | None = None
         if executable:

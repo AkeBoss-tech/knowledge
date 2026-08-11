@@ -1,0 +1,21 @@
+{
+  "bundle": "krail.context-brief.v1",
+  "content_digest": "sha256:3fa4bb326946fe0555321b0790150dbbb2a92964fba23eae492f448e8c0655a7",
+  "files": [
+    {
+      "bytes": 45710,
+      "path": "bundle.json",
+      "sha256": "e6baed1891e5451aa4598e75d3b8fc93595ae8dc98f1b080c0f23d9c10eae434"
+    }
+  ],
+  "generator": "scripts/generate_wire_bundles.py",
+  "generator_base_commit": "d1edac8039a1103a97c6177b981617bd1eb64f31",
+  "golden_request_digest": "sha256:5df577943ae811f14aa0789b1b7683036e08362e87f1254fe1db63c33d12b1c6",
+  "golden_result_digest": "sha256:ea29049958f406ba52c6dea7bc9119a1471f1194bcd9f544e1fa825b663bfce6",
+  "internal_descriptor_digest": "sha256:4774697e69cff4db9831a80c51678be68a62c2ad13393941ae03db029fb76cf2",
+  "manifest_version": "krail.resource-manifest.v1",
+  "provider_contract_canonical_bundle_digest": "sha256:e40c7240dadc8125d73949e353b20e2aef1b09d9ed3303277ab93cf3eb032c7c",
+  "provider_contract_content_digest": "sha256:d22cf0872a913d17e63da0303b59327bc8bdb9267ddbf08f424c21d9aca2e8cb",
+  "provider_contract_source_commit": "377af5a5a60a4cffd21819e7bd657881e13ba9e7",
+  "wire_descriptor_digest": "sha256:bfe1bd6af513f24df70b59617565a2262610119f13d0a8a7fb937fbca70098fd"
+}

@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.13 - 2026-08-11
+
+### Added
+
+- Versioned, workspace-bound `krail.management.v1` operations with reviewed
+  initialization plans, idempotent receipts, doctor checks, and reindexing.
+- OpenSaddle-facing `krail-admin` and `krail-mutate` JSON adapters with bounded
+  effects, digest-bound requests, stale-workspace protection, and raw-inbox-only
+  candidate capture.
+- Artifact-only release smoke coverage for the public administration and
+  mutation entrypoints.
+
+### Changed
+
+- Reserved `v1.1.12` as immutable historical tag state. The new OpenSaddle
+  integration ships as `1.1.13`; release automation must never move or reuse
+  the existing `v1.1.12` tag.
+
 ## v1.1.12 - 2026-07-18
 
 ### Added

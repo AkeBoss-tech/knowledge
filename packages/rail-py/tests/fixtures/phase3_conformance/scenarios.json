@@ -1,0 +1,40 @@
+{
+  "descriptor_digests": {
+    "krail.verification-evidence": "sha256:4f785df879d61da9fcea2689120621274fed71ec385cea226c7b6a904d6513af",
+    "krail.outcome-evidence": "sha256:fd005b66f4acb99e671b70485ff1b696009d33badd913a934327aecf095a14af"
+  },
+  "changed_source_version": "etag:issue-184-v4",
+  "diff_digest": "sha256:abababababababababababababababababababababababababababababababab",
+  "patch_digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+  "changed_files": [
+    {
+      "resource_id": "src/release_controller.py",
+      "version": "git:cccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:dededededededededededededededededededededededededededededededede"
+    },
+    {
+      "resource_id": "tests/test_release_controller.py",
+      "version": "git:cccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+    }
+  ],
+  "checks": [
+    {"check_id": "unit-pass", "status": "passed", "artifact_state": "available"},
+    {"check_id": "lint-fail", "status": "failed", "artifact_state": "available"},
+    {"check_id": "ci-partial", "status": "partial", "artifact_state": "partial"},
+    {"check_id": "ci-inaccessible", "status": "inaccessible", "artifact_state": "none"},
+    {"check_id": "security-redacted", "status": "redacted", "artifact_state": "none"},
+    {"check_id": "integration-missing", "status": "missing", "artifact_state": "none"}
+  ],
+  "provider_versions": {
+    "pinned": "etag:pr-184-head-bbbbbbbb",
+    "ci_drift": "etag:pr-184-head-cccccccc",
+    "superseding": "etag:pr-184-head-dddddddd"
+  },
+  "lifecycle": ["partial", "corrected", "retained", "erased"],
+  "forbidden_hidden_values": [
+    "hidden-provider-resource-991",
+    "private-artifacts/secret-check.log",
+    "hidden-count=17"
+  ]
+}

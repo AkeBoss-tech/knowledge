@@ -1,0 +1,254 @@
+{
+  "resource_ref": {
+    "issuer": "https://knowledge.example.test/provider",
+    "resource_id": "docs/handbook/security",
+    "resource_type": "document",
+    "version": "git:8e4a1f0",
+    "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "source": {
+      "source_id": "source/handbook",
+      "origin": "git:https://example.test/acme/handbook.git",
+      "version": "git:8e4a1f0",
+      "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    }
+  },
+  "authorization": {
+    "shape": "authorized_projection",
+    "omitted_count": 2,
+    "count_precision": "lower_bound",
+    "reason_codes": ["policy_filtered"]
+  },
+  "evidence_packet": {
+    "packet_id": "packet/0001",
+    "created_at": "2026-01-02T03:04:05Z",
+    "results": [
+      {
+        "resource": {
+          "issuer": "https://knowledge.example.test/provider",
+          "resource_id": "docs/handbook/security",
+          "resource_type": "document",
+          "version": "git:8e4a1f0",
+          "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          "source": {
+            "source_id": "source/handbook",
+            "origin": "git:https://example.test/acme/handbook.git",
+            "version": "git:8e4a1f0",
+            "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+          }
+        },
+        "inputs": [],
+        "citations": [
+          {
+            "evidence_id": "evidence/security/1",
+            "relation": "direct",
+            "resource": {
+              "issuer": "https://knowledge.example.test/provider",
+              "resource_id": "docs/handbook/security",
+              "resource_type": "document",
+              "version": "git:8e4a1f0",
+              "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+              "source": {
+                "source_id": "source/handbook",
+                "origin": "git:https://example.test/acme/handbook.git",
+                "version": "git:8e4a1f0",
+                "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+              }
+            },
+            "locator": {"kind": "span", "unit": "unicode_codepoints", "start": 120, "end": 188},
+            "excerpt_digest": {"algorithm": "sha-256", "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+            "record_digest": {"algorithm": "sha-256", "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+          }
+        ]
+      }
+    ],
+    "authorization": {
+      "shape": "authorized_projection",
+      "omitted_count": 0,
+      "count_precision": "exact",
+      "reason_codes": []
+    }
+  },
+  "requests": [
+    {"contract_version": "krail.provider.v1", "operation": "negotiate"},
+    {"contract_version": "krail.provider.v1", "operation": "describe_types", "type_names": ["document"]},
+    {"contract_version": "krail.provider.v1", "operation": "search", "query": "security controls", "types": ["document"], "page": {"limit": 25}},
+    {"contract_version": "krail.provider.v1", "operation": "find", "match": "all", "selectors": [{"field": "resource_type", "value": "document"}], "page": {"limit": 25, "cursor": "cursor.fixture.page-2"}},
+    {
+      "contract_version": "krail.provider.v1", "operation": "get_resource",
+      "ref": {
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      }
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "retrieve_evidence", "max_evidence_per_resource": 10, "max_content_bytes": 32768,
+      "refs": [{
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      }]
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "explain", "max_depth": 2,
+      "ref": {
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      }
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "lineage", "direction": "ancestors", "max_depth": 4, "page": {"limit": 25},
+      "ref": {
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      }
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "integrity",
+      "refs": [{
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      }]
+    }
+  ],
+  "responses": [
+    {
+      "contract_version": "krail.provider.v1", "operation": "negotiate",
+      "provider": {"issuer": "https://knowledge.example.test/provider", "name": "Fixture Provider", "implementation_version": "1.0.0"},
+      "health": "healthy", "supported_contracts": ["krail.provider.v1"],
+      "capabilities": ["negotiate", "describe_types", "search", "find", "get_resource", "retrieve_evidence", "explain", "lineage", "integrity"],
+      "limits": {"max_request_bytes": 1048576, "max_response_bytes": 16777216, "max_page_size": 100, "max_refs": 100, "max_evidence_per_resource": 50, "max_evidence_content_bytes": 262144}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "describe_types",
+      "types": [{"name": "document", "versioned": true, "searchable": true, "evidence_supported": true, "description": "Versioned document knowledge records."}],
+      "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "search",
+      "items": [{
+        "ref": {
+          "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+          "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        },
+        "label": "Security handbook", "summary": "Authorized summary."
+      }],
+      "page": {"limit": 25, "has_more": true, "next_cursor": "cursor.fixture.page-2"},
+      "authorization": {"shape": "authorized_projection", "omitted_count": 2, "count_precision": "lower_bound", "reason_codes": ["policy_filtered"]}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "find", "items": [],
+      "page": {"limit": 25, "has_more": false},
+      "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "get_resource",
+      "resource": {
+        "ref": {
+          "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+          "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        },
+        "media_type": "text/markdown", "attributes": {"classification": "internal"}
+      },
+      "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "retrieve_evidence",
+      "packet": {
+        "packet_id": "packet/0001", "created_at": "2026-01-02T03:04:05Z",
+        "results": [{
+          "resource": {
+            "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+            "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+          },
+          "inputs": [],
+          "citations": [{
+            "evidence_id": "evidence/security/1", "relation": "direct",
+            "resource": {
+              "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+              "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+              "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+            },
+            "locator": {"kind": "span", "unit": "unicode_codepoints", "start": 120, "end": 188},
+            "excerpt_digest": {"algorithm": "sha-256", "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+            "record_digest": {"algorithm": "sha-256", "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+          }]
+        }],
+        "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+      }
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "explain",
+      "subject": {
+        "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+        "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+      },
+      "summary": "The result is directly supported by one versioned evidence span.", "inputs": [],
+      "packet": {
+        "packet_id": "packet/0001", "created_at": "2026-01-02T03:04:05Z",
+        "results": [{
+          "resource": {
+            "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+            "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+          },
+          "inputs": [],
+          "citations": [{
+            "evidence_id": "evidence/security/1", "relation": "direct",
+            "resource": {
+              "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+              "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+              "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+            },
+            "locator": {"kind": "span", "unit": "unicode_codepoints", "start": 120, "end": 188},
+            "excerpt_digest": {"algorithm": "sha-256", "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+            "record_digest": {"algorithm": "sha-256", "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+          }]
+        }],
+        "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+      }
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "lineage",
+      "edges": [{
+        "from": {
+          "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+          "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        },
+        "to": {
+          "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:7c3f000",
+          "digest": {"algorithm": "sha-256", "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+          "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:7c3f000", "digest": {"algorithm": "sha-256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}}
+        },
+        "relation": "version_of"
+      }],
+      "page": {"limit": 25, "has_more": false},
+      "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+    },
+    {
+      "contract_version": "krail.provider.v1", "operation": "integrity",
+      "results": [{
+        "ref": {
+          "issuer": "https://knowledge.example.test/provider", "resource_id": "docs/handbook/security", "resource_type": "document", "version": "git:8e4a1f0",
+          "digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          "source": {"source_id": "source/handbook", "origin": "git:https://example.test/acme/handbook.git", "version": "git:8e4a1f0", "digest": {"algorithm": "sha-256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        },
+        "status": "verified", "observed_digest": {"algorithm": "sha-256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      }],
+      "authorization": {"shape": "authorized_projection", "omitted_count": 0, "count_precision": "exact", "reason_codes": []}
+    }
+  ],
+  "errors": [
+    {"contract_version": "krail.provider.v1", "operation": "get_resource", "error": {"code": "unauthorized", "message": "The requested resource is not available to this principal.", "retryable": false}},
+    {"contract_version": "krail.provider.v1", "operation": "search", "error": {"code": "cursor_invalid", "message": "The cursor does not match this request and authorization snapshot.", "retryable": false}},
+    {"contract_version": "krail.provider.v1", "operation": "integrity", "error": {"code": "integrity_mismatch", "message": "One or more supplied version bindings did not verify.", "retryable": false}}
+  ]
+}

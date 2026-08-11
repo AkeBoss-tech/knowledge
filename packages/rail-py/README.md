@@ -57,7 +57,9 @@ the source files, or understand the broader monorepo architecture.
 
 ## V1 Contract
 
-`krail` 1.1.12 adds scalable dataset catalogs, DuckDB caches, routed queries, and incremental semantic hydration alongside deterministic
+`krail` 1.1.13 adds bounded OpenSaddle administration and reviewed-candidate
+mutation adapters. It retains the 1.1.12 scalable dataset catalogs, DuckDB
+caches, routed queries, and incremental semantic hydration alongside deterministic
 retrieval-v2 evidence packets, `trigger` vocabulary, unified run inspection,
 and bundled `krail docs` guidance. These are additive to the 1.x local-runtime
 contract; existing `listener`, search, think, task, and workflow commands remain

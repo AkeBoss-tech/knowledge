@@ -64,6 +64,39 @@ class Project:
             return {"query": q, "hits": self.search(q)[:limit]}
         return self._backend.knowledge.search(q, limit=limit, explain=explain, rag=rag)
 
+    @property
+    def provider(self):
+        """Public provider-v1 surface for local projects.
+
+        Hosted/legacy backends do not silently emulate this contract because they
+        cannot guarantee exact local authority, version, and digest traces.
+        """
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("krail.provider.v1 requires a local project provider")
+        return self._backend.knowledge.provider
+
+    def context_brief(self, request):
+        """Assemble a provider-neutral Context Brief for exact repository/issue refs."""
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("context briefs require a local KRAIL application service")
+        return self._backend.knowledge.application.context_brief(request)
+
+    def capability_descriptor(self, capability_id: str = "krail.context-brief"):
+        """Publish one immutable local provider capability descriptor."""
+        return self.provider.capability_descriptor(capability_id)
+
+    def negotiate_capability(self, request):
+        """Check version/digest compatibility without granting authorization."""
+        return self.provider.negotiate_capability(request)
+
+    def assemble_verification_evidence(self, request):
+        """Assemble verification evidence through the shared application service."""
+        return self.provider.assemble_verification_evidence(request)
+
+    def ingest_outcome_evidence(self, envelope):
+        """Interpret a pinned outcome through the shared application service."""
+        return self.provider.ingest_outcome_evidence(envelope)
+
     def datasets_validate(self) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("dataset commands require local mode")
@@ -476,10 +509,10 @@ class Project:
             raise RuntimeError("wiki commands require local mode")
         return self._backend.knowledge.wiki_site_check()
 
-    def doctor(self) -> dict:
+    def doctor(self, *, check_cli_version: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("doctor requires local mode")
-        return self._backend.knowledge.doctor()
+        return self._backend.knowledge.doctor(check_cli_version=check_cli_version)
 
     def pack(self, command: str, pack_id: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):

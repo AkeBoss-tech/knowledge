@@ -19,15 +19,45 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 import rail
+from krail.provider.capabilities import CapabilityNegotiationRequest
+from krail.provider.v1 import (
+    DescribeTypesRequest,
+    ExplainRequest,
+    FindRequest,
+    GetResourceRequest,
+    IntegrityRequest,
+    LineageRequest,
+    ProviderInfoRequest,
+    RetrieveEvidenceRequest,
+    SearchRequest,
+)
 from rail.actions import ActionNotFoundError, ActionValidationError
+from rail.context_brief import ContextBriefRequest
+from rail.outcome_observations import OutcomeIngestEnvelope
 from rail.permissions import PermissionPolicy
 from rail.retrieval import reciprocal_rank_fusion
+from rail.verification_evidence import VerificationEvidenceRequest
 
 mcp = FastMCP("KRAIL")
 _original_mcp_tool = mcp.tool
 
 STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "contract": ("mcp_contract",),
+    "provider_v1": (
+        "provider_info",
+        "provider_capability",
+        "provider_describe_types",
+        "provider_search",
+        "provider_find",
+        "provider_get_resource",
+        "provider_retrieve_evidence",
+        "provider_context_brief",
+        "provider_assemble_verification_evidence",
+        "provider_ingest_outcome_evidence",
+        "provider_explain",
+        "provider_lineage",
+        "provider_integrity",
+    ),
     "doctor": ("doctor",),
     "search": ("search", "find"),
     "think": (
@@ -304,6 +334,116 @@ def mcp_contract(contract_version: str = "v1") -> str:
             },
         }
     )
+
+
+def _provider_result(value: Any) -> str:
+    return _json(value.model_dump(mode="json"))
+
+
+@mcp.tool()
+def provider_info(consumer_version: str = "") -> str:
+    """Negotiate the public krail.provider.v1 contract and version compatibility."""
+    return _provider_result(_get_project().provider.provider_info(ProviderInfoRequest(consumer_version=consumer_version or None)))
+
+
+@mcp.tool()
+def provider_capability(
+    consumer_version: str = "",
+    descriptor_digest: str = "",
+    capability_id: str = "krail.context-brief",
+) -> str:
+    """Publish or negotiate the digest-addressed read-only Context Brief capability."""
+    provider = _get_project().provider
+    if not consumer_version:
+        return _provider_result(provider.capability_descriptor(capability_id))
+    request = CapabilityNegotiationRequest(
+        capability_id=capability_id,
+        consumer_version=consumer_version,
+        descriptor_digest=descriptor_digest or None,
+    )
+    return _provider_result(provider.negotiate_capability(request))
+
+
+@mcp.tool()
+def provider_describe_types() -> str:
+    """List resource types available through the bounded provider-v1 contract."""
+    return _provider_result(_get_project().provider.describe_types(DescribeTypesRequest()))
+
+
+def _provider_request(raw: str, model: type, tool_name: str):
+    payload = _load_json_object_argument(raw, argument="request_json", description=f"{tool_name} provider-v1 request")
+    return model.model_validate(payload)
+
+
+@mcp.tool()
+def provider_search(request_json: str) -> str:
+    """Run a strict SearchRequest and return a bounded SearchResult."""
+    return _provider_result(_get_project().provider.search(_provider_request(request_json, SearchRequest, "search")))
+
+
+@mcp.tool()
+def provider_find(request_json: str) -> str:
+    """Run a strict exact-identifier FindRequest."""
+    return _provider_result(_get_project().provider.find(_provider_request(request_json, FindRequest, "find")))
+
+
+@mcp.tool()
+def provider_get_resource(request_json: str) -> str:
+    """Read one exact ResourceRef with an explicit byte bound."""
+    return _provider_result(_get_project().provider.get_resource(_provider_request(request_json, GetResourceRequest, "get_resource")))
+
+
+@mcp.tool()
+def provider_retrieve_evidence(request_json: str) -> str:
+    """Retrieve a strict, bounded, exact-source EvidencePacket."""
+    return _provider_result(_get_project().provider.retrieve_evidence(_provider_request(request_json, RetrieveEvidenceRequest, "retrieve_evidence")))
+
+
+@mcp.tool()
+def provider_context_brief(request_json: str) -> str:
+    """Assemble a deterministic bounded Context Brief from an exact strict request."""
+    request = _provider_request(request_json, ContextBriefRequest, "context_brief")
+    return _provider_result(_get_project().provider.context_brief(request))
+
+
+@mcp.tool()
+def provider_assemble_verification_evidence(request_json: str) -> str:
+    """Interpret supplied bounded verification artifacts; never execute commands."""
+    request = _provider_request(
+        request_json,
+        VerificationEvidenceRequest,
+        "assemble_verification_evidence",
+    )
+    return _provider_result(_get_project().provider.assemble_verification_evidence(request))
+
+
+@mcp.tool()
+def provider_ingest_outcome_evidence(request_json: str) -> str:
+    """Interpret pinned provider state without fetching or mutating external state."""
+    envelope = _provider_request(
+        request_json,
+        OutcomeIngestEnvelope,
+        "ingest_outcome_evidence",
+    )
+    return _provider_result(_get_project().provider.ingest_outcome_evidence(envelope))
+
+
+@mcp.tool()
+def provider_explain(request_json: str) -> str:
+    """Explain using only bounded exact provider-v1 evidence."""
+    return _provider_result(_get_project().provider.explain(_provider_request(request_json, ExplainRequest, "explain")))
+
+
+@mcp.tool()
+def provider_lineage(request_json: str) -> str:
+    """Read bounded lineage for an exact provider-v1 reference."""
+    return _provider_result(_get_project().provider.lineage(_provider_request(request_json, LineageRequest, "lineage")))
+
+
+@mcp.tool()
+def provider_integrity(request_json: str) -> str:
+    """Check exact provider-v1 references with bounded findings."""
+    return _provider_result(_get_project().provider.integrity(_provider_request(request_json, IntegrityRequest, "integrity")))
 
 # ---------------------------------------------------------------------------
 # Lazy project singleton — resolved on first tool call

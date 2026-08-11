@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import types
+from datetime import timedelta
 from pathlib import Path
 
 if "tomllib" not in sys.modules:
@@ -94,8 +95,9 @@ def test_v1_contract_defines_stable_and_experimental_tool_sets():
         "tasks",
         "workflows",
         "integrity",
-        "permissions",
-    }
+            "permissions",
+            "provider_v1",
+        }
     stable = set(server.STABLE_V1_TOOLS)
     experimental = set(server.EXPERIMENTAL_TOOLS)
     assert {"doctor", "search", "think", "capture", "create_task", "run_workflow", "integrity_status", "permissions_doctor"} <= stable
@@ -152,7 +154,7 @@ def test_mcp_readme_lists_stable_and_experimental_tools():
 def test_mcp_pyproject_tracks_compatible_v1_krail_range():
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    assert '"krail>=1.1.12,<2.0.0"' in pyproject
+    assert '"krail>=1.1.13,<2.0.0"' in pyproject
 
 
 def test_mcp_graph_entities_calls_project(monkeypatch):
@@ -235,6 +237,206 @@ def test_mcp_knowledge_operations_primitives(monkeypatch):
     assert json.loads(server.retriever_list())["retrievers"][0]["id"] == "lexical"
     assert "vector" in json.loads(server.plan_query("architecture"))["retrievers"]
     assert json.loads(server.build_evidence_packet("architecture"))["version"] == "krail.evidence-packet/v1"
+
+
+def test_mcp_provider_search_is_equivalent_to_python_contract(monkeypatch):
+    from krail.provider.v1 import SearchRequest, SearchResult
+
+    class _Provider:
+        def search(self, request):
+            assert isinstance(request, SearchRequest)
+            return SearchResult(hits=[], truncated=False)
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+    request = SearchRequest(query="bounded provider", limit=3)
+
+    payload = json.loads(server.provider_search(request.model_dump_json()))
+
+    assert payload == _Project.provider.search(request).model_dump(mode="json")
+
+
+def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monkeypatch):
+    from datetime import UTC, datetime
+
+    from krail.provider.capabilities import CapabilityNegotiationRequest
+    from krail.provider.v1 import ResourceRef
+    from rail.capability_publication import context_brief_descriptor
+    from rail.context_brief import ContextBriefRequest
+
+    content_digest = "sha256:" + "a" * 64
+    repository = ResourceRef(
+        authority="git+file:///fixture",
+        resource_type="document",
+        resource_id="docs/repository.md",
+        version="content:" + "a" * 64,
+        digest=content_digest,
+    )
+    issue = repository.model_copy(update={"resource_type": "topic", "resource_id": "topics/issue.md"})
+    request = ContextBriefRequest(repository=repository, issue=issue, evaluated_at=datetime(2026, 8, 7, tzinfo=UTC))
+    descriptor = context_brief_descriptor()
+
+    class _Provider:
+        def context_brief(self, actual):
+            assert actual == request
+            return type("Result", (), {"model_dump": lambda self, mode: {"brief": "same"}})()
+
+        def capability_descriptor(self, capability_id="krail.context-brief"):
+            assert capability_id == descriptor.capability_id
+            return descriptor
+
+        def negotiate_capability(self, actual):
+            assert isinstance(actual, CapabilityNegotiationRequest)
+            from krail.provider.capabilities import negotiate
+
+            return negotiate(descriptor, actual)
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+
+    assert json.loads(server.provider_context_brief(request.model_dump_json())) == {"brief": "same"}
+    assert json.loads(server.provider_capability()) == descriptor.model_dump(mode="json")
+    negotiated = json.loads(server.provider_capability("1.0.0", descriptor.descriptor_digest))
+    assert negotiated["compatible"] is True
+
+
+def test_mcp_contract_exposes_all_provider_v1_reads():
+    payload = json.loads(server.mcp_contract())
+
+    assert set(payload["stable"]["tool_groups"]["provider_v1"]) == {
+        "provider_info",
+        "provider_capability",
+        "provider_describe_types",
+        "provider_search",
+        "provider_find",
+        "provider_get_resource",
+        "provider_retrieve_evidence",
+        "provider_context_brief",
+        "provider_assemble_verification_evidence",
+        "provider_ingest_outcome_evidence",
+        "provider_explain",
+        "provider_lineage",
+        "provider_integrity",
+    }
+
+
+def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monkeypatch):
+    from pathlib import Path
+
+    from rail.outcome_observations import (
+        OutcomeIngestEnvelope,
+        OutcomeIngestRequest,
+        OutcomeObservationService,
+    )
+    from rail.verification_evidence import VerificationEvidenceRequest, VerificationEvidenceService
+
+    fixtures = Path(__file__).parents[2] / "rail-py" / "tests" / "fixtures" / "evidence_foundation"
+    verification = VerificationEvidenceRequest.model_validate_json(
+        (fixtures / "verification_request.json").read_text(encoding="utf-8")
+    )
+    outcome = OutcomeIngestRequest.model_validate_json(
+        (fixtures / "outcome_request.json").read_text(encoding="utf-8")
+    )
+    verification_service = VerificationEvidenceService()
+    outcome_service = OutcomeObservationService()
+
+    class _Provider:
+        def assemble_verification_evidence(self, request):
+            return verification_service.assemble(request)
+
+        def ingest_outcome_evidence(self, envelope):
+            return outcome_service.ingest(
+                envelope.request,
+                previous=envelope.prior_observation,
+            )
+
+    class _Project:
+        provider = _Provider()
+
+    monkeypatch.setattr(server, "_project", _Project())
+    assert json.loads(server.provider_assemble_verification_evidence(verification.model_dump_json())) == (
+        verification_service.assemble(verification).model_dump(mode="json")
+    )
+    envelope = OutcomeIngestEnvelope(request=outcome)
+    assert json.loads(server.provider_ingest_outcome_evidence(envelope.model_dump_json())) == (
+        outcome_service.ingest(outcome).model_dump(mode="json")
+    )
+
+    prior = outcome_service.ingest(outcome)
+    prior_ref = outcome.observation.resource_ref
+    assert prior_ref is not None
+    newer_ref = prior_ref.model_copy(
+        update={
+            "version": "etag:pr-184-head-cccccccc",
+            "digest": "sha256:" + "d" * 64,
+        }
+    )
+    superseding_request = outcome.model_copy(
+        update={
+            "observation": outcome.observation.model_copy(
+                update={
+                    "observed_at": outcome.observation.observed_at + timedelta(minutes=5),
+                    "resource_ref": newer_ref,
+                    "provider_payload_digest": "sha256:" + "e" * 64,
+                    "supersedes_observation_digest": prior.observation_digest,
+                }
+            ),
+            "semantic_assertions": tuple(
+                item.model_copy(update={"source_ref": newer_ref})
+                for item in outcome.semantic_assertions
+            ),
+        }
+    )
+    superseding = OutcomeIngestEnvelope(
+        request=superseding_request,
+        prior_observation=prior,
+    )
+    assert json.loads(server.provider_ingest_outcome_evidence(superseding.model_dump_json())) == (
+        outcome_service.ingest(superseding_request, previous=prior).model_dump(mode="json")
+    )
+
+    missing_prior = json.loads(
+        server.provider_ingest_outcome_evidence(
+            OutcomeIngestEnvelope(request=superseding_request).model_dump_json()
+        )
+    )
+    assert missing_prior["error"]["code"] == "invalid_arguments"
+    wrong_prior = outcome_service.ingest(
+        outcome.model_copy(
+            update={
+                "observation": outcome.observation.model_copy(
+                    update={"observed_at": outcome.observation.observed_at + timedelta(seconds=1)}
+                )
+            }
+        )
+    )
+    wrong_parent = json.loads(
+        server.provider_ingest_outcome_evidence(
+            OutcomeIngestEnvelope(
+                request=superseding_request,
+                prior_observation=wrong_prior,
+            ).model_dump_json()
+        )
+    )
+    assert wrong_parent["error"]["code"] == "invalid_arguments"
+
+    utf8_payload = envelope.model_dump(mode="json")
+    utf8_payload["request"]["observation"]["bounded_summary"] = "é" * 2048
+    utf8_payload["request"]["semantic_assertions"][0]["text"] = "é" * 8192
+    utf8_envelope = OutcomeIngestEnvelope.model_validate(utf8_payload)
+    assert json.loads(server.provider_ingest_outcome_evidence(utf8_envelope.model_dump_json())) == (
+        outcome_service.ingest(utf8_envelope.request).model_dump(mode="json")
+    )
+
+    oversized = utf8_envelope.model_dump(mode="json")
+    oversized["request"]["observation"]["bounded_summary"] = "é" * 2049
+    rejected = json.loads(server.provider_ingest_outcome_evidence(json.dumps(oversized)))
+    assert rejected["error"]["code"] == "invalid_arguments"
+    assert "4096 UTF-8 bytes" in rejected["error"]["message"]
 
 
 def test_action_errors_are_classified_as_client_errors(monkeypatch):
