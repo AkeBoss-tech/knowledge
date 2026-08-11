@@ -23,9 +23,10 @@ from krail.provider.semantic import (
     semantic_transport_size,
 )
 from krail.provider.v1 import ResourceRef
-from rail.capability_publication import semantic_operations_descriptor
-from rail.application import local_semantic_actor, local_semantic_policy_digest
+import rail.application as rail_application
 from rail import cli as rail_cli
+from rail.application import local_semantic_actor, local_semantic_policy_digest
+from rail.capability_publication import semantic_operations_descriptor
 from rail.knowledge import KnowledgeRuntime
 from rail.semantic import (
     Alias,
@@ -1222,6 +1223,55 @@ def test_local_provider_binds_live_actor_policy_and_exact_source_bytes(
     assert not runtime.application.semantic_operations._scope(
         spoofed_source
     ).evidence_keys
+
+    race_path = root / "race.md"
+    race_path.write_text("public snapshot\n", encoding="utf-8")
+    race_ref = provider._ref("race.md")
+    race_scope = local_scope(ref=race_ref)
+    original_resource_snapshot = provider._resource_snapshot
+
+    def replace_source_after_capture(relative):
+        snapshot = original_resource_snapshot(relative)
+        if relative == "race.md":
+            race_path.write_text(
+                "---\nvisibility: restricted\n---\nreplacement\n",
+                encoding="utf-8",
+            )
+        return snapshot
+
+    provider._resource_snapshot = replace_source_after_capture
+    captured_source = runtime.application.semantic_operations._scope(race_scope)
+    assert race_ref.exact_key in captured_source.evidence_keys
+    provider._resource_snapshot = original_resource_snapshot
+    assert not runtime.application.semantic_operations._scope(race_scope).evidence_keys
+
+    policy_path = root / "policy.md"
+    policy_path.write_text("policy target\n", encoding="utf-8")
+    policy_ref = provider._ref("policy.md")
+    policy_scope = local_scope(ref=policy_ref)
+    original_policy_snapshot = rail_application._local_policy_manifest_snapshot
+
+    def replace_policy_after_capture(project_path):
+        snapshot = original_policy_snapshot(project_path)
+        (root / "rail.yaml").write_text(
+            "permissions:\n  rules:\n    - path: policy.md\n"
+            "      deny_actions: [read]\n",
+            encoding="utf-8",
+        )
+        return snapshot
+
+    monkeypatch.setattr(
+        rail_application, "_local_policy_manifest_snapshot",
+        replace_policy_after_capture,
+    )
+    captured_policy = runtime.application.semantic_operations._scope(policy_scope)
+    assert policy_ref.exact_key in captured_policy.evidence_keys
+    monkeypatch.setattr(
+        rail_application, "_local_policy_manifest_snapshot",
+        original_policy_snapshot,
+    )
+    with pytest.raises(PermissionError, match="unavailable"):
+        runtime.application.semantic_operations._scope(policy_scope)
 
 
 class _Cursor:

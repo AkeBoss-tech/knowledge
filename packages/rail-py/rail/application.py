@@ -67,13 +67,22 @@ CAPABILITIES = [
 ]
 
 
-def local_semantic_policy_digest(project_path: Path, actor: object) -> str:
+def _local_policy_manifest_snapshot(project_path: Path) -> bytes:
+    manifest = project_path / "rail.yaml"
+    try:
+        return manifest.read_bytes()
+    except FileNotFoundError:
+        return b""
+
+
+def local_semantic_policy_digest(
+    project_path: Path, actor: object, *, manifest_bytes: bytes | None = None
+) -> str:
     """Digest the live local composition that authorizes semantic reads."""
 
-    manifest = project_path / "rail.yaml"
-    manifest_digest = hashlib.sha256(
-        manifest.read_bytes() if manifest.is_file() else b""
-    ).hexdigest()
+    if manifest_bytes is None:
+        manifest_bytes = _local_policy_manifest_snapshot(project_path)
+    manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
     actor_value = actor.to_dict() if hasattr(actor, "to_dict") else {}
     body = {
         "authority": "krail.local-permission-policy.v1",
@@ -144,30 +153,61 @@ class KnowledgeApplicationService:
             tenant_id="local",
             project_id=runtime.project_path.name,
         )
-        permission_policy = PermissionPolicy(
-            runtime.project_path, actor=local_semantic_actor()
-        )
+        semantic_actor = local_semantic_actor()
+
+        class CapturedPermissionPolicy(PermissionPolicy):
+            """PermissionPolicy evaluated only from one immutable manifest read."""
+
+            def __init__(self, manifest_bytes: bytes) -> None:
+                super().__init__(runtime.project_path, actor=semantic_actor)
+                try:
+                    import yaml
+
+                    manifest = yaml.safe_load(manifest_bytes.decode("utf-8")) or {}
+                except (UnicodeError, ValueError, yaml.YAMLError) as exc:
+                    raise PermissionError(
+                        "semantic policy snapshot is unavailable"
+                    ) from exc
+                permissions = (
+                    manifest.get("permissions") if isinstance(manifest, dict) else None
+                )
+                rules = (
+                    permissions.get("rules")
+                    if isinstance(permissions, dict)
+                    else None
+                )
+                self._captured_rules = tuple(
+                    dict(rule) for rule in rules or () if isinstance(rule, dict)
+                )
+
+            def _global_rules(self) -> list[dict[str, Any]]:
+                return [dict(rule) for rule in self._captured_rules]
 
         def authorize_local_semantic_scope(scope):
             # The request proposes exact bindings; local policy reconstructs
             # their classification and read decision from project state. Hosted
             # deployments inject signed-context verification instead.
+            manifest_bytes = _local_policy_manifest_snapshot(runtime.project_path)
+            permission_policy = CapturedPermissionPolicy(manifest_bytes)
+            policy_digest = local_semantic_policy_digest(
+                runtime.project_path,
+                semantic_actor,
+                manifest_bytes=manifest_bytes,
+            )
             if (
                 scope.tenant_id != "local"
                 or scope.project_id != runtime.project_path.name
-                or scope.subject_id != permission_policy.actor.id
-                or scope.policy_digest
-                != local_semantic_policy_digest(
-                    runtime.project_path, permission_policy.actor
-                )
+                or scope.subject_id != semantic_actor.id
+                or scope.policy_digest != policy_digest
             ):
                 raise PermissionError("semantic scope is unavailable")
             evidence_keys = set()
             for requested in scope.allowed_sources:
                 target = requested.source.resource_id
                 try:
-                    exact = self.provider._ref(target)
-                    source_path = self.provider._path(target)
+                    source_path, source_bytes, exact = self.provider._resource_snapshot(
+                        target
+                    )
                 except (FileNotFoundError, UnicodeError, ValueError):
                     continue
                 if exact.exact_key != requested.source.exact_key:
@@ -176,7 +216,7 @@ class KnowledgeApplicationService:
                 if source_path.suffix.lower() == ".md":
                     try:
                         source_metadata, _ = runtime._split_markdown_frontmatter(
-                            source_path.read_text(encoding="utf-8")
+                            source_bytes.decode("utf-8")
                         )
                     except (OSError, UnicodeError, ValueError):
                         continue
@@ -206,9 +246,7 @@ class KnowledgeApplicationService:
                 project_id=scope.project_id,
                 subject_id=scope.subject_id,
                 policy_digest=scope.policy_digest,
-                authorization_context_digest=local_semantic_policy_digest(
-                    runtime.project_path, permission_policy.actor
-                ),
+                authorization_context_digest=policy_digest,
                 request_scope_digest=scope.scope_digest,
                 evidence_keys=frozenset(evidence_keys),
             )
@@ -382,15 +420,22 @@ class LocalKnowledgeProvider:
         return path
 
     def _ref(self, relative: str) -> ResourceRef:
+        return self._resource_snapshot(relative)[2]
+
+    def _resource_snapshot(self, relative: str) -> tuple[Path, bytes, ResourceRef]:
+        """Capture identity, digest, and metadata bytes with exactly one read."""
+
         path = self._path(relative)
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        return ResourceRef(
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        ref = ResourceRef(
             authority=self.authority,
             resource_type=self._resource_type(relative),
             resource_id=relative,
             version=f"content:{digest}",
             digest=f"sha256:{digest}",
         )
+        return path, raw, ref
 
     @staticmethod
     def _encode_cursor(query: str, resource_types: list[str], offset: int) -> str:

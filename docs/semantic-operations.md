@@ -31,10 +31,13 @@ with typed gaps and truthful truncation whenever a result is partial.
 
 Local composition derives its subject from the operating-system UID, ignoring
 caller-controlled `KRAIL_ACTOR` values. Its current policy digest binds that OS
-identity, the absolute project, and the exact `rail.yaml` bytes. Each requested
-source grant is then checked against the live file's exact content
-version/digest and its current path/frontmatter classification. Hosted mode
-continues to use the signed Phase 4 access context instead.
+identity, the absolute project, and one captured `rail.yaml` byte snapshot; the
+authorization decision is evaluated from that same snapshot. Each requested
+source grant is likewise checked using one captured file byte snapshot for its
+exact content version/digest and path/frontmatter classification. A replacement
+can therefore be observed before or after authorization, never as a mixed
+identity/classification or digest/policy state. Hosted mode continues to use the
+signed Phase 4 access context instead.
 
 The serialized-byte ceiling covers the actual compact semantic result emitted
 by Python, provider CLI, and MCP (including the CLI newline). Snapshot reads use
