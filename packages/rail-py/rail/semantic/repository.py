@@ -74,6 +74,10 @@ class SemanticStore(Protocol):
     def list(
         self, tenant_id: str, project_id: str, *, kind: SemanticKind | None = None
     ) -> list[SemanticRow]: ...
+    def iter_list(
+        self, tenant_id: str, project_id: str, *, kind: SemanticKind | None = None,
+        batch_size: int = 64,
+    ) -> Iterator[SemanticRow]: ...
 
 
 class MemorySemanticStore:
@@ -136,6 +140,13 @@ class MemorySemanticStore:
             ),
             key=lambda row: (row.record_kind, row.record_id),
         )
+
+    def iter_list(
+        self, tenant_id: str, project_id: str, *, kind: SemanticKind | None = None,
+        batch_size: int = 64,
+    ) -> Iterator[SemanticRow]:
+        del batch_size
+        yield from self.list(tenant_id, project_id, kind=kind)
 
 
 class JsonSemanticStore(MemorySemanticStore):
@@ -314,6 +325,36 @@ class PostgresSemanticStore:
         with self._connection().cursor() as cursor:
             cursor.execute(sql, params)
             return [self._decode(row) for row in cursor.fetchall()]
+
+    def iter_list(
+        self, tenant_id: str, project_id: str, *, kind: SemanticKind | None = None,
+        batch_size: int = 64,
+    ) -> Iterator[SemanticRow]:
+        if batch_size < 1 or batch_size > 1_024:
+            raise ValueError("semantic scan batch size is invalid")
+        sql = (
+            "SELECT record FROM krail_semantic_record "
+            "WHERE tenant_id=%s AND project_id=%s"
+        )
+        params: tuple[Any, ...] = (tenant_id, project_id)
+        if kind is not None:
+            sql += " AND record_kind=%s"
+            params += (kind,)
+        sql += " ORDER BY record_kind,record_id"
+        with self._connection().cursor() as cursor:
+            cursor.execute(sql, params)
+            fetchmany = getattr(cursor, "fetchmany", None)
+            if fetchmany is None:
+                for row in cursor.fetchall():
+                    decoded = self._decode(row)
+                    if decoded is not None:
+                        yield decoded
+                return
+            while batch := fetchmany(batch_size):
+                for row in batch:
+                    decoded = self._decode(row)
+                    if decoded is not None:
+                        yield decoded
 
 
 MODEL_BY_KIND: dict[SemanticKind, type[BaseModel]] = {

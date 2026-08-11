@@ -457,7 +457,11 @@ def provider_semantic_operation(operation: str, request_json: str) -> str:
     except KeyError as exc:
         raise ValueError("semantic operation is not published") from exc
     request = _provider_request(request_json, model, operation)
-    return _provider_result(_get_project().provider.semantic_operation(operation, request))
+    from krail.provider.semantic import semantic_transport_json
+
+    return semantic_transport_json(
+        _get_project().provider.semantic_operation(operation, request)
+    )
 
 
 @mcp.tool()

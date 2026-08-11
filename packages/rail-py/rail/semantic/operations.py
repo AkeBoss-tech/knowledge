@@ -46,6 +46,7 @@ from krail.provider.semantic import (
     SemanticReadScope,
     TraverseRelationshipsRequest,
     TraverseRelationshipsResult,
+    semantic_transport_size,
 )
 from rail.semantic.models import (
     Alias,
@@ -188,11 +189,11 @@ class SemanticOperationsService:
         singular_fields: tuple[str, ...] = (),
         page_state: _PageState | None = None,
     ) -> Any:
-        elapsed_ms = max(0.0, (self._clock() - started_at) * 1000)
-        timed_out = elapsed_ms > request.budget.max_time_ms
+        timed_out = self._timed_out(started_at, request)
         body = result.model_dump(mode="python")
         gaps = list(result.gaps)
-        if timed_out:
+
+        def clear_payload(*, time_budget: bool = False) -> None:
             for field in collection_fields:
                 body[field] = ()
             for field in singular_fields:
@@ -201,24 +202,24 @@ class SemanticOperationsService:
                 body["explanation"] = ""
             if "next_cursor" in body:
                 body["next_cursor"] = None
-            gaps.append(
-                OperationGap(
-                    code="time-budget",
-                    message="The response exceeded its wall-clock budget.",
+            if time_budget and not any(gap.code == "time-budget" for gap in gaps):
+                gaps.append(
+                    OperationGap(
+                        code="time-budget",
+                        message="The response exceeded its wall-clock budget.",
+                    )
                 )
-            )
             body["truncated"] = True
+
+        if timed_out:
+            clear_payload(time_budget=True)
         body["gaps"] = tuple(dict.fromkeys(gaps))
         candidate = type(result).model_validate(body)
-        if len(candidate.model_dump_json().encode()) <= request.budget.max_bytes:
-            return candidate
-        for field in collection_fields:
-            body[field] = ()
-        for field in singular_fields:
-            body[field] = None
-        if "explanation" in body:
-            body["explanation"] = ""
-        if "next_cursor" in body:
+        if semantic_transport_size(candidate) > request.budget.max_bytes:
+            clear_payload()
+        if "next_cursor" in body and semantic_transport_size(
+            type(result).model_validate({**body, "gaps": tuple(dict.fromkeys(gaps))})
+        ) > request.budget.max_bytes:
             if (
                 not timed_out
                 and page_state is not None
@@ -233,27 +234,44 @@ class SemanticOperationsService:
                 )
             else:
                 body["next_cursor"] = None
-        body["gaps"] = tuple(gap for gap in gaps if gap.code == "time-budget") + (
-            OperationGap(
-                code="byte-budget",
-                message="The serialized response reached its byte budget.",
-            ),
-        )
-        body["truncated"] = True
+        if semantic_transport_size(candidate) > request.budget.max_bytes:
+            if not any(gap.code == "byte-budget" for gap in gaps):
+                gaps.append(
+                    OperationGap(
+                        code="byte-budget",
+                        message="The serialized response reached its byte budget.",
+                    )
+                )
+            body["truncated"] = True
+        body["gaps"] = tuple(dict.fromkeys(gaps))
         candidate = type(result).model_validate(body)
         if (
-            len(candidate.model_dump_json().encode()) > request.budget.max_bytes
+            semantic_transport_size(candidate) > request.budget.max_bytes
             and body.get("next_cursor") is not None
         ):
             # A continuation is useful only when the complete signed envelope
             # fits the advertised serialized-byte ceiling.
             body["next_cursor"] = None
             candidate = type(result).model_validate(body)
-        if len(candidate.model_dump_json().encode()) > request.budget.max_bytes:
+        if semantic_transport_size(candidate) > request.budget.max_bytes:
             raise ValueError(
                 "semantic response metadata exceeds the requested byte budget"
             )
+        # Model construction, byte shaping, and transport serialization are all
+        # inside the advertised wall-clock boundary.  A late expiry removes the
+        # payload and is checked once more after rebuilding the final envelope.
+        if not timed_out and self._timed_out(started_at, request):
+            clear_payload(time_budget=True)
+            body["gaps"] = tuple(dict.fromkeys(gaps))
+            candidate = type(result).model_validate(body)
+            if semantic_transport_size(candidate) > request.budget.max_bytes:
+                raise ValueError(
+                    "semantic response metadata exceeds the requested byte budget"
+                )
         return candidate
+
+    def _timed_out(self, started_at: float, request: Any) -> bool:
+        return max(0.0, (self._clock() - started_at) * 1000) > request.budget.max_time_ms
 
     def _scope(self, scope: SemanticReadScope) -> AuthorizedSemanticScope:
         verified = self._authorize_scope(scope)
@@ -270,15 +288,23 @@ class SemanticOperationsService:
             raise PermissionError("semantic scope is unavailable")
         return verified
 
-    def _snapshot(self, kinds: Sequence[str]) -> tuple[list[SemanticRow], str]:
+    def _snapshot(
+        self, kinds: Sequence[str], *, started_at: float, request: Any
+    ) -> tuple[list[SemanticRow], str]:
         with self.repository.store.transaction():
-            rows = [
-                row
-                for row in self.repository.store.list(
-                    self.repository.tenant_id, self.repository.project_id
-                )
-                if row.record_kind in kinds
-            ]
+            source_rows = self.repository.store.iter_list(
+                self.repository.tenant_id, self.repository.project_id,
+                batch_size=64,
+            )
+            rows = []
+            for index, row in enumerate(source_rows, start=1):
+                # Check in small deterministic batches so large snapshots stop
+                # shaping early without turning clock access into a per-row cost.
+                if index % 64 == 0 and self._timed_out(started_at, request):
+                    rows = []
+                    break
+                if row.record_kind in kinds:
+                    rows.append(row)
         rows.sort(key=lambda row: (row.record_kind, row.record_id))
         digest = canonical_digest(
             [
@@ -686,7 +712,10 @@ class SemanticOperationsService:
     def resolve_entity(self, request: ResolveEntityRequest) -> ResolveEntityResult:
         started_at = self._clock()
         authorization = self._scope(request.scope)
-        rows, snapshot = self._snapshot(("type", "semantic_pack", "entity", "alias"))
+        rows, snapshot = self._snapshot(
+            ("type", "semantic_pack", "entity", "alias"),
+            started_at=started_at, request=request,
+        )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
         )
@@ -795,7 +824,8 @@ class SemanticOperationsService:
         started_at = self._clock()
         authorization = self._scope(request.scope)
         rows, snapshot = self._snapshot(
-            ("type", "semantic_pack", "entity", "alias", "fact")
+            ("type", "semantic_pack", "entity", "alias", "fact"),
+            started_at=started_at, request=request,
         )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
@@ -905,7 +935,10 @@ class SemanticOperationsService:
     ) -> TraverseRelationshipsResult:
         started_at = self._clock()
         authorization = self._scope(request.scope)
-        rows, snapshot = self._snapshot(("type", "semantic_pack", "entity", "fact"))
+        rows, snapshot = self._snapshot(
+            ("type", "semantic_pack", "entity", "fact"),
+            started_at=started_at, request=request,
+        )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
         )
@@ -1065,7 +1098,10 @@ class SemanticOperationsService:
     ) -> CompareObservationsResult:
         started_at = self._clock()
         authorization = self._scope(request.scope)
-        rows, snapshot = self._snapshot(("type", "semantic_pack", "entity", "fact"))
+        rows, snapshot = self._snapshot(
+            ("type", "semantic_pack", "entity", "fact"),
+            started_at=started_at, request=request,
+        )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
         )
@@ -1168,7 +1204,8 @@ class SemanticOperationsService:
         started_at = self._clock()
         authorization = self._scope(request.scope)
         rows, snapshot = self._snapshot(
-            ("type", "semantic_pack", "entity", "conflict", "fact")
+            ("type", "semantic_pack", "entity", "conflict", "fact"),
+            started_at=started_at, request=request,
         )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
@@ -1287,7 +1324,8 @@ class SemanticOperationsService:
         started_at = self._clock()
         authorization = self._scope(request.scope)
         rows, snapshot = self._snapshot(
-            ("type", "semantic_pack", "entity", "fact", "conflict")
+            ("type", "semantic_pack", "entity", "fact", "conflict"),
+            started_at=started_at, request=request,
         )
         lineages, semantic_types, semantic_packs, lineage_omitted = self._lineages(
             rows, authorization
@@ -1405,12 +1443,21 @@ class SemanticOperationsService:
         started_at = self._clock()
         authorization = self._scope(request.scope)
         rows, snapshot = self._snapshot(
-            ("ontology_package", "ontology_package_version", "semantic_pack", "type")
+            (
+                "ontology_change_set", "ontology_package",
+                "ontology_package_version", "semantic_pack", "type",
+            ),
+            started_at=started_at, request=request,
         )
         versions = {
             row.record_id: OntologyPackageVersion.model_validate(row.payload)
             for row in rows
             if row.record_kind == "ontology_package_version"
+        }
+        change_sets = {
+            row.record_id: OntologyChangeSet.model_validate(row.payload)
+            for row in rows
+            if row.record_kind == "ontology_change_set"
         }
         packages: list[OntologyPackageView] = []
         omitted = False
@@ -1421,8 +1468,13 @@ class SemanticOperationsService:
             if item.state not in request.states:
                 continue
             version = versions.get(f"{item.package_id}@{item.proposed_version}")
+            change_set = change_sets.get(item.change_set_id)
             if (
                 version is None
+                or change_set is None
+                or change_set.package_id != item.package_id
+                or change_set.change_digest != item.change_set_digest
+                or change_set.authorship != item.authorship
                 or version.change_set_digest != item.change_set_digest
                 or version.content_digest != item.reviewed_content_digest
                 or not self._visible(version, authorization)
@@ -1528,7 +1580,8 @@ class SemanticOperationsService:
         started_at = self._clock()
         authorization = self._scope(request.scope)
         rows, snapshot = self._snapshot(
-            ("ontology_change_set", "ontology_package", "ontology_package_version")
+            ("ontology_change_set", "ontology_package", "ontology_package_version"),
+            started_at=started_at, request=request,
         )
         proposals = [
             OntologyChangeSet.model_validate(row.payload)

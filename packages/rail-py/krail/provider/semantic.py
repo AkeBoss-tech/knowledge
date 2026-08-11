@@ -30,6 +30,24 @@ MAX_ITEMS = 100
 MAX_BYTES = 262_144
 MAX_TIME_MS = 10_000
 
+
+def semantic_transport_json(
+    value: BaseModel, *, trailing_newline: bool = False
+) -> str:
+    """Return the canonical UTF-8 transport form used by provider clients.
+
+    Semantic byte budgets include the CLI record terminator.  MCP omits that
+    final newline, so both transports are bounded by the same conservative
+    accounting rule.
+    """
+
+    payload = value.model_dump_json()
+    return payload + ("\n" if trailing_newline else "")
+
+
+def semantic_transport_size(value: BaseModel) -> int:
+    return len(semantic_transport_json(value, trailing_newline=True).encode("utf-8"))
+
 NonEmpty = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4096)
 ]

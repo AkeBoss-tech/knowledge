@@ -29,6 +29,18 @@ visible records produce an explicit `cursor-stale` gap. Depth, node, edge, item,
 serialized-response byte, and elapsed wall-clock ceilings are contract bounds,
 with typed gaps and truthful truncation whenever a result is partial.
 
+Local composition derives its subject from the operating-system UID, ignoring
+caller-controlled `KRAIL_ACTOR` values. Its current policy digest binds that OS
+identity, the absolute project, and the exact `rail.yaml` bytes. Each requested
+source grant is then checked against the live file's exact content
+version/digest and its current path/frontmatter classification. Hosted mode
+continues to use the signed Phase 4 access context instead.
+
+The serialized-byte ceiling covers the actual compact semantic result emitted
+by Python, provider CLI, and MCP (including the CLI newline). Snapshot reads use
+bounded database batches and stop shaping at the wall-clock deadline; final
+model validation and transport serialization are included in the time check.
+
 The software-change conformance vertical is repository → issue → change → pull
 request → CI check. Every entity identifier is authority-qualified and every
 fact, alias, conflict, pack, and evidence statement retains exact `ResourceRef`

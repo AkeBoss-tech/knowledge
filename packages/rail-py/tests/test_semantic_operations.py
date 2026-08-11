@@ -20,10 +20,13 @@ from krail.provider.semantic import (
     ResolveEntityRequest,
     SemanticReadScope,
     TraverseRelationshipsRequest,
+    semantic_transport_size,
 )
 from krail.provider.v1 import ResourceRef
 from rail.capability_publication import semantic_operations_descriptor
+from rail.application import local_semantic_actor, local_semantic_policy_digest
 from rail import cli as rail_cli
+from rail.knowledge import KnowledgeRuntime
 from rail.semantic import (
     Alias,
     Conflict,
@@ -900,6 +903,16 @@ def test_reviewed_package_projection_binds_exact_version_and_change_digests():
     )
     assert visible.packages[0].version_content_digest == version.content_digest
 
+    change_key = (
+        "tenant-a", "project-a", "ontology_change_set", change.change_set_id
+    )
+    durable_change = repo.store._rows.pop(change_key)
+    missing_change = service(repo).list_ontology_packages(
+        ListOntologyPackagesRequest(scope=scope())
+    )
+    assert not missing_change.packages
+    repo.store._rows[change_key] = durable_change
+
     different_change = induction.build_change_set(
         change_set_id="change-2",
         package_id="software-change",
@@ -981,6 +994,43 @@ def test_serialized_byte_and_wall_clock_budgets_are_truthful():
     )
     assert delayed.truncated
     assert any(gap.code == "time-budget" for gap in delayed.gaps)
+
+
+def test_time_budget_covers_snapshot_iteration_and_final_transport_shaping():
+    repo = seeded_repository()
+    original_list = repo.store.list
+    visited = 0
+
+    def oversized_list(*args, **kwargs):
+        rows = original_list(*args, **kwargs) * 100
+
+        def iterate():
+            nonlocal visited
+            for row in rows:
+                visited += 1
+                yield row
+
+        return iterate()
+
+    repo.store.list = oversized_list
+    clock_values = iter((0.0, 0.002, 0.002))
+    result = service(repo, clock=lambda: next(clock_values)).resolve_entity(
+        ResolveEntityRequest(
+            scope=scope(), query="42", budget=OperationBudget(max_time_ms=1)
+        )
+    )
+    assert visited == 64
+    assert result.truncated and not result.candidates
+    assert any(gap.code == "time-budget" for gap in result.gaps)
+
+    final_ticks = iter((0.0, 0.0005, 0.002))
+    final = service(clock=lambda: next(final_ticks)).resolve_entity(
+        ResolveEntityRequest(
+            scope=scope(), query="42", budget=OperationBudget(max_time_ms=1)
+        )
+    )
+    assert final.truncated and not final.candidates
+    assert any(gap.code == "time-budget" for gap in final.gaps)
 
 
 def test_oversized_first_item_advances_without_cursor_dead_loop():
@@ -1083,7 +1133,95 @@ def test_python_and_cli_semantic_operation_are_equivalent(capsys):
             request=request.model_dump_json(),
         ),
     )
-    assert json.loads(capsys.readouterr().out) == expected
+    emitted = capsys.readouterr().out
+    assert json.loads(emitted) == expected
+    assert len(emitted.encode()) <= request.budget.max_bytes
+    assert semantic_transport_size(operations.resolve_entity(request)) <= 1024
+
+
+def test_local_provider_binds_live_actor_policy_and_exact_source_bytes(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("KRAIL_ACTOR", "attacker-controlled")
+    root = tmp_path / "local-project"
+    root.mkdir()
+    source_path = root / "issue.md"
+    source_path.write_text("exact source\n", encoding="utf-8")
+    runtime = KnowledgeRuntime(root)
+    provider = runtime.provider
+    exact = provider._ref("issue.md")
+    actor = local_semantic_actor()
+    policy_digest = local_semantic_policy_digest(
+        root.resolve(), actor
+    )
+
+    def local_scope(
+        *, subject=actor.id, policy=policy_digest, ref=exact,
+        source_id=None, classification="public",
+    ):
+        body = {
+            "tenant_id": "local", "project_id": root.name,
+            "subject_id": subject, "allowed_authorities": [ref.authority],
+            "allowed_resource_types": [ref.resource_type],
+            "allowed_classifications": ["public"],
+            "allowed_sources": [{
+                "contract": "krail.semantic-operations.v1",
+                "source": ref.model_dump(mode="json"),
+                "source_id": source_id or ref.resource_id,
+                "classification": classification,
+            }],
+            "policy_digest": policy,
+        }
+        return SemanticReadScope(
+            **body,
+            scope_digest="sha256:" + hashlib.sha256(
+                json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+        )
+
+    request = ResolveEntityRequest(scope=local_scope(), query="missing")
+    assert provider.semantic_operation("resolve_entity", request).gaps[0].code == "not-found"
+    with pytest.raises(PermissionError, match="unavailable"):
+        runtime.application.semantic_operation(
+            "resolve_entity",
+            ResolveEntityRequest(scope=local_scope(subject="attacker"), query="missing"),
+        )
+    with pytest.raises(PermissionError, match="unavailable"):
+        provider.semantic_operation(
+            "resolve_entity",
+            ResolveEntityRequest(scope=local_scope(policy=DIGEST_B), query="missing"),
+        )
+    with pytest.raises(PermissionError, match="unavailable"):
+        rail_cli.cmd_provider(
+            SimpleNamespace(provider=provider),
+            argparse.Namespace(
+                provider_command="semantic", operation="resolve_entity",
+                request=ResolveEntityRequest(
+                    scope=local_scope(subject="attacker"), query="missing"
+                ).model_dump_json(),
+            ),
+        )
+    assert capsys.readouterr().out == ""
+    source_path.write_text("changed source\n", encoding="utf-8")
+    stale = provider.semantic_operation("resolve_entity", request)
+    assert not stale.candidates
+    assert not runtime.application.semantic_operations._scope(
+        request.scope
+    ).evidence_keys
+
+    restricted_path = root / "restricted.md"
+    restricted_path.write_text(
+        "---\nvisibility: restricted\n---\nprivate\n", encoding="utf-8"
+    )
+    restricted_ref = provider._ref("restricted.md")
+    restricted_scope = local_scope(ref=restricted_ref)
+    assert not runtime.application.semantic_operations._scope(
+        restricted_scope
+    ).evidence_keys
+    spoofed_source = local_scope(ref=restricted_ref, source_id="other-source")
+    assert not runtime.application.semantic_operations._scope(
+        spoofed_source
+    ).evidence_keys
 
 
 class _Cursor:
@@ -1104,10 +1242,15 @@ class _Cursor:
     def fetchall(self):
         return []
 
+    def fetchmany(self, size):
+        self.connection.fetchmany_sizes.append(size)
+        return []
+
 
 class _Connection:
     def __init__(self):
         self.statements = []
+        self.fetchmany_sizes = []
         self.committed = False
         self.rolled_back = False
 
@@ -1141,4 +1284,5 @@ def test_postgres_graph_snapshot_is_one_scoped_nonlocking_read_transaction():
     sql, params = connection.statements[0]
     assert "tenant_id=%s AND project_id=%s" in sql and "FOR UPDATE" not in sql
     assert params == ("tenant-a", "project-a")
+    assert connection.fetchmany_sizes == [64]
     assert connection.committed and not connection.rolled_back

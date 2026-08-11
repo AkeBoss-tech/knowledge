@@ -444,9 +444,67 @@ def test_mcp_semantic_operation_is_equivalent_to_provider(monkeypatch):
         provider = _Provider()
 
     monkeypatch.setattr(server, "_project", _Project())
-    assert json.loads(
-        server.provider_semantic_operation("resolve_entity", request.model_dump_json())
-    ) == result.model_dump(mode="json")
+    emitted = server.provider_semantic_operation(
+        "resolve_entity", request.model_dump_json()
+    )
+    assert json.loads(emitted) == result.model_dump(mode="json")
+    assert len(emitted.encode()) <= request.budget.max_bytes
+
+
+def test_mcp_semantic_operation_cannot_forge_local_subject_or_policy(
+    monkeypatch, tmp_path
+):
+    import hashlib
+
+    from krail.provider.semantic import ResolveEntityRequest, SemanticReadScope
+    from rail.application import local_semantic_actor, local_semantic_policy_digest
+    from rail.knowledge import KnowledgeRuntime
+
+    monkeypatch.setenv("KRAIL_ACTOR", "attacker-controlled")
+    root = tmp_path / "mcp-local"
+    root.mkdir()
+    (root / "issue.md").write_text("exact source\n", encoding="utf-8")
+    runtime = KnowledgeRuntime(root)
+    ref = runtime.provider._ref("issue.md")
+    actor = local_semantic_actor()
+    policy = local_semantic_policy_digest(root.resolve(), actor)
+
+    def request(subject: str, policy_digest: str) -> ResolveEntityRequest:
+        body = {
+            "tenant_id": "local", "project_id": root.name,
+            "subject_id": subject, "allowed_authorities": [ref.authority],
+            "allowed_resource_types": [ref.resource_type],
+            "allowed_classifications": ["public"],
+            "allowed_sources": [{
+                "contract": "krail.semantic-operations.v1",
+                "source": ref.model_dump(mode="json"),
+                "source_id": ref.resource_id, "classification": "public",
+            }],
+            "policy_digest": policy_digest,
+        }
+        scope_digest = "sha256:" + hashlib.sha256(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return ResolveEntityRequest(
+            scope=SemanticReadScope(**body, scope_digest=scope_digest),
+            query="missing",
+        )
+
+    class _Project:
+        provider = runtime.provider
+
+    monkeypatch.setattr(server, "_project", _Project())
+    for forged in (
+        request("attacker", policy),
+        request(actor.id, "sha256:" + "b" * 64),
+    ):
+        result = json.loads(
+            server.provider_semantic_operation(
+                "resolve_entity", forged.model_dump_json()
+            )
+        )
+        assert result["ok"] is False
+        assert "semantic scope is unavailable" in result["error"]["message"]
 
 
 def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monkeypatch):

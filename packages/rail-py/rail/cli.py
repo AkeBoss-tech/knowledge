@@ -227,6 +227,10 @@ def cmd_provider(project: rail.Project, args: argparse.Namespace):
         }
         model = models[args.operation]
         result = provider.semantic_operation(args.operation, model.model_validate_json(args.request))
+        from krail.provider.semantic import semantic_transport_json
+
+        print(semantic_transport_json(result, trailing_newline=False))
+        return
     elif command == "explain":
         result = provider.explain(ExplainRequest(question=args.question, refs=[_provider_ref(item) for item in args.ref or []], max_evidence_items=args.max_evidence_items))
     elif command == "lineage":

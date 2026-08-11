@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -66,6 +67,35 @@ CAPABILITIES = [
 ]
 
 
+def local_semantic_policy_digest(project_path: Path, actor: object) -> str:
+    """Digest the live local composition that authorizes semantic reads."""
+
+    manifest = project_path / "rail.yaml"
+    manifest_digest = hashlib.sha256(
+        manifest.read_bytes() if manifest.is_file() else b""
+    ).hexdigest()
+    actor_value = actor.to_dict() if hasattr(actor, "to_dict") else {}
+    body = {
+        "authority": "krail.local-permission-policy.v1",
+        "project": str(project_path.resolve()),
+        "manifest_digest": f"sha256:{manifest_digest}",
+        "actor": actor_value,
+    }
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def local_semantic_actor():
+    """Return the OS-owned local identity; never accept caller identity input."""
+
+    from rail.permissions import PermissionActor
+
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        raise PermissionError("authoritative local semantic identity is unavailable")
+    return PermissionActor(id=f"local:uid:{getuid()}", type="user")
+
+
 def _distribution_version() -> str:
     try:
         return version("krail")
@@ -114,7 +144,9 @@ class KnowledgeApplicationService:
             tenant_id="local",
             project_id=runtime.project_path.name,
         )
-        permission_policy = PermissionPolicy(runtime.project_path)
+        permission_policy = PermissionPolicy(
+            runtime.project_path, actor=local_semantic_actor()
+        )
 
         def authorize_local_semantic_scope(scope):
             # The request proposes exact bindings; local policy reconstructs
@@ -123,12 +155,34 @@ class KnowledgeApplicationService:
             if (
                 scope.tenant_id != "local"
                 or scope.project_id != runtime.project_path.name
+                or scope.subject_id != permission_policy.actor.id
+                or scope.policy_digest
+                != local_semantic_policy_digest(
+                    runtime.project_path, permission_policy.actor
+                )
             ):
                 raise PermissionError("semantic scope is unavailable")
             evidence_keys = set()
             for requested in scope.allowed_sources:
                 target = requested.source.resource_id
-                metadata = permission_policy.metadata_for_path(target)
+                try:
+                    exact = self.provider._ref(target)
+                    source_path = self.provider._path(target)
+                except (FileNotFoundError, UnicodeError, ValueError):
+                    continue
+                if exact.exact_key != requested.source.exact_key:
+                    continue
+                source_metadata: dict[str, Any] = {}
+                if source_path.suffix.lower() == ".md":
+                    try:
+                        source_metadata, _ = runtime._split_markdown_frontmatter(
+                            source_path.read_text(encoding="utf-8")
+                        )
+                    except (OSError, UnicodeError, ValueError):
+                        continue
+                metadata = permission_policy.metadata_for_path(
+                    target, source_metadata
+                )
                 decision = permission_policy.authorize("read", target, metadata)
                 visibility = str(
                     metadata.get("classification")
@@ -152,7 +206,9 @@ class KnowledgeApplicationService:
                 project_id=scope.project_id,
                 subject_id=scope.subject_id,
                 policy_digest=scope.policy_digest,
-                authorization_context_digest=scope.scope_digest,
+                authorization_context_digest=local_semantic_policy_digest(
+                    runtime.project_path, permission_policy.actor
+                ),
                 request_scope_digest=scope.scope_digest,
                 evidence_keys=frozenset(evidence_keys),
             )
@@ -663,5 +719,7 @@ __all__ = [
     "CAPABILITIES",
     "KnowledgeApplicationService",
     "LocalKnowledgeProvider",
+    "local_semantic_actor",
+    "local_semantic_policy_digest",
     "CONTRACT_ID",
 ]
