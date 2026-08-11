@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import argparse
+import os
+import stat
 import time
 from types import SimpleNamespace
 from pathlib import Path
@@ -33,6 +35,7 @@ from rail.semantic import (
     Conflict,
     Entity,
     Fact,
+    JsonSemanticStore,
     MemorySemanticStore,
     ObservedStructure,
     OntologyInductionService,
@@ -1272,6 +1275,36 @@ def test_local_provider_binds_live_actor_policy_and_exact_source_bytes(
     )
     with pytest.raises(PermissionError, match="unavailable"):
         runtime.application.semantic_operations._scope(policy_scope)
+
+
+def test_json_semantic_reads_never_replace_or_touch_the_store(tmp_path):
+    source = seeded_repository()
+    store_path = tmp_path / "readonly-semantic" / "semantic.json"
+    store = JsonSemanticStore(store_path)
+    with store.transaction():
+        for row in source.store.list("tenant-a", "project-a"):
+            store.put(row, expected_revision=0)
+    repository = SemanticRepository(
+        JsonSemanticStore(store_path), tenant_id="tenant-a", project_id="project-a"
+    )
+    before_bytes = store_path.read_bytes()
+    before_stat = store_path.stat()
+    file_mode = stat.S_IMODE(before_stat.st_mode)
+    directory_mode = stat.S_IMODE(store_path.parent.stat().st_mode)
+    os.chmod(store_path, 0o444)
+    os.chmod(store_path.parent, 0o555)
+    try:
+        result = service(repository).resolve_entity(
+            ResolveEntityRequest(scope=scope(), query="42")
+        )
+    finally:
+        os.chmod(store_path.parent, directory_mode)
+        os.chmod(store_path, file_mode)
+    after_stat = store_path.stat()
+    assert result.candidates
+    assert store_path.read_bytes() == before_bytes
+    assert after_stat.st_ino == before_stat.st_ino
+    assert after_stat.st_mtime_ns == before_stat.st_mtime_ns
 
 
 class _Cursor:

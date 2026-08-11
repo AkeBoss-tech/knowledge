@@ -85,6 +85,7 @@ class MemorySemanticStore:
         self._rows: dict[tuple[str, str, str, str], SemanticRow] = {}
         self._lock = RLock()
         self._snapshot: dict[tuple[str, str, str, str], SemanticRow] | None = None
+        self._transaction_dirty = False
 
     @staticmethod
     def _key(
@@ -98,6 +99,7 @@ class MemorySemanticStore:
             if self._snapshot is not None:
                 raise RuntimeError("nested semantic transactions are not supported")
             self._snapshot = copy.deepcopy(self._rows)
+            self._transaction_dirty = False
             try:
                 yield
             except Exception:
@@ -105,6 +107,7 @@ class MemorySemanticStore:
                 raise
             finally:
                 self._snapshot = None
+                self._transaction_dirty = False
 
     def get(
         self,
@@ -126,6 +129,7 @@ class MemorySemanticStore:
                 f"expected revision {expected_revision}, found {actual}"
             )
         self._rows[key] = row
+        self._transaction_dirty = True
 
     def list(
         self, tenant_id: str, project_id: str, *, kind: SemanticKind | None = None
@@ -171,7 +175,8 @@ class JsonSemanticStore(MemorySemanticStore):
     def transaction(self) -> Iterator[None]:
         with super().transaction():
             yield
-            self._flush()
+            if self._transaction_dirty:
+                self._flush()
 
     def _flush(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
