@@ -10,7 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from krail.provider.v1 import ResourceRef
 
@@ -23,15 +30,31 @@ MAX_ITEMS = 100
 MAX_BYTES = 262_144
 MAX_TIME_MS = 10_000
 
-NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4096)]
-EntityId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
-OpaqueCursor = Annotated[str, StringConstraints(strip_whitespace=True, min_length=16, max_length=4096)]
-Digest = Annotated[str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")]
+NonEmpty = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4096)
+]
+EntityId = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)
+]
+OpaqueCursor = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=16, max_length=4096)
+]
+Digest = Annotated[
+    str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")
+]
 
 
 class SemanticContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     contract: Literal["krail.semantic-operations.v1"] = SEMANTIC_OPERATIONS_CONTRACT
+
+
+class SemanticSourceGrant(SemanticContractModel):
+    """Requested exact evidence binding; the provider must verify it live."""
+
+    source: ResourceRef
+    source_id: NonEmpty
+    classification: Literal["public", "internal", "confidential", "restricted"]
 
 
 class SemanticReadScope(SemanticContractModel):
@@ -42,25 +65,62 @@ class SemanticReadScope(SemanticContractModel):
     subject_id: NonEmpty
     allowed_authorities: tuple[NonEmpty, ...] = Field(min_length=1, max_length=64)
     allowed_resource_types: tuple[NonEmpty, ...] = Field(default=(), max_length=64)
+    allowed_classifications: tuple[
+        Literal["public", "internal", "confidential", "restricted"], ...
+    ] = Field(min_length=1, max_length=4)
+    allowed_sources: tuple[SemanticSourceGrant, ...] = Field(
+        min_length=1, max_length=1024
+    )
     policy_digest: Digest
     scope_digest: Digest
 
     @model_validator(mode="after")
     def digest_matches_scope(self) -> "SemanticReadScope":
         import hashlib, json
+
         body = self.model_dump(mode="json", exclude={"contract", "scope_digest"})
-        digest = "sha256:" + hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        digest = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+        )
         if digest != self.scope_digest:
-            raise ValueError("semantic scope digest does not match its authority context")
+            raise ValueError(
+                "semantic scope digest does not match its authority context"
+            )
         return self
 
     @field_validator("allowed_authorities")
     @classmethod
-    def authorities_are_absolute_and_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def authorities_are_absolute_and_unique(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
         import re
-        if len(value) != len(set(value)) or any(re.fullmatch(r"[a-z][a-z0-9+.-]*:[^\s?#]+", item) is None for item in value):
+
+        if len(value) != len(set(value)) or any(
+            re.fullmatch(r"[a-z][a-z0-9+.-]*:[^\s?#]+", item) is None for item in value
+        ):
             raise ValueError("semantic authorities must be unique absolute URIs")
         return value
+
+    @model_validator(mode="after")
+    def exact_sources_fit_coarse_scope(self) -> "SemanticReadScope":
+        keys = [item.source.exact_key for item in self.allowed_sources]
+        if len(keys) != len(set(keys)):
+            raise ValueError("semantic source grants must be unique exact references")
+        authorities = set(self.allowed_authorities)
+        resource_types = set(self.allowed_resource_types)
+        if any(
+            item.source.authority not in authorities
+            or (resource_types and item.source.resource_type not in resource_types)
+            or item.classification not in self.allowed_classifications
+            for item in self.allowed_sources
+        ):
+            raise ValueError(
+                "semantic source grants exceed their coarse authority scope"
+            )
+        return self
 
 
 class OperationBudget(SemanticContractModel):
@@ -100,7 +160,9 @@ class OperationOmissions(SemanticContractModel):
 
     @model_validator(mode="after")
     def shape_is_consistent(self) -> "OperationOmissions":
-        if self.present != bool(self.reasons) or len(self.reasons) != len(set(self.reasons)):
+        if self.present != bool(self.reasons) or len(self.reasons) != len(
+            set(self.reasons)
+        ):
             raise ValueError("semantic omission shape is inconsistent")
         return self
 
@@ -130,6 +192,21 @@ class ProvenanceView(SemanticContractModel):
         return value
 
 
+class SemanticLineage(SemanticContractModel):
+    semantic_type_id: NonEmpty
+    semantic_type_revision: int = Field(ge=1)
+    semantic_type_digest: Digest
+    semantic_type_provenance: ProvenanceView
+    pack_id: NonEmpty
+    pack_version: NonEmpty
+    pack_digest: Digest
+    pack_revision: int = Field(ge=1)
+    pack_provenance: ProvenanceView
+    signature_verification_digest: Digest
+    signature_verifier_digest: Digest
+    trust_policy_digest: Digest
+
+
 class EntityView(SemanticContractModel):
     entity_id: EntityId
     type_id: NonEmpty
@@ -138,6 +215,7 @@ class EntityView(SemanticContractModel):
     merged_into: EntityId | None = None
     revision: int = Field(ge=1)
     provenance: ProvenanceView
+    lineage: SemanticLineage
 
 
 class AliasView(SemanticContractModel):
@@ -147,6 +225,7 @@ class AliasView(SemanticContractModel):
     normalized_value: NonEmpty
     revision: int = Field(ge=1)
     provenance: ProvenanceView
+    lineage: SemanticLineage
 
 
 class FactObjectView(SemanticContractModel):
@@ -171,6 +250,7 @@ class FactView(SemanticContractModel):
     valid_until: datetime | None = None
     revision: int = Field(ge=1)
     provenance: ProvenanceView
+    lineage: SemanticLineage
 
 
 class RelationshipHop(SemanticContractModel):
@@ -266,7 +346,9 @@ class ObservationDifference(SemanticContractModel):
 
 class CompareObservationsResult(SemanticContractModel):
     observations: tuple[FactView, ...] = Field(default=(), max_length=MAX_ITEMS)
-    differences: tuple[ObservationDifference, ...] = Field(default=(), max_length=MAX_ITEMS)
+    differences: tuple[ObservationDifference, ...] = Field(
+        default=(), max_length=MAX_ITEMS
+    )
     truncated: bool = False
     gaps: tuple[OperationGap, ...] = ()
     omissions: OperationOmissions = Field(default_factory=OperationOmissions)
@@ -309,7 +391,7 @@ class EvidenceStatement(SemanticContractModel):
 
 
 class AssembleCrossSourceEvidenceResult(SemanticContractModel):
-    decision: NonEmpty
+    decision: NonEmpty | None = None
     statements: tuple[EvidenceStatement, ...] = Field(default=(), max_length=MAX_ITEMS)
     citations: tuple[ResourceRef, ...] = Field(default=(), max_length=256)
     next_cursor: OpaqueCursor | None = None
@@ -334,6 +416,8 @@ class OntologyPackageView(SemanticContractModel):
     change_set_id: NonEmpty
     change_set_digest: Digest
     reviewed_content_digest: Digest
+    version_content_digest: Digest
+    provenance: ProvenanceView
     reviewer: NonEmpty
     review_digest: Digest
     revision: int = Field(ge=1)
@@ -347,12 +431,15 @@ class SemanticPackView(SemanticContractModel):
     signature_issuer: NonEmpty
     signature_key_id: NonEmpty
     verification_digest: Digest
+    provenance: ProvenanceView
     revision: int = Field(ge=1)
 
 
 class ListOntologyPackagesResult(SemanticContractModel):
     packages: tuple[OntologyPackageView, ...] = Field(default=(), max_length=MAX_ITEMS)
-    semantic_packs: tuple[SemanticPackView, ...] = Field(default=(), max_length=MAX_ITEMS)
+    semantic_packs: tuple[SemanticPackView, ...] = Field(
+        default=(), max_length=MAX_ITEMS
+    )
     next_cursor: OpaqueCursor | None = None
     truncated: bool = False
     gaps: tuple[OperationGap, ...] = ()
@@ -372,6 +459,9 @@ class OntologyProposalHistoryView(SemanticContractModel):
     package_id: NonEmpty
     state: Literal["draft", "proposed", "superseded", "withdrawn"]
     change_digest: Digest
+    proposed_version: NonEmpty
+    proposal_content_digest: Digest
+    provenance: ProvenanceView
     base_version: NonEmpty | None = None
     base_digest: Digest | None = None
     supersedes_change_set_id: NonEmpty | None = None
@@ -379,7 +469,9 @@ class OntologyProposalHistoryView(SemanticContractModel):
 
 
 class ListOntologyProposalHistoryResult(SemanticContractModel):
-    proposals: tuple[OntologyProposalHistoryView, ...] = Field(default=(), max_length=MAX_ITEMS)
+    proposals: tuple[OntologyProposalHistoryView, ...] = Field(
+        default=(), max_length=MAX_ITEMS
+    )
     next_cursor: OpaqueCursor | None = None
     truncated: bool = False
     gaps: tuple[OperationGap, ...] = ()
@@ -391,21 +483,37 @@ class ListOntologyProposalHistoryResult(SemanticContractModel):
 class SemanticOperationsProvider(Protocol):
     def resolve_entity(self, request: ResolveEntityRequest) -> ResolveEntityResult: ...
     def get_entity(self, request: GetEntityRequest) -> GetEntityResult: ...
-    def traverse_relationships(self, request: TraverseRelationshipsRequest) -> TraverseRelationshipsResult: ...
-    def compare_observations(self, request: CompareObservationsRequest) -> CompareObservationsResult: ...
-    def explain_conflict(self, request: ExplainConflictRequest) -> ExplainConflictResult: ...
-    def assemble_cross_source_evidence(self, request: AssembleCrossSourceEvidenceRequest) -> AssembleCrossSourceEvidenceResult: ...
-    def list_ontology_packages(self, request: ListOntologyPackagesRequest) -> ListOntologyPackagesResult: ...
-    def list_ontology_proposal_history(self, request: ListOntologyProposalHistoryRequest) -> ListOntologyProposalHistoryResult: ...
+    def traverse_relationships(
+        self, request: TraverseRelationshipsRequest
+    ) -> TraverseRelationshipsResult: ...
+    def compare_observations(
+        self, request: CompareObservationsRequest
+    ) -> CompareObservationsResult: ...
+    def explain_conflict(
+        self, request: ExplainConflictRequest
+    ) -> ExplainConflictResult: ...
+    def assemble_cross_source_evidence(
+        self, request: AssembleCrossSourceEvidenceRequest
+    ) -> AssembleCrossSourceEvidenceResult: ...
+    def list_ontology_packages(
+        self, request: ListOntologyPackagesRequest
+    ) -> ListOntologyPackagesResult: ...
+    def list_ontology_proposal_history(
+        self, request: ListOntologyProposalHistoryRequest
+    ) -> ListOntologyProposalHistoryResult: ...
 
 
-__all__ = [name for name in globals() if name.endswith(("Request", "Result", "View"))] + [
+__all__ = [
+    name for name in globals() if name.endswith(("Request", "Result", "View"))
+] + [
     "SEMANTIC_OPERATIONS_CONTRACT",
     "OperationBudget",
     "OperationGap",
     "OperationOmissions",
     "OperationTrace",
+    "SemanticSourceGrant",
     "SemanticReadScope",
+    "SemanticLineage",
     "ResolveCandidate",
     "RelationshipHop",
     "ObservationDifference",

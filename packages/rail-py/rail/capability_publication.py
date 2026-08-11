@@ -68,6 +68,7 @@ from krail.provider.semantic import (
     MAX_EDGES as SEMANTIC_MAX_EDGES,
     MAX_ITEMS as SEMANTIC_MAX_ITEMS,
     MAX_NODES as SEMANTIC_MAX_NODES,
+    MAX_TIME_MS as SEMANTIC_MAX_TIME_MS,
 )
 from rail.semantic.operations import SEMANTIC_PROCESSING_VERSION
 
@@ -203,6 +204,7 @@ def semantic_operations_descriptor() -> CapabilityDescriptor:
             CapabilityLimit(name="max_edges", value=SEMANTIC_MAX_EDGES, unit="items"),
             CapabilityLimit(name="max_items", value=SEMANTIC_MAX_ITEMS, unit="items"),
             CapabilityLimit(name="max_bytes", value=SEMANTIC_MAX_BYTES, unit="utf8-bytes"),
+            CapabilityLimit(name="max_time_ms", value=SEMANTIC_MAX_TIME_MS, unit="milliseconds"),
         ),
         semantic_processing_versions=(
             SemanticProcessingVersion(component="provider-contract", version="krail.semantic-operations.v1"),

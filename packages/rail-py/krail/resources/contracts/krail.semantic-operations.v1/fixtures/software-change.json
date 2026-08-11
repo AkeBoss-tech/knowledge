@@ -7,8 +7,22 @@
     "subject_id": "user/alice",
     "allowed_authorities": ["https://github.example.test"],
     "allowed_resource_types": [],
+    "allowed_classifications": ["internal"],
+    "allowed_sources": [{
+      "contract": "krail.semantic-operations.v1",
+      "source": {
+        "contract": "krail.provider.model.v1",
+        "authority": "https://github.example.test",
+        "resource_type": "issue",
+        "resource_id": "issue",
+        "version": "etag:v1",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source_id": "issue",
+      "classification": "internal"
+    }],
     "policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "scope_digest": "sha256:ecbd8436c88f33ba4534be0b37dea4479424b8c9539363e66f509b90a030e385"
+    "scope_digest": "sha256:c6624febd8f568ae2b5b46fb42a0541893ded595cf7adf82587aef3edbc4c244"
   },
   "requests": {
     "resolve_entity": {

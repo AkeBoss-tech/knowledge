@@ -95,12 +95,21 @@ def test_v1_contract_defines_stable_and_experimental_tool_sets():
         "tasks",
         "workflows",
         "integrity",
-            "permissions",
-            "provider_v1",
-        }
+        "permissions",
+        "provider_v1",
+    }
     stable = set(server.STABLE_V1_TOOLS)
     experimental = set(server.EXPERIMENTAL_TOOLS)
-    assert {"doctor", "search", "think", "capture", "create_task", "run_workflow", "integrity_status", "permissions_doctor"} <= stable
+    assert {
+        "doctor",
+        "search",
+        "think",
+        "capture",
+        "create_task",
+        "run_workflow",
+        "integrity_status",
+        "permissions_doctor",
+    } <= stable
     assert stable.isdisjoint(experimental)
 
 
@@ -123,10 +132,14 @@ def test_mcp_contract_exposes_runtime_discoverable_v1_boundary():
 
 def test_mcp_contract_classifies_every_registered_tool_without_hiding_broad_surface():
     payload = json.loads(server.mcp_contract())
-    classified_tools = set(payload["stable"]["tools"]) | set(payload["experimental"]["tools"])
+    classified_tools = set(payload["stable"]["tools"]) | set(
+        payload["experimental"]["tools"]
+    )
 
     assert classified_tools == set(server.mcp.registered_tools)
-    assert {"search", "graph_build", "execute_python", "set_secret"} <= set(server.mcp.registered_tools)
+    assert {"search", "graph_build", "execute_python", "set_secret"} <= set(
+        server.mcp.registered_tools
+    )
 
 
 def test_mcp_contract_rejects_unknown_version_with_actionable_json_error():
@@ -179,7 +192,11 @@ def test_mcp_graph_entities_calls_project(monkeypatch):
 def test_mcp_vector_search_calls_project(monkeypatch):
     class _Project:
         def vector_search(self, query, *, limit=10):
-            return {"query": query, "hits": [{"path": "topics/brief.md"}], "limit": limit}
+            return {
+                "query": query,
+                "hits": [{"path": "topics/brief.md"}],
+                "limit": limit,
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -207,7 +224,12 @@ def test_mcp_mount_list_calls_project(monkeypatch):
 def test_mcp_search_can_call_federated_project_search(monkeypatch):
     class _Project:
         def federated_search(self, query, *, limit=10, mounts=None, explain=False):
-            return {"query": query, "hits": [{"path": "child:topics/public.md"}], "mounts": mounts, "limit": limit}
+            return {
+                "query": query,
+                "hits": [{"path": "child:topics/public.md"}],
+                "mounts": mounts,
+                "limit": limit,
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -226,17 +248,26 @@ def test_mcp_knowledge_operations_primitives(monkeypatch):
             return {"retrievers": [{"id": "lexical"}]}
 
         def plan_query(self, query, *, rag=True):
-            return {"query": query, "retrievers": ["lexical", "vector"] if rag else ["lexical"]}
+            return {
+                "query": query,
+                "retrievers": ["lexical", "vector"] if rag else ["lexical"],
+            }
 
         def search_evidence(self, query, *, limit=10, explain=False, rag=True):
-            return {"query": query, "evidence_packet": {"version": "krail.evidence-packet/v1"}}
+            return {
+                "query": query,
+                "evidence_packet": {"version": "krail.evidence-packet/v1"},
+            }
 
     monkeypatch.setattr(server, "_get_project", lambda: Project())
 
     assert json.loads(server.action_list())["actions"][0]["id"] == "search-project"
     assert json.loads(server.retriever_list())["retrievers"][0]["id"] == "lexical"
     assert "vector" in json.loads(server.plan_query("architecture"))["retrievers"]
-    assert json.loads(server.build_evidence_packet("architecture"))["version"] == "krail.evidence-packet/v1"
+    assert (
+        json.loads(server.build_evidence_packet("architecture"))["version"]
+        == "krail.evidence-packet/v1"
+    )
 
 
 def test_mcp_provider_search_is_equivalent_to_python_contract(monkeypatch):
@@ -258,7 +289,9 @@ def test_mcp_provider_search_is_equivalent_to_python_contract(monkeypatch):
     assert payload == _Project.provider.search(request).model_dump(mode="json")
 
 
-def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monkeypatch):
+def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(
+    monkeypatch,
+):
     from datetime import UTC, datetime
 
     from krail.provider.capabilities import CapabilityNegotiationRequest
@@ -274,14 +307,22 @@ def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monk
         version="content:" + "a" * 64,
         digest=content_digest,
     )
-    issue = repository.model_copy(update={"resource_type": "topic", "resource_id": "topics/issue.md"})
-    request = ContextBriefRequest(repository=repository, issue=issue, evaluated_at=datetime(2026, 8, 7, tzinfo=UTC))
+    issue = repository.model_copy(
+        update={"resource_type": "topic", "resource_id": "topics/issue.md"}
+    )
+    request = ContextBriefRequest(
+        repository=repository,
+        issue=issue,
+        evaluated_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
     descriptor = context_brief_descriptor()
 
     class _Provider:
         def context_brief(self, actual):
             assert actual == request
-            return type("Result", (), {"model_dump": lambda self, mode: {"brief": "same"}})()
+            return type(
+                "Result", (), {"model_dump": lambda self, mode: {"brief": "same"}}
+            )()
 
         def capability_descriptor(self, capability_id="krail.context-brief"):
             assert capability_id == descriptor.capability_id
@@ -298,9 +339,15 @@ def test_mcp_context_brief_and_capability_are_equivalent_to_python_contract(monk
 
     monkeypatch.setattr(server, "_project", _Project())
 
-    assert json.loads(server.provider_context_brief(request.model_dump_json())) == {"brief": "same"}
-    assert json.loads(server.provider_capability()) == descriptor.model_dump(mode="json")
-    negotiated = json.loads(server.provider_capability("1.0.0", descriptor.descriptor_digest))
+    assert json.loads(server.provider_context_brief(request.model_dump_json())) == {
+        "brief": "same"
+    }
+    assert json.loads(server.provider_capability()) == descriptor.model_dump(
+        mode="json"
+    )
+    negotiated = json.loads(
+        server.provider_capability("1.0.0", descriptor.descriptor_digest)
+    )
     assert negotiated["compatible"] is True
 
 
@@ -328,23 +375,64 @@ def test_mcp_contract_exposes_all_provider_v1_reads():
 def test_mcp_semantic_operation_is_equivalent_to_provider(monkeypatch):
     import hashlib
 
-    from krail.provider.semantic import ResolveEntityRequest, ResolveEntityResult, SemanticReadScope, OperationTrace
+    from krail.provider.semantic import (
+        OperationBudget,
+        OperationGap,
+        OperationTrace,
+        ResolveEntityRequest,
+        ResolveEntityResult,
+        SemanticReadScope,
+    )
 
     body = {
-        "tenant_id": "tenant-a", "project_id": "project-a", "subject_id": "user/alice",
+        "tenant_id": "tenant-a",
+        "project_id": "project-a",
+        "subject_id": "user/alice",
         "allowed_authorities": ["https://github.example.test"],
-        "allowed_resource_types": [], "policy_digest": "sha256:" + "a" * 64,
+        "allowed_resource_types": [],
+        "allowed_classifications": ["internal"],
+        "allowed_sources": [
+            {
+                "contract": "krail.semantic-operations.v1",
+                "source": {
+                    "contract": "krail.provider.model.v1",
+                    "authority": "https://github.example.test",
+                    "resource_type": "issue",
+                    "resource_id": "issue",
+                    "version": "etag:v1",
+                    "digest": "sha256:" + "a" * 64,
+                },
+                "source_id": "issue",
+                "classification": "internal",
+            }
+        ],
+        "policy_digest": "sha256:" + "a" * 64,
     }
-    scope_digest = "sha256:" + hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    request = ResolveEntityRequest(scope=SemanticReadScope(**body, scope_digest=scope_digest), query="42")
+    scope_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
+    request = ResolveEntityRequest(
+        scope=SemanticReadScope(**body, scope_digest=scope_digest),
+        query="42",
+        budget=OperationBudget(max_bytes=1024),
+    )
     result = ResolveEntityResult(
+        truncated=True,
+        gaps=(
+            OperationGap(
+                code="byte-budget", message="The response reached its byte budget."
+            ),
+        ),
         trace=OperationTrace(
-            operation="resolve_entity", request_digest="sha256:" + "b" * 64,
-            snapshot_digest="sha256:" + "c" * 64, processing_version="semantic/1",
+            operation="resolve_entity",
+            request_digest="sha256:" + "b" * 64,
+            snapshot_digest="sha256:" + "c" * 64,
+            processing_version="semantic/1",
             processing_digest="sha256:" + "d" * 64,
-        )
+        ),
     )
 
     class _Provider:
@@ -356,7 +444,9 @@ def test_mcp_semantic_operation_is_equivalent_to_provider(monkeypatch):
         provider = _Provider()
 
     monkeypatch.setattr(server, "_project", _Project())
-    assert json.loads(server.provider_semantic_operation("resolve_entity", request.model_dump_json())) == result.model_dump(mode="json")
+    assert json.loads(
+        server.provider_semantic_operation("resolve_entity", request.model_dump_json())
+    ) == result.model_dump(mode="json")
 
 
 def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monkeypatch):
@@ -367,9 +457,18 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         OutcomeIngestRequest,
         OutcomeObservationService,
     )
-    from rail.verification_evidence import VerificationEvidenceRequest, VerificationEvidenceService
+    from rail.verification_evidence import (
+        VerificationEvidenceRequest,
+        VerificationEvidenceService,
+    )
 
-    fixtures = Path(__file__).parents[2] / "rail-py" / "tests" / "fixtures" / "evidence_foundation"
+    fixtures = (
+        Path(__file__).parents[2]
+        / "rail-py"
+        / "tests"
+        / "fixtures"
+        / "evidence_foundation"
+    )
     verification = VerificationEvidenceRequest.model_validate_json(
         (fixtures / "verification_request.json").read_text(encoding="utf-8")
     )
@@ -393,13 +492,13 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         provider = _Provider()
 
     monkeypatch.setattr(server, "_project", _Project())
-    assert json.loads(server.provider_assemble_verification_evidence(verification.model_dump_json())) == (
-        verification_service.assemble(verification).model_dump(mode="json")
-    )
+    assert json.loads(
+        server.provider_assemble_verification_evidence(verification.model_dump_json())
+    ) == (verification_service.assemble(verification).model_dump(mode="json"))
     envelope = OutcomeIngestEnvelope(request=outcome)
-    assert json.loads(server.provider_ingest_outcome_evidence(envelope.model_dump_json())) == (
-        outcome_service.ingest(outcome).model_dump(mode="json")
-    )
+    assert json.loads(
+        server.provider_ingest_outcome_evidence(envelope.model_dump_json())
+    ) == (outcome_service.ingest(outcome).model_dump(mode="json"))
 
     prior = outcome_service.ingest(outcome)
     prior_ref = outcome.observation.resource_ref
@@ -414,7 +513,8 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         update={
             "observation": outcome.observation.model_copy(
                 update={
-                    "observed_at": outcome.observation.observed_at + timedelta(minutes=5),
+                    "observed_at": outcome.observation.observed_at
+                    + timedelta(minutes=5),
                     "resource_ref": newer_ref,
                     "provider_payload_digest": "sha256:" + "e" * 64,
                     "supersedes_observation_digest": prior.observation_digest,
@@ -430,8 +530,12 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         request=superseding_request,
         prior_observation=prior,
     )
-    assert json.loads(server.provider_ingest_outcome_evidence(superseding.model_dump_json())) == (
-        outcome_service.ingest(superseding_request, previous=prior).model_dump(mode="json")
+    assert json.loads(
+        server.provider_ingest_outcome_evidence(superseding.model_dump_json())
+    ) == (
+        outcome_service.ingest(superseding_request, previous=prior).model_dump(
+            mode="json"
+        )
     )
 
     missing_prior = json.loads(
@@ -444,7 +548,10 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
         outcome.model_copy(
             update={
                 "observation": outcome.observation.model_copy(
-                    update={"observed_at": outcome.observation.observed_at + timedelta(seconds=1)}
+                    update={
+                        "observed_at": outcome.observation.observed_at
+                        + timedelta(seconds=1)
+                    }
                 )
             }
         )
@@ -463,13 +570,15 @@ def test_mcp_phase3_evidence_routes_are_equivalent_to_application_services(monke
     utf8_payload["request"]["observation"]["bounded_summary"] = "é" * 2048
     utf8_payload["request"]["semantic_assertions"][0]["text"] = "é" * 8192
     utf8_envelope = OutcomeIngestEnvelope.model_validate(utf8_payload)
-    assert json.loads(server.provider_ingest_outcome_evidence(utf8_envelope.model_dump_json())) == (
-        outcome_service.ingest(utf8_envelope.request).model_dump(mode="json")
-    )
+    assert json.loads(
+        server.provider_ingest_outcome_evidence(utf8_envelope.model_dump_json())
+    ) == (outcome_service.ingest(utf8_envelope.request).model_dump(mode="json"))
 
     oversized = utf8_envelope.model_dump(mode="json")
     oversized["request"]["observation"]["bounded_summary"] = "é" * 2049
-    rejected = json.loads(server.provider_ingest_outcome_evidence(json.dumps(oversized)))
+    rejected = json.loads(
+        server.provider_ingest_outcome_evidence(json.dumps(oversized))
+    )
     assert rejected["error"]["code"] == "invalid_arguments"
     assert "4096 UTF-8 bytes" in rejected["error"]["message"]
 
@@ -497,7 +606,16 @@ def test_action_errors_are_classified_as_client_errors(monkeypatch):
 
 def test_mcp_think_can_call_federated_project_think(monkeypatch):
     class _Project:
-        def federated_think(self, query, *, limit=5, mounts=None, mode="deterministic", runner="auto", dry_run=False):
+        def federated_think(
+            self,
+            query,
+            *,
+            limit=5,
+            mounts=None,
+            mode="deterministic",
+            runner="auto",
+            dry_run=False,
+        ):
             return {"query": query, "consulted_mounts": mounts, "limit": limit}
 
     monkeypatch.setattr(server, "_project", _Project())
@@ -524,7 +642,10 @@ def test_mcp_federated_graph_summary_calls_project(monkeypatch):
 def test_mcp_think_sessions_calls_project(monkeypatch):
     class _Project:
         def think_sessions(self, *, limit=20):
-            return {"sessions": [{"session_id": "think_123", "status": "prepared"}], "limit": limit}
+            return {
+                "sessions": [{"session_id": "think_123", "status": "prepared"}],
+                "limit": limit,
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -552,11 +673,20 @@ def test_mcp_think_session_status_calls_project(monkeypatch):
 def test_mcp_register_think_result_calls_project(monkeypatch):
     class _Project:
         def register_think_result(self, result, *, artifact_path, title=None):
-            return {"status": "registered", "artifact_path": artifact_path, "title": title, "query": result["query"]}
+            return {
+                "status": "registered",
+                "artifact_path": artifact_path,
+                "title": title,
+                "query": result["query"],
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
-    result = server.register_think_result(json.dumps({"query": "What changed?"}), "artifacts/think.json", "Weekly synthesis")
+    result = server.register_think_result(
+        json.dumps({"query": "What changed?"}),
+        "artifacts/think.json",
+        "Weekly synthesis",
+    )
 
     payload = json.loads(result)
     assert payload["status"] == "registered"
@@ -578,7 +708,10 @@ def test_mcp_doctor_returns_actionable_json_when_project_is_unavailable(monkeypa
     assert payload["error"]["code"] == "project_unavailable"
     assert payload["error"]["tool"] == "doctor"
     assert "rail.yaml not found" in payload["error"]["message"]
-    assert "RAIL_PROJECT" in payload["error"]["hint"] or "RAIL_PATH" in payload["error"]["hint"]
+    assert (
+        "RAIL_PROJECT" in payload["error"]["hint"]
+        or "RAIL_PATH" in payload["error"]["hint"]
+    )
 
 
 def test_mcp_agent_prompt_calls_project(monkeypatch):
@@ -601,7 +734,9 @@ def test_mcp_create_task_calls_project(monkeypatch):
     monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["research_plan/tasks"]))
 
     class _Project:
-        def create_task(self, title, *, description="", runner="codex_cli", role="research"):
+        def create_task(
+            self, title, *, description="", runner="codex_cli", role="research"
+        ):
             return {
                 "task_id": "task-123",
                 "title": title,
@@ -612,7 +747,12 @@ def test_mcp_create_task_calls_project(monkeypatch):
 
     monkeypatch.setattr(server, "_project", _Project())
 
-    result = server.create_task("Review new captures", description="Summarize inbox", runner="codex_cli", role="research")
+    result = server.create_task(
+        "Review new captures",
+        description="Summarize inbox",
+        runner="codex_cli",
+        role="research",
+    )
 
     payload = json.loads(result)
     assert payload["task_id"] == "task-123"
@@ -668,13 +808,19 @@ def test_mcp_run_workflow_defaults_to_dry_run(monkeypatch):
     result = server.run_workflow("weekly_review")
 
     payload = json.loads(result)
-    assert payload == {"workflow": "weekly_review", "runner": "codex_cli", "dry_run": True}
+    assert payload == {
+        "workflow": "weekly_review",
+        "runner": "codex_cli",
+        "dry_run": True,
+    }
 
 
 def test_mcp_init_workflow_passes_template(monkeypatch):
     _clear_scope_env(monkeypatch)
     monkeypatch.setenv("KRAIL_ALLOWED_TOOLS", json.dumps(["write_repo"]))
-    monkeypatch.setenv("KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["research_plan/workflows"]))
+    monkeypatch.setenv(
+        "KRAIL_ALLOWED_WRITE_PATHS", json.dumps(["research_plan/workflows"])
+    )
 
     class _Project:
         def init_workflow(self, workflow_id, *, force=False, template=None):
@@ -685,7 +831,11 @@ def test_mcp_init_workflow_passes_template(monkeypatch):
     result = server.init_workflow("weekly", template="weekly_research_review")
 
     payload = json.loads(result)
-    assert payload == {"workflow": "weekly", "force": False, "template": "weekly_research_review"}
+    assert payload == {
+        "workflow": "weekly",
+        "force": False,
+        "template": "weekly_research_review",
+    }
 
 
 def test_mcp_workflow_status_calls_project(monkeypatch):
@@ -945,7 +1095,9 @@ def test_mcp_integrity_sources_calls_project(monkeypatch):
 def test_mcp_integrity_claims_calls_project(monkeypatch):
     class _Project:
         def integrity_claims(self):
-            return [{"claim_key": "claim-001", "claimState": {"evidenceComplete": True}}]
+            return [
+                {"claim_key": "claim-001", "claimState": {"evidenceComplete": True}}
+            ]
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -975,7 +1127,10 @@ def test_mcp_find_calls_project(monkeypatch):
             assert query == "repo intake"
             assert kwargs["types"] == ["document", "claim"]
             assert kwargs["workflow"] == "corptech_repo_architecture_intake"
-            return {"query": query, "results": [{"type": "document", "title": "Repo Intake"}]}
+            return {
+                "query": query,
+                "results": [{"type": "document", "title": "Repo Intake"}],
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -1005,7 +1160,9 @@ def test_mcp_permissions_doctor_calls_project(monkeypatch):
 def test_mcp_integrity_artifacts_calls_project(monkeypatch):
     class _Project:
         def integrity_artifact_lineage(self):
-            return [{"artifact_path": "artifacts/think.json", "promotion_state": "draft"}]
+            return [
+                {"artifact_path": "artifacts/think.json", "promotion_state": "draft"}
+            ]
 
     monkeypatch.setattr(server, "_project", _Project())
 
@@ -1018,11 +1175,17 @@ def test_mcp_integrity_artifacts_calls_project(monkeypatch):
 def test_mcp_integrity_promote_claim_candidate_calls_project(monkeypatch):
     class _Project:
         def apply_integrity_claim_candidate_promotion(self, candidate_key, *, status):
-            return {"status": "promoted", "candidate_key": candidate_key, "claim_status": status}
+            return {
+                "status": "promoted",
+                "candidate_key": candidate_key,
+                "claim_status": status,
+            }
 
     monkeypatch.setattr(server, "_project", _Project())
 
-    result = server.integrity_promote_claim_candidate("claim:candidate-001", status="needs_evidence")
+    result = server.integrity_promote_claim_candidate(
+        "claim:candidate-001", status="needs_evidence"
+    )
 
     payload = json.loads(result)
     assert payload["status"] == "promoted"
@@ -1032,7 +1195,9 @@ def test_mcp_integrity_promote_claim_candidate_calls_project(monkeypatch):
 
 def test_mcp_integrity_reproducibility_rerun_calls_project(monkeypatch):
     class _Project:
-        def apply_integrity_reproducibility_rerun(self, outputs, *, run_id="rerun-verification", scope="health"):
+        def apply_integrity_reproducibility_rerun(
+            self, outputs, *, run_id="rerun-verification", scope="health"
+        ):
             return {
                 "status": "passed",
                 "outputs": outputs,
@@ -1205,7 +1370,13 @@ def test_mcp_integrity_graph_calls_project(monkeypatch):
     class _Project:
         def integrity_dependency_graph(self):
             return {
-                "edges": [{"from": "source:briefing-note", "to": "claim:claim-001", "relationship": "supports"}],
+                "edges": [
+                    {
+                        "from": "source:briefing-note",
+                        "to": "claim:claim-001",
+                        "relationship": "supports",
+                    }
+                ],
             }
 
     monkeypatch.setattr(server, "_project", _Project())
@@ -1260,4 +1431,7 @@ def test_mcp_integrity_rerun_plan_calls_project(monkeypatch):
 
     assert preview["assumption"]["assumption_key"] == "study-period"
     assert preview["affectedPaths"] == [".ontology/onto.duckdb", "artifacts/report.md"]
-    assert applied["rerunPlan"]["affectedPaths"] == [".ontology/onto.duckdb", "artifacts/report.md"]
+    assert applied["rerunPlan"]["affectedPaths"] == [
+        ".ontology/onto.duckdb",
+        "artifacts/report.md",
+    ]

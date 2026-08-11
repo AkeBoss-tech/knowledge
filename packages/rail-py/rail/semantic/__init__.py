@@ -47,11 +47,17 @@ from rail.semantic.repository import (
     PostgresSemanticStore,
     SemanticRepository,
 )
-from rail.semantic.operations import SemanticOperationsService
+from rail.semantic.operations import (
+    AuthorizedSemanticScope,
+    SemanticOperationsService,
+    authorize_semantic_scope_from_claims,
+    semantic_scope_authorizer_from_context,
+)
 
 __all__ = [
     "Alias",
     "AliasAssignment",
+    "AuthorizedSemanticScope",
     "CandidateConcept",
     "CandidateMapping",
     "CandidateRelationship",
@@ -87,4 +93,6 @@ __all__ = [
     "SemanticRevision",
     "SemanticType",
     "ValidationFinding",
+    "authorize_semantic_scope_from_claims",
+    "semantic_scope_authorizer_from_context",
 ]
