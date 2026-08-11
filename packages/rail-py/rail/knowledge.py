@@ -4317,7 +4317,7 @@ boot();
         active = self.active_pack().get("active")
         return {"active": active, "suggestion": self.suggest_pack()["suggested"]}
 
-    def doctor(self) -> dict[str, Any]:
+    def doctor(self, *, check_cli_version: bool = True) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
 
@@ -4339,7 +4339,7 @@ boot();
         check("knowledge_mode", bool(active_mode.get("mode")), f"active mode: {active_mode['mode']['id']} ({active_mode['source']})")
         import rail as rail_package
 
-        executable = shutil.which("krail")
+        executable = shutil.which("krail") if check_cli_version else None
         executable_version: str | None = None
         executable_error: str | None = None
         if executable:

@@ -102,7 +102,7 @@ def test_all_bounded_provider_reads_return_public_contract_models(tmp_path: Path
 
 
 def test_provider_negotiates_capabilities_and_reports_version_skew(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("rail.application._distribution_version", lambda: "1.1.12")
+    monkeypatch.setattr("rail.application._distribution_version", lambda: "1.1.13")
     _root, project = _project(tmp_path)
     provider = project.provider
 
@@ -122,10 +122,10 @@ def test_provider_reports_installed_distribution_skew(tmp_path: Path, monkeypatc
     monkeypatch.setattr("rail.application._distribution_version", lambda: "0.2.1")
     _root, project = _project(tmp_path)
 
-    result = project.provider.provider_info(ProviderInfoRequest(consumer_version="1.1.12"))
+    result = project.provider.provider_info(ProviderInfoRequest(consumer_version="1.1.13"))
 
     assert result.compatible is False
-    assert result.provider_version == "1.1.12"
+    assert result.provider_version == "1.1.13"
     assert result.installed_distribution_version == "0.2.1"
     assert "installation skew" in result.diagnostic
 
@@ -167,4 +167,4 @@ def test_krail_version_is_available_without_loading_a_project(monkeypatch, capsy
     rail_cli.main()
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"name": "KRAIL", "version": "1.1.12"}
+    assert payload == {"name": "KRAIL", "version": "1.1.13"}

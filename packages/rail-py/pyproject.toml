@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "krail"
-version = "1.1.12"
+version = "1.1.13"
 description = "Local-first memory and workflows for serious AI agent projects"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,3 +65,6 @@ rail = ["hosted/migrations/*.sql"]
 [project.scripts]
 rail = "rail.cli:main"
 krail = "rail.cli:main"
+krail-managed = "krail.management.stdio:main"
+krail-admin = "krail.admin:main"
+krail-mutate = "krail.mutation:main"

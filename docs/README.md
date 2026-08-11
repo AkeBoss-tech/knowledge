@@ -9,7 +9,9 @@ the v1 release.
 ## Local-Runtime Contract Docs
 
 - [Architecture](architecture.md)
+- [Management Protocol v1](management-v1.md)
 - [Knowledge Operations Foundations](knowledge-operations.md)
+- [1.1.13 Release Notes](releases/1.1.13.md)
 - [1.1.12 Release Notes](releases/1.1.12.md)
 - [1.1 Migration Guide](migrations/1.1.md)
 - [Project Layout](project-layout.md)

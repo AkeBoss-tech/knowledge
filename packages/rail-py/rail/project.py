@@ -509,10 +509,10 @@ class Project:
             raise RuntimeError("wiki commands require local mode")
         return self._backend.knowledge.wiki_site_check()
 
-    def doctor(self) -> dict:
+    def doctor(self, *, check_cli_version: bool = True) -> dict:
         if not hasattr(self._backend, "knowledge"):
             raise RuntimeError("doctor requires local mode")
-        return self._backend.knowledge.doctor()
+        return self._backend.knowledge.doctor(check_cli_version=check_cli_version)
 
     def pack(self, command: str, pack_id: str | None = None) -> dict:
         if not hasattr(self._backend, "knowledge"):
