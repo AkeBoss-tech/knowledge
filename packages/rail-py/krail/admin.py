@@ -34,7 +34,7 @@ def _provider_version() -> str:
     try:
         return version("krail")
     except PackageNotFoundError:
-        return "1.1.13"
+        return "1.2.0rc1"
 
 
 def _error_code(code: str) -> str:

@@ -864,7 +864,7 @@ Never promote hypotheses that still rely on unsupported or stale claims.
             f"""\
             # KRAIL Agent Guide
 
-            Guide version: 1.1.13
+            Guide version: 1.2.0rc1
             Project: {name}
 
             The repository is the durable source of truth. Start every session with:

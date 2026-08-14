@@ -1,0 +1,12 @@
+{
+  "id": "krail.project-onboarding.contracts",
+  "version": "v1",
+  "bundle": "bundle.json",
+  "contracts": [
+    "krail.project-discovery/v1",
+    "krail.project-profile/v1",
+    "krail.project-pack-proposal/v1",
+    "krail.automation-recommendations/v1",
+    "krail.project-onboarding-work-order/v1"
+  ]
+}
