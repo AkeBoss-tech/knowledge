@@ -1,8 +1,8 @@
 {
   "contract": "krail.provider.model.v1",
   "provider": "krail.local",
-  "provider_version": "1.1.13",
-  "installed_distribution_version": "1.1.13",
+  "provider_version": "1.2.0rc1",
+  "installed_distribution_version": "1.2.0rc1",
   "capabilities": [
     "describe_types",
     "search",

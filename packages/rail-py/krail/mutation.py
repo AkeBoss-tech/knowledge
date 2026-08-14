@@ -40,7 +40,7 @@ def _provider_version() -> str:
     try:
         return version("krail")
     except PackageNotFoundError:
-        return "1.1.13"
+        return "1.2.0rc1"
 
 
 def _candidate_payload(candidate: dict[str, Any]) -> dict[str, Any]:

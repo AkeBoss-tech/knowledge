@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "krail.project-onboarding.contracts/v1",
+  "$defs": {
+    "evidenceLocator": {
+      "type": "object",
+      "required": ["path", "revision", "digest"],
+      "properties": {
+        "path": {"type": "string"},
+        "revision": {"type": ["string", "null"]},
+        "span": {"type": "object"},
+        "digest": {"type": "string", "pattern": "^sha256:"}
+      },
+      "additionalProperties": false
+    },
+    "krail.project-discovery/v1": {
+      "type": "object",
+      "required": ["contract", "fingerprint", "inventory", "commands"],
+      "properties": {"contract": {"const": "krail.project-discovery/v1"}, "fingerprint": {"type": "string"}, "inventory": {"type": "object"}, "commands": {"type": "array"}}
+    },
+    "krail.project-profile/v1": {"$ref": "#/$defs/reviewedProposal"},
+    "krail.project-pack-proposal/v1": {"$ref": "#/$defs/reviewedProposal"},
+    "krail.automation-recommendations/v1": {"$ref": "#/$defs/reviewedProposal"},
+    "reviewedProposal": {
+      "type": "object",
+      "required": ["contract", "review", "claims"],
+      "properties": {"contract": {"type": "string"}, "review": {"type": "object", "required": ["status"]}, "claims": {"type": "array"}}
+    },
+    "krail.project-onboarding-work-order/v1": {
+      "type": "object",
+      "required": ["contract", "runner", "bounds", "review_required"],
+      "properties": {"contract": {"const": "krail.project-onboarding-work-order/v1"}, "runner": {"enum": ["codex_cli", "claude_code"]}, "bounds": {"type": "object"}, "review_required": {"const": true}}
+    }
+  }
+}

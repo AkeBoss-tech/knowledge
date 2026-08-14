@@ -26,6 +26,7 @@ from rail.knowledge import DEFAULT_PACKS, WORKFLOW_TEMPLATES, KnowledgeRuntime
 from rail.manifest import ManifestValidationError
 from rail.modes import DEFAULT_MODES, get_mode
 from rail.outcome_observations import OutcomeIngestEnvelope
+from rail.project_onboarding import onboard_project
 from rail.verification_evidence import VerificationEvidenceRequest
 
 RUNNER_CHOICES = ["auto", "codex_cli", "claude_code", "gemini_cli", "cursor_cli", "copilot_cli"]
@@ -142,6 +143,9 @@ def cmd_init(args: argparse.Namespace):
     if materialized_workflows:
         payload["materialized_workflows"] = materialized_workflows
     _print_json(payload)
+
+def cmd_onboard(args: argparse.Namespace) -> None:
+    _print_json(onboard_project(args.directory, apply=args.apply, runner=args.runner, dry_run=args.dry_run, allowed_root=args.allowed_root))
 
 def cmd_search(project: rail.Project, args: argparse.Namespace):
     if getattr(args, "federated", False):
@@ -928,6 +932,13 @@ def main():
         help="Skip materializing workflow specs for the selected pack during init",
     )
 
+    onboard_parser = subparsers.add_parser("onboard", help="Safely discover and optionally initialize an existing code project")
+    onboard_parser.add_argument("directory", help="Existing local repository directory")
+    onboard_parser.add_argument("--apply", action="store_true", help="Create missing KRAIL-owned records; never overwrite files")
+    onboard_parser.add_argument("--runner", choices=["codex_cli", "claude_code"], help="Emit a bounded provider work order")
+    onboard_parser.add_argument("--dry-run", action="store_true", help="Mark the emitted work order as dry-run; no provider is launched")
+    onboard_parser.add_argument("--allowed-root", help="Optional authorized path boundary")
+
     docs_parser = subparsers.add_parser("docs", help="Search bundled KRAIL guidance without loading a project")
     docs_subs = docs_parser.add_subparsers(dest="docs_command", required=True)
     docs_search = docs_subs.add_parser("search", help="Search bundled guidance")
@@ -1619,6 +1630,10 @@ def main():
 
     if args.command == "init":
         cmd_init(args)
+        return
+
+    if args.command == "onboard":
+        cmd_onboard(args)
         return
 
     if args.command == "docs":
