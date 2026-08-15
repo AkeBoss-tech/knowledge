@@ -13,6 +13,9 @@ krail onboard /path/to/repo --apply --runner claude_code --dry-run
 On apply, KRAIL creates only missing KRAIL-owned manifest, discovery, starter
 skill, and workflow files. Existing files and records are never replaced. A
 repository with `rail.yaml` or `krail.yaml` is reported in `refresh` mode.
+Discovery snapshots and provider work orders are immutable and keyed by the
+project fingerprint. An unchanged rerun is idempotent; a changed project writes
+a new snapshot without replacing the earlier evidence record.
 
 ## Safety and trust
 

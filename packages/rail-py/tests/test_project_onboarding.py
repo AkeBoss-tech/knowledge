@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from rail.project_onboarding import OnboardingError, discover_project, onboard_project, promote_proposal, validate_proposal
+from rail.knowledge import KnowledgeRuntime
 
 
 def _repo(tmp_path: Path, files: dict[str, str], *, git: bool = False) -> Path:
@@ -16,6 +17,8 @@ def _repo(tmp_path: Path, files: dict[str, str], *, git: bool = False) -> Path:
         path.write_text(content)
     if git:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "KRAIL Tests"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "tests@krail.local"], cwd=root, check=True)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
     return root
@@ -36,6 +39,36 @@ def test_preview_writes_nothing_and_apply_is_idempotent(tmp_path):
     assert (root / "README.md").read_bytes() == b"keep me\n"
 
 
+def test_changed_project_writes_new_immutable_discovery_snapshot(tmp_path):
+    root = _repo(tmp_path, {"main.py": "pass\n"})
+    first = onboard_project(root, apply=True)
+    first_snapshots = sorted((root / "research_plan/state/project_discovery").glob("*.json"))
+    assert len(first_snapshots) == 1
+    original = first_snapshots[0].read_bytes()
+
+    (root / "main.py").write_text("print('changed')\n")
+    second = onboard_project(root, apply=True)
+    snapshots = sorted((root / "research_plan/state/project_discovery").glob("*.json"))
+
+    assert first["fingerprint"] != second["fingerprint"]
+    assert len(snapshots) == 2
+    assert first_snapshots[0].read_bytes() == original
+
+
+def test_generated_starter_workflows_are_valid_krail_workflows(tmp_path):
+    root = _repo(tmp_path, {"main.py": "pass\n"})
+    onboard_project(root, apply=True)
+    runtime = KnowledgeRuntime(root)
+
+    for workflow_id in (
+        "onboard_project",
+        "recommend_project_automations",
+        "project_memory_refresh",
+        "verify_change",
+    ):
+        assert runtime.workflow_validate(workflow_id)["ok"] is True
+
+
 @pytest.mark.parametrize(("files", "language"), [
     ({"pyproject.toml": "[tool.pytest.ini_options]\n", "main.py": "pass\n"}, "python"),
     ({"package.json": '{"scripts":{"test":"vitest"}}', "index.ts": "export {}"}, "javascript/typescript"),
@@ -53,7 +86,7 @@ def test_mixed_non_git_refresh_exclusions_and_dirty_fingerprint(tmp_path):
     root = _repo(tmp_path, {"rail.yaml": "version: 1\n", "main.py": "pass\n", "package.json": '{"scripts":{"build":"vite build"}}', ".env": "TOKEN=x", "node_modules/x.js": "ignored"})
     result = discover_project(root)
     assert result["mode"] == "refresh" and result["repository"]["kind"] == "directory"
-    assert result["file_count"] == 3
+    assert result["file_count"] == 2
     git_root = _repo(tmp_path / "git", {"main.py": "pass\n"}, git=True)
     clean = discover_project(git_root)["fingerprint"]
     (git_root / "main.py").write_text("print('dirty')\n")
@@ -75,10 +108,11 @@ def test_symlink_and_allowed_root_safety(tmp_path):
 def test_dry_run_creates_bounded_work_order_without_launch(tmp_path, runner, monkeypatch):
     root = _repo(tmp_path, {"main.py": "pass\n"})
     result = onboard_project(root, apply=True, runner=runner, dry_run=True)
-    order = json.loads((root / "research_plan/state/project_onboarding_work_order.json").read_text())
+    order_path = next((root / "research_plan/state/project_onboarding_work_orders").glob("*.json"))
+    order = json.loads(order_path.read_text())
     assert order["runner"] == runner and order["dry_run"] is True
     assert order["execution"] == "external" and order["bounds"]["launch_subprocess"] is False
-    assert "research_plan/state/project_onboarding_work_order.json" in result["written"]
+    assert order_path.relative_to(root).as_posix() in result["written"]
 
 
 def test_proposal_validation_and_review_gate():

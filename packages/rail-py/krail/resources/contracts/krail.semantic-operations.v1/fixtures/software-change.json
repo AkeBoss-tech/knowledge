@@ -1,0 +1,53 @@
+{
+  "contract": "krail.semantic-operations.v1",
+  "scope": {
+    "contract": "krail.semantic-operations.v1",
+    "tenant_id": "tenant-a",
+    "project_id": "project-a",
+    "subject_id": "user/alice",
+    "allowed_authorities": ["https://github.example.test"],
+    "allowed_resource_types": [],
+    "allowed_classifications": ["internal"],
+    "allowed_sources": [{
+      "contract": "krail.semantic-operations.v1",
+      "source": {
+        "contract": "krail.provider.model.v1",
+        "authority": "https://github.example.test",
+        "resource_type": "issue",
+        "resource_id": "issue",
+        "version": "etag:v1",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "source_id": "issue",
+      "classification": "internal"
+    }],
+    "policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "scope_digest": "sha256:c6624febd8f568ae2b5b46fb42a0541893ded595cf7adf82587aef3edbc4c244"
+  },
+  "requests": {
+    "resolve_entity": {
+      "contract": "krail.semantic-operations.v1",
+      "query": "42",
+      "type_ids": ["software.issue"]
+    },
+    "traverse_relationships": {
+      "contract": "krail.semantic-operations.v1",
+      "root_entity_id": "krail+semantic://github.example.test/repository/acme",
+      "relationship_type_ids": ["software.contains", "software.produces", "software.verified-by"],
+      "direction": "outgoing"
+    },
+    "assemble_cross_source_evidence": {
+      "contract": "krail.semantic-operations.v1",
+      "entity_ids": ["krail+semantic://github.example.test/issue/42"],
+      "relationship_type_ids": ["software.produces"],
+      "decision": "Assess issue delivery"
+    }
+  },
+  "vertical": [
+    "krail+semantic://github.example.test/repository/acme",
+    "krail+semantic://github.example.test/issue/42",
+    "krail+semantic://github.example.test/change/abc123",
+    "krail+semantic://github.example.test/pull-request/9",
+    "krail+semantic://github.example.test/ci/check-7"
+  ]
+}

@@ -33,6 +33,16 @@ from krail.provider.v1 import (
 )
 from rail.actions import ActionNotFoundError, ActionValidationError
 from rail.context_brief import ContextBriefRequest
+from krail.provider.semantic import (
+    AssembleCrossSourceEvidenceRequest,
+    CompareObservationsRequest,
+    ExplainConflictRequest,
+    GetEntityRequest,
+    ListOntologyPackagesRequest,
+    ListOntologyProposalHistoryRequest,
+    ResolveEntityRequest,
+    TraverseRelationshipsRequest,
+)
 from rail.outcome_observations import OutcomeIngestEnvelope
 from rail.permissions import PermissionPolicy
 from rail.retrieval import reciprocal_rank_fusion
@@ -54,6 +64,7 @@ STABLE_V1_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
         "provider_context_brief",
         "provider_assemble_verification_evidence",
         "provider_ingest_outcome_evidence",
+        "provider_semantic_operation",
         "provider_explain",
         "provider_lineage",
         "provider_integrity",
@@ -426,6 +437,31 @@ def provider_ingest_outcome_evidence(request_json: str) -> str:
         "ingest_outcome_evidence",
     )
     return _provider_result(_get_project().provider.ingest_outcome_evidence(envelope))
+
+
+@mcp.tool()
+def provider_semantic_operation(operation: str, request_json: str) -> str:
+    """Run one fixed bounded policy-shaped semantic operation; no graph query language."""
+    models = {
+        "resolve_entity": ResolveEntityRequest,
+        "get_entity": GetEntityRequest,
+        "traverse_relationships": TraverseRelationshipsRequest,
+        "compare_observations": CompareObservationsRequest,
+        "explain_conflict": ExplainConflictRequest,
+        "assemble_cross_source_evidence": AssembleCrossSourceEvidenceRequest,
+        "list_ontology_packages": ListOntologyPackagesRequest,
+        "list_ontology_proposal_history": ListOntologyProposalHistoryRequest,
+    }
+    try:
+        model = models[operation]
+    except KeyError as exc:
+        raise ValueError("semantic operation is not published") from exc
+    request = _provider_request(request_json, model, operation)
+    from krail.provider.semantic import semantic_transport_json
+
+    return semantic_transport_json(
+        _get_project().provider.semantic_operation(operation, request)
+    )
 
 
 @mcp.tool()

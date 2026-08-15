@@ -46,12 +46,38 @@ from rail.verification_evidence import (
     VerificationEvidence,
     VerificationEvidenceRequest,
 )
+from krail.provider.semantic import (
+    AssembleCrossSourceEvidenceRequest,
+    AssembleCrossSourceEvidenceResult,
+    CompareObservationsRequest,
+    CompareObservationsResult,
+    ExplainConflictRequest,
+    ExplainConflictResult,
+    GetEntityRequest,
+    GetEntityResult,
+    ListOntologyPackagesRequest,
+    ListOntologyPackagesResult,
+    ListOntologyProposalHistoryRequest,
+    ListOntologyProposalHistoryResult,
+    ResolveEntityRequest,
+    ResolveEntityResult,
+    TraverseRelationshipsRequest,
+    TraverseRelationshipsResult,
+    MAX_BYTES as SEMANTIC_MAX_BYTES,
+    MAX_DEPTH as SEMANTIC_MAX_DEPTH,
+    MAX_EDGES as SEMANTIC_MAX_EDGES,
+    MAX_ITEMS as SEMANTIC_MAX_ITEMS,
+    MAX_NODES as SEMANTIC_MAX_NODES,
+    MAX_TIME_MS as SEMANTIC_MAX_TIME_MS,
+)
+from rail.semantic.operations import SEMANTIC_PROCESSING_VERSION
 
 
 CAPABILITY_ID = "krail.context-brief"
 CAPABILITY_VERSION = "1.0.0"
 VERIFICATION_CAPABILITY_ID = "krail.verification-evidence"
 OUTCOME_CAPABILITY_ID = "krail.outcome-evidence"
+SEMANTIC_CAPABILITY_ID = "krail.semantic-operations"
 
 
 def context_brief_descriptor() -> CapabilityDescriptor:
@@ -148,11 +174,51 @@ def outcome_evidence_descriptor() -> CapabilityDescriptor:
     )
 
 
+def semantic_operations_descriptor() -> CapabilityDescriptor:
+    operations = (
+        ("resolve_entity", ResolveEntityRequest, ResolveEntityResult),
+        ("get_entity", GetEntityRequest, GetEntityResult),
+        ("traverse_relationships", TraverseRelationshipsRequest, TraverseRelationshipsResult),
+        ("compare_observations", CompareObservationsRequest, CompareObservationsResult),
+        ("explain_conflict", ExplainConflictRequest, ExplainConflictResult),
+        ("assemble_cross_source_evidence", AssembleCrossSourceEvidenceRequest, AssembleCrossSourceEvidenceResult),
+        ("list_ontology_packages", ListOntologyPackagesRequest, ListOntologyPackagesResult),
+        ("list_ontology_proposal_history", ListOntologyProposalHistoryRequest, ListOntologyProposalHistoryResult),
+    )
+    return CapabilityDescriptor.issue(
+        provider="krail.local",
+        capability_id=SEMANTIC_CAPABILITY_ID,
+        semantic_version=CAPABILITY_VERSION,
+        operations=tuple(
+            CapabilityOperation(
+                operation_id=name,
+                input_schema=request.model_json_schema(),
+                output_schema=result.model_json_schema(),
+            )
+            for name, request, result in operations
+        ),
+        effects=EffectDeclaration(),
+        limits=(
+            CapabilityLimit(name="max_depth", value=SEMANTIC_MAX_DEPTH, unit="items"),
+            CapabilityLimit(name="max_nodes", value=SEMANTIC_MAX_NODES, unit="items"),
+            CapabilityLimit(name="max_edges", value=SEMANTIC_MAX_EDGES, unit="items"),
+            CapabilityLimit(name="max_items", value=SEMANTIC_MAX_ITEMS, unit="items"),
+            CapabilityLimit(name="max_bytes", value=SEMANTIC_MAX_BYTES, unit="utf8-bytes"),
+            CapabilityLimit(name="max_time_ms", value=SEMANTIC_MAX_TIME_MS, unit="milliseconds"),
+        ),
+        semantic_processing_versions=(
+            SemanticProcessingVersion(component="provider-contract", version="krail.semantic-operations.v1"),
+            SemanticProcessingVersion(component="semantic-operations", version=SEMANTIC_PROCESSING_VERSION),
+        ),
+    )
+
+
 def capability_descriptors() -> tuple[CapabilityDescriptor, ...]:
     return (
         context_brief_descriptor(),
         verification_evidence_descriptor(),
         outcome_evidence_descriptor(),
+        semantic_operations_descriptor(),
     )
 
 
@@ -179,9 +245,11 @@ __all__ = [
     "CAPABILITY_VERSION",
     "OUTCOME_CAPABILITY_ID",
     "VERIFICATION_CAPABILITY_ID",
+    "SEMANTIC_CAPABILITY_ID",
     "LocalCapabilityPublication",
     "capability_descriptors",
     "context_brief_descriptor",
     "outcome_evidence_descriptor",
+    "semantic_operations_descriptor",
     "verification_evidence_descriptor",
 ]
