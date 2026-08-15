@@ -17,6 +17,8 @@ def _repo(tmp_path: Path, files: dict[str, str], *, git: bool = False) -> Path:
         path.write_text(content)
     if git:
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "KRAIL Tests"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "tests@krail.local"], cwd=root, check=True)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
     return root
