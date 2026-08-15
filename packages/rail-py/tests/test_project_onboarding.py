@@ -24,6 +24,68 @@ def _repo(tmp_path: Path, files: dict[str, str], *, git: bool = False) -> Path:
     return root
 
 
+def _source_tree_snapshot(root: Path) -> dict[str, tuple[str, int, bytes | None]]:
+    snapshot = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            snapshot[relative] = ("directory", path.stat().st_mode, None)
+        else:
+            snapshot[relative] = ("file", path.stat().st_mode, path.read_bytes())
+    return snapshot
+
+
+def test_discover_project_is_read_only(tmp_path):
+    root = _repo(tmp_path, {
+        "README.md": "# Existing project\n",
+        "pyproject.toml": "[tool.pytest.ini_options]\n",
+        "src/example.py": "VALUE = 1\n",
+    })
+    before = _source_tree_snapshot(root)
+
+    discovery = discover_project(root)
+
+    assert discovery["file_count"] == 3
+    assert _source_tree_snapshot(root) == before
+
+
+def test_opensaddle_worktrees_and_state_do_not_change_discovery(tmp_path):
+    root = _repo(tmp_path, {
+        "README.md": "# Existing project\n",
+        "main.py": "VALUE = 1\n",
+        "pyproject.toml": "[tool.pytest.ini_options]\n",
+    }, git=True)
+    baseline = discover_project(root)
+    assert baseline["repository"]["dirty"] is False
+
+    opensaddle_state = {
+        ".opensaddle/episodes/ep_123.json": '{"status":"complete"}\n',
+        ".opensaddle/onboarding-receipts/ep_123.json": '{"status":"committed"}\n',
+        ".opensaddle/worktrees/ep_123/.git": "gitdir: /tmp/example-worktree\n",
+        ".opensaddle/worktrees/ep_123/package.json": '{"scripts":{"build":"vite build"}}\n',
+        ".opensaddle/worktrees/ep_123/src/index.ts": "export const nested = true\n",
+    }
+    for relative, content in opensaddle_state.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    assert subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert discover_project(root) == baseline
+
+    (root / ".opensaddle/worktrees/ep_123/src/index.ts").write_text(
+        "export const nested = false\n"
+    )
+    (root / ".opensaddle/worktrees/ep_123/main.go").write_text("package main\n")
+    assert discover_project(root) == baseline
+
+
 def test_preview_writes_nothing_and_apply_is_idempotent(tmp_path):
     root = _repo(tmp_path, {"README.md": "keep me\n", "pyproject.toml": "[tool.pytest.ini_options]\n"})
     before = sorted(p.relative_to(root) for p in root.rglob("*"))

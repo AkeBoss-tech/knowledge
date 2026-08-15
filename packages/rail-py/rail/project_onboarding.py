@@ -24,7 +24,7 @@ EXCLUDED_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "vendor", "dist", "build",
     "target", "coverage", ".coverage", ".cache", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".tox", ".next", ".nuxt", "generated", "artifacts",
-    ".krail", ".ontology", "research_plan", "skills", "agents", "topics", "sources",
+    ".krail", ".opensaddle", ".ontology", "research_plan", "skills", "agents", "topics", "sources",
 }
 KRAIL_MANIFESTS = {"rail.yaml", "krail.yaml"}
 SECRET_NAMES = re.compile(r"(^|[._-])(secret|credential|private|token|password|passwd|api[_-]?key)([._-]|$)", re.I)
@@ -153,7 +153,18 @@ def discover_project(path: str | Path, *, allowed_root: str | Path | None = None
         raise OnboardingError("project path escapes the authorized root")
     files = list(_safe_files(root))
     revision = _run(root, "git", "rev-parse", "HEAD")
-    dirty = bool(_run(root, "git", "status", "--porcelain=v1", "--untracked-files=all")) if (root / ".git").exists() else False
+    dirty = bool(
+        _run(
+            root,
+            "git",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            ".",
+            ":(exclude,glob)**/.opensaddle/**",
+        )
+    ) if (root / ".git").exists() else False
     digest = hashlib.sha256()
     for file in files:
         digest.update(file.relative_to(root).as_posix().encode() + b"\0")
