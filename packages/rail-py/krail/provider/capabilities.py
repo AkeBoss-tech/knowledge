@@ -102,7 +102,7 @@ class EffectDeclaration(StrictModel):
 class CapabilityLimit(StrictModel):
     name: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=128)]
     value: int = Field(ge=1)
-    unit: Literal["items", "utf8-bytes", "entries"]
+    unit: Literal["items", "utf8-bytes", "entries", "milliseconds"]
 
 
 class SemanticProcessingVersion(StrictModel):

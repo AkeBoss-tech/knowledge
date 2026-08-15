@@ -55,6 +55,7 @@ Everything not listed in the stable v1 section is experimental and excluded
 from the compatibility promise for now. That currently includes:
 
 - ontology and entity tools such as `list_classes`, `get_entities`, `search_entities`
+- fixed policy-shaped semantic reads through `provider_semantic_operation` (no arbitrary graph query language)
 - graph, vector, and source-maintenance tools
 - mode, pack, agent-scaffolding, and repository inspection helpers
 - listeners, events, queues, and other automation-oriented tools
