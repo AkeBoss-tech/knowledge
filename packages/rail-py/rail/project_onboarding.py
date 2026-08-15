@@ -24,7 +24,9 @@ EXCLUDED_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "vendor", "dist", "build",
     "target", "coverage", ".coverage", ".cache", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".tox", ".next", ".nuxt", "generated", "artifacts",
+    ".krail", ".ontology", "research_plan", "skills", "agents", "topics", "sources",
 }
+KRAIL_MANIFESTS = {"rail.yaml", "krail.yaml"}
 SECRET_NAMES = re.compile(r"(^|[._-])(secret|credential|private|token|password|passwd|api[_-]?key)([._-]|$)", re.I)
 SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks"}
 MAX_FILE_BYTES = 2_000_000
@@ -36,10 +38,35 @@ STARTER_SKILLS = {
     "project-memory-refresh": "Refresh stale project knowledge as proposals requiring human review.",
 }
 WORKFLOWS = {
-    "onboard_project": ["snapshot", "inventory", "ownership", "dependencies", "symbols", "provider_proposal", "review", "promote", "rebuild"],
-    "recommend_project_automations": ["inventory", "provider_proposal", "review"],
-    "project_memory_refresh": ["snapshot", "inventory", "provider_proposal", "review", "promote", "rebuild"],
-    "verify_change": ["changed_files", "select_evidence_backed_commands", "create_work_order"],
+    "onboard_project": {
+        "description": "Refresh deterministic discovery and emit a bounded Codex onboarding work order.",
+        "steps": [
+            {"id": "refresh_discovery", "kind": "command", "run": "krail onboard . --apply --runner codex_cli --dry-run"},
+            {"id": "review_proposals", "kind": "approval", "description": "Review source-backed profile and automation proposals before promotion."},
+        ],
+    },
+    "recommend_project_automations": {
+        "description": "Refresh evidence and request reviewed project-specific automation recommendations.",
+        "steps": [
+            {"id": "refresh_discovery", "kind": "command", "run": "krail onboard . --apply --runner codex_cli --dry-run"},
+            {"id": "review_recommendations", "kind": "approval", "description": "Approve, reject, or request changes to recommended automation."},
+        ],
+    },
+    "project_memory_refresh": {
+        "description": "Create a new immutable discovery snapshot and request reviewed memory updates.",
+        "steps": [
+            {"id": "refresh_discovery", "kind": "command", "run": "krail onboard . --apply --runner codex_cli --dry-run"},
+            {"id": "review_memory", "kind": "approval", "description": "Review proposed memory changes before promotion."},
+            {"id": "rebuild_after_review", "kind": "command", "run": "krail --local graph build && krail --local vector build"},
+        ],
+    },
+    "verify_change": {
+        "description": "Refresh changed-file evidence and create a bounded verification work order.",
+        "steps": [
+            {"id": "refresh_discovery", "kind": "command", "run": "krail onboard . --apply --runner codex_cli --dry-run"},
+            {"id": "review_commands", "kind": "approval", "description": "Confirm evidence-backed verification commands before execution."},
+        ],
+    },
 }
 
 
@@ -65,6 +92,8 @@ def _safe_files(root: Path) -> Iterable[Path]:
         dirs[:] = sorted(d for d in dirs if d not in EXCLUDED_DIRS and not (current_path / d).is_symlink())
         for name in sorted(files):
             path = current_path / name
+            if current_path == root and name in KRAIL_MANIFESTS:
+                continue
             if path.is_symlink() or any(part in EXCLUDED_DIRS for part in path.relative_to(root).parts):
                 continue
             if SECRET_NAMES.search(name) or path.suffix.lower() in SECRET_SUFFIXES or name == ".env" or name.startswith(".env."):
@@ -174,8 +203,18 @@ def _starter_files(root: Path) -> dict[Path, str]:
     }
     for name, description in STARTER_SKILLS.items():
         files[root / "skills" / f"{name}.md"] = f"---\nid: {name}\nstatus: starter\n---\n\n# {name.replace('-', ' ').title()}\n\n{description}\n"
-    for name, steps in WORKFLOWS.items():
-        files[root / "research_plan" / "workflows" / f"{name}.yaml"] = yaml.safe_dump({"version": 1, "id": name, "review_required": True, "steps": [{"id": s} for s in steps]}, sort_keys=False)
+    for name, workflow in WORKFLOWS.items():
+        files[root / "research_plan" / "workflows" / f"{name}.yaml"] = yaml.safe_dump(
+            {
+                "version": 1,
+                "id": name,
+                "description": workflow["description"],
+                "schedule": "",
+                "review_required": True,
+                "steps": workflow["steps"],
+            },
+            sort_keys=False,
+        )
     return files
 
 
@@ -185,7 +224,9 @@ def onboard_project(path: str | Path, *, apply: bool = False, runner: str | None
     discovery = discover_project(path, allowed_root=allowed_root)
     root = Path(discovery["root"])
     planned = _starter_files(root)
-    state = root / "research_plan" / "state" / "project_discovery.json"
+    snapshot_dir = root / "research_plan" / "state" / "project_discovery"
+    fingerprint_id = discovery["fingerprint"].removeprefix("sha256:")
+    state = snapshot_dir / f"{fingerprint_id}.json"
     planned[state] = json.dumps(discovery, indent=2) + "\n"
     if runner:
         work_order = {
@@ -194,7 +235,7 @@ def onboard_project(path: str | Path, *, apply: bool = False, runner: str | None
             "bounds": {"read_root": ".", "write_paths": ["research_plan/state/project_profile.proposal.json", "research_plan/state/automation_recommendations.proposal.json"], "launch_subprocess": False},
             "requested_contracts": [CONTRACTS["profile"], CONTRACTS["recommendations"]], "review_required": True,
         }
-        wo_path = root / "research_plan" / "state" / "project_onboarding_work_order.json"
+        wo_path = root / "research_plan" / "state" / "project_onboarding_work_orders" / f"{fingerprint_id}.json"
         planned[wo_path] = json.dumps(work_order, indent=2) + "\n"
     missing = [p for p in planned if not p.exists()]
     written: list[str] = []
