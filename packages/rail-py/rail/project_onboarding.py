@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any, Iterable
@@ -23,13 +24,20 @@ RUNNERS = {"codex_cli", "claude_code"}
 EXCLUDED_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "vendor", "dist", "build",
     "target", "coverage", ".coverage", ".cache", "__pycache__", ".mypy_cache", ".pytest_cache",
-    ".ruff_cache", ".tox", ".next", ".nuxt", "generated", "artifacts",
-    ".krail", ".opensaddle", ".ontology", "research_plan", "skills", "agents", "topics", "sources",
+    ".ruff_cache", ".tox", ".next", ".nuxt", "generated", "artifacts", "out",
+    ".krail", ".opensaddle", ".ontology",
 }
+KRAIL_ROOT_DIRS = {"research_plan", "skills", "agents", "topics", "sources"}
 KRAIL_MANIFESTS = {"rail.yaml", "krail.yaml"}
 SECRET_NAMES = re.compile(r"(^|[._-])(secret|credential|private|token|password|passwd|api[_-]?key)([._-]|$)", re.I)
 SECRET_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks"}
+SECRET_FILES = {
+    ".git-credentials", ".netrc", ".npmrc", ".pypirc",
+    "id_dsa", "id_ecdsa", "id_ed25519", "id_rsa",
+}
 MAX_FILE_BYTES = 2_000_000
+MAX_DISCOVERY_FILES = 100_000
+MAX_DISCOVERY_BYTES = 500_000_000
 
 STARTER_SKILLS = {
     "project-orientation": "Orient to the project using discovery evidence; do not infer unsupported facts.",
@@ -87,24 +95,57 @@ def _git_ignored(root: Path, path: Path) -> bool:
 
 
 def _safe_files(root: Path) -> Iterable[Path]:
+    file_count = 0
+    total_bytes = 0
     for current, dirs, files in os.walk(root, followlinks=False):
         current_path = Path(current)
-        dirs[:] = sorted(d for d in dirs if d not in EXCLUDED_DIRS and not (current_path / d).is_symlink())
+        excluded_here = EXCLUDED_DIRS | (KRAIL_ROOT_DIRS if current_path == root else set())
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if d not in excluded_here and not (current_path / d).is_symlink()
+        )
         for name in sorted(files):
             path = current_path / name
             if current_path == root and name in KRAIL_MANIFESTS:
                 continue
-            if path.is_symlink() or any(part in EXCLUDED_DIRS for part in path.relative_to(root).parts):
+            relative = path.relative_to(root)
+            if (
+                path.is_symlink()
+                or any(part in EXCLUDED_DIRS for part in relative.parts)
+                or (relative.parts and relative.parts[0] in KRAIL_ROOT_DIRS)
+            ):
                 continue
-            if SECRET_NAMES.search(name) or path.suffix.lower() in SECRET_SUFFIXES or name == ".env" or name.startswith(".env."):
+            if (
+                SECRET_NAMES.search(name)
+                or name.lower() in SECRET_FILES
+                or path.suffix.lower() in SECRET_SUFFIXES
+                or name == ".env"
+                or name.startswith(".env.")
+            ):
                 continue
             if _git_ignored(root, path):
                 continue
             try:
-                if path.stat().st_size > MAX_FILE_BYTES or not path.resolve().is_relative_to(root):
+                metadata = path.stat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_size > MAX_FILE_BYTES
+                    or not path.resolve().is_relative_to(root)
+                ):
                     continue
             except OSError:
                 continue
+            file_count += 1
+            total_bytes += metadata.st_size
+            if file_count > MAX_DISCOVERY_FILES:
+                raise OnboardingError(
+                    f"project discovery exceeds the {MAX_DISCOVERY_FILES:,}-file safety limit"
+                )
+            if total_bytes > MAX_DISCOVERY_BYTES:
+                raise OnboardingError(
+                    f"project discovery exceeds the {MAX_DISCOVERY_BYTES:,}-byte safety limit"
+                )
             yield path
 
 
