@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,68 @@ def _repo(tmp_path: Path, files: dict[str, str], *, git: bool = False) -> Path:
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "initial"], cwd=root, check=True)
     return root
+
+
+def _source_tree_snapshot(root: Path) -> dict[str, tuple[str, int, bytes | None]]:
+    snapshot = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            snapshot[relative] = ("directory", path.stat().st_mode, None)
+        else:
+            snapshot[relative] = ("file", path.stat().st_mode, path.read_bytes())
+    return snapshot
+
+
+def test_discover_project_is_read_only(tmp_path):
+    root = _repo(tmp_path, {
+        "README.md": "# Existing project\n",
+        "pyproject.toml": "[tool.pytest.ini_options]\n",
+        "src/example.py": "VALUE = 1\n",
+    })
+    before = _source_tree_snapshot(root)
+
+    discovery = discover_project(root)
+
+    assert discovery["file_count"] == 3
+    assert _source_tree_snapshot(root) == before
+
+
+def test_opensaddle_worktrees_and_state_do_not_change_discovery(tmp_path):
+    root = _repo(tmp_path, {
+        "README.md": "# Existing project\n",
+        "main.py": "VALUE = 1\n",
+        "pyproject.toml": "[tool.pytest.ini_options]\n",
+    }, git=True)
+    baseline = discover_project(root)
+    assert baseline["repository"]["dirty"] is False
+
+    opensaddle_state = {
+        ".opensaddle/episodes/ep_123.json": '{"status":"complete"}\n',
+        ".opensaddle/onboarding-receipts/ep_123.json": '{"status":"committed"}\n',
+        ".opensaddle/worktrees/ep_123/.git": "gitdir: /tmp/example-worktree\n",
+        ".opensaddle/worktrees/ep_123/package.json": '{"scripts":{"build":"vite build"}}\n',
+        ".opensaddle/worktrees/ep_123/src/index.ts": "export const nested = true\n",
+    }
+    for relative, content in opensaddle_state.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    assert subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert discover_project(root) == baseline
+
+    (root / ".opensaddle/worktrees/ep_123/src/index.ts").write_text(
+        "export const nested = false\n"
+    )
+    (root / ".opensaddle/worktrees/ep_123/main.go").write_text("package main\n")
+    assert discover_project(root) == baseline
 
 
 def test_preview_writes_nothing_and_apply_is_idempotent(tmp_path):
@@ -91,6 +154,57 @@ def test_mixed_non_git_refresh_exclusions_and_dirty_fingerprint(tmp_path):
     clean = discover_project(git_root)["fingerprint"]
     (git_root / "main.py").write_text("print('dirty')\n")
     assert discover_project(git_root)["fingerprint"] != clean
+
+
+def test_nested_source_agents_and_skills_are_not_mistaken_for_krail_state(tmp_path):
+    root = _repo(tmp_path, {
+        "src/agents/planner.py": "PLAN = True\n",
+        "lib/skills/index.ts": "export const skill = true\n",
+        "agents/generated.md": "# KRAIL-owned root state\n",
+        "skills/generated.md": "# KRAIL-owned root state\n",
+    })
+
+    result = discover_project(root)
+
+    assert result["file_count"] == 2
+    assert result["languages"] == ["javascript/typescript", "python"]
+    before = result["fingerprint"]
+    (root / "src/agents/planner.py").write_text("PLAN = False\n")
+    assert discover_project(root)["fingerprint"] != before
+
+
+def test_generated_output_and_sensitive_dotfiles_never_enter_discovery(tmp_path):
+    root = _repo(tmp_path, {
+        "main.py": "pass\n",
+        "out/generated.py": "SHOULD_NOT_APPEAR = True\n",
+        ".npmrc": "//registry.example/:_authToken=canary\n",
+        ".pypirc": "password=canary\n",
+        ".netrc": "password canary\n",
+        ".git-credentials": "https://user:canary@example.test\n",
+        "id_ed25519": "canary-private-key\n",
+    })
+
+    baseline = discover_project(root)
+    assert baseline["file_count"] == 1
+    for relative in ("out/generated.py", ".npmrc", ".pypirc", ".netrc", ".git-credentials", "id_ed25519"):
+        (root / relative).write_text("changed canary\n")
+    assert discover_project(root) == baseline
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are not available on this platform")
+def test_non_regular_files_are_skipped_without_blocking(tmp_path):
+    root = _repo(tmp_path, {"main.py": "pass\n"})
+    os.mkfifo(root / "event-stream")
+
+    assert discover_project(root)["file_count"] == 1
+
+
+def test_discovery_fails_closed_at_resource_bounds(tmp_path, monkeypatch):
+    root = _repo(tmp_path, {"one.py": "1\n", "two.py": "2\n"})
+    monkeypatch.setattr("rail.project_onboarding.MAX_DISCOVERY_FILES", 1)
+
+    with pytest.raises(OnboardingError, match="file safety limit"):
+        discover_project(root)
 
 
 def test_symlink_and_allowed_root_safety(tmp_path):

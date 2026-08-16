@@ -6,6 +6,19 @@ on:
   pull_request:
 
 jobs:
+  krail-lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.33"
+          enable-cache: true
+          cache-dependency-glob: packages/rail-py/uv.lock
+      - name: Verify KRAIL lockfile
+        run: uv lock --check --project packages/rail-py
+
   packages:
     runs-on: ubuntu-latest
     timeout-minutes: 10

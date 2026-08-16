@@ -68,3 +68,8 @@ krail = "rail.cli:main"
 krail-managed = "krail.management.stdio:main"
 krail-admin = "krail.admin:main"
 krail-mutate = "krail.mutation:main"
+
+[tool.uv]
+# Lockfile marker normalization can change between uv releases. Keep lock
+# generation and CI validation on the same release for reproducible updates.
+required-version = "==0.11.33"
