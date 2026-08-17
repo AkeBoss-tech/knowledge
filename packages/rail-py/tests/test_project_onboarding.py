@@ -1,6 +1,9 @@
 import json
 import os
+import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -34,6 +37,46 @@ def _source_tree_snapshot(root: Path) -> dict[str, tuple[str, int, bytes | None]
         else:
             snapshot[relative] = ("file", path.stat().st_mode, path.read_bytes())
     return snapshot
+
+
+def _fake_git(tmp_path: Path, body: str, monkeypatch) -> Path:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "git"
+    executable.write_text(
+        f"#!/usr/bin/env python3\nimport os, signal, subprocess, sys, time\n{body}\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    return executable
+
+
+def _materialization_proposal(
+    artifact_kind: str,
+    target_path: str,
+    target_contract: str,
+) -> dict:
+    fingerprint = "sha256:" + "a" * 64
+    recommendation_id = "materialize-project-artifact"
+    return {
+        "contract": "krail.automation-recommendations/v1",
+        "fingerprint": fingerprint,
+        "review": {"status": "proposed"},
+        "claims": [],
+        "recommendations": [
+            {
+                "recommendation_id": recommendation_id,
+                "materialization": {
+                    "recommendation_id": recommendation_id,
+                    "discovery_fingerprint": fingerprint,
+                    "artifact_kind": artifact_kind,
+                    "target_path": target_path,
+                    "target_contract": target_contract,
+                },
+            }
+        ],
+    }
 
 
 def test_discover_project_is_read_only(tmp_path):
@@ -197,6 +240,236 @@ def test_non_regular_files_are_skipped_without_blocking(tmp_path):
     os.mkfifo(root / "event-stream")
 
     assert discover_project(root)["file_count"] == 1
+
+
+def test_git_inventory_is_single_nul_safe_process_without_check_ignore(tmp_path, monkeypatch):
+    root = _repo(tmp_path, {"tracked.txt": "tracked\n"}, git=True)
+    (root / "untracked.txt").write_text("untracked\n")
+    calls: list[tuple[str, ...]] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(args, *popen_args, **popen_kwargs):
+        calls.append(tuple(args))
+        return real_popen(args, *popen_args, **popen_kwargs)
+
+    monkeypatch.setattr("rail.project_onboarding.subprocess.Popen", recording_popen)
+    result = discover_project(root)
+
+    assert result["file_count"] == 2
+    assert sum(call[1:2] == ("ls-files",) for call in calls) == 1
+    assert not any("check-ignore" in call for call in calls)
+
+
+def test_git_inventory_includes_tracked_ignored_and_excludes_untracked_ignored(tmp_path):
+    root = _repo(tmp_path, {".gitignore": "*.ignored\n"}, git=True)
+    (root / "tracked.ignored").write_text("tracked\n")
+    subprocess.run(["git", "add", "-f", "tracked.ignored"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "track ignored file"], cwd=root, check=True)
+    (root / "untracked.ignored").write_text("ignored\n")
+
+    result = discover_project(root)
+    paths = {
+        locator["path"]
+        for values in result["inventory"].values()
+        for locator in values
+    }
+
+    assert result["file_count"] == 2
+    assert "untracked.ignored" not in paths
+    baseline = result["fingerprint"]
+    (root / "tracked.ignored").write_text("changed\n")
+    assert discover_project(root)["fingerprint"] != baseline
+
+
+def test_git_inventory_preserves_newline_paths(tmp_path):
+    root = _repo(tmp_path, {"ordinary.txt": "one\n"}, git=True)
+    unusual = root / "line\nbreak.py"
+    unusual.write_text("VALUE = 1\n")
+    subprocess.run(["git", "add", unusual.name], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "unusual"], cwd=root, check=True)
+
+    result = discover_project(root)
+
+    assert result["file_count"] == 2
+    assert "python" in result["languages"]
+
+
+def test_large_git_inventory_is_stable_and_bounded(tmp_path):
+    root = _repo(tmp_path, {"README.md": "large fixture\n"}, git=True)
+    generated = root / "bulk"
+    generated.mkdir()
+    for index in range(10_001):
+        (generated / f"item-{index:05d}.txt").write_text(f"{index}\n")
+
+    started = time.monotonic()
+    first = discover_project(root)
+    first_elapsed = time.monotonic() - started
+    started = time.monotonic()
+    second = discover_project(root)
+    second_elapsed = time.monotonic() - started
+
+    assert first["file_count"] == 10_002
+    assert second["fingerprint"] == first["fingerprint"]
+    assert max(first_elapsed, second_elapsed) < 15
+    assert max(first_elapsed, second_elapsed) < max(0.25, min(first_elapsed, second_elapsed) * 3)
+
+
+def test_non_git_discovery_never_launches_git(tmp_path, monkeypatch):
+    root = _repo(tmp_path, {"main.py": "pass\n"})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Git must not run for non-Git discovery")
+
+    monkeypatch.setattr("rail.project_onboarding.subprocess.Popen", forbidden)
+    assert discover_project(root)["repository"] == {
+        "kind": "directory",
+        "revision": None,
+        "dirty": False,
+    }
+
+
+def test_git_deadline_is_fixed_at_fifteen_seconds():
+    import rail.project_onboarding as onboarding
+
+    assert onboarding.GIT_DEADLINE_SECONDS == 15.0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group containment")
+@pytest.mark.parametrize("hanging_command", ["ls-files", "rev-parse", "status"])
+def test_hanging_git_inspections_time_out_safely(tmp_path, monkeypatch, hanging_command):
+    root = _repo(tmp_path, {"main.py": "pass\n"}, git=True)
+    _fake_git(
+        tmp_path,
+        f'''\ncommand = sys.argv[1]\nif command == {hanging_command!r}:\n    time.sleep(60)\nif command == "ls-files":\n    os.write(1, b"main.py\\0")\nelif command == "rev-parse":\n    print("a" * 40)\nelif command == "status":\n    pass\n''',
+        monkeypatch,
+    )
+    monkeypatch.setattr("rail.project_onboarding.GIT_DEADLINE_SECONDS", 0.5)
+    started = time.monotonic()
+
+    with pytest.raises(OnboardingError, match="timed out") as error:
+        discover_project(root)
+
+    assert time.monotonic() - started < 2
+    assert str(root) not in str(error.value)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group containment")
+def test_timeout_destroys_term_resistant_descendants(tmp_path, monkeypatch):
+    root = _repo(tmp_path, {"main.py": "pass\n"}, git=True)
+    pid_file = tmp_path / "descendant.pid"
+    _fake_git(
+        tmp_path,
+        f'''\nif sys.argv[1] == "ls-files":\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    child = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"])\n    with open({str(pid_file)!r}, "w") as stream:\n        stream.write(str(child.pid))\n        stream.flush()\n        os.fsync(stream.fileno())\n    time.sleep(60)\n''',
+        monkeypatch,
+    )
+    monkeypatch.setattr("rail.project_onboarding.GIT_DEADLINE_SECONDS", 2.0)
+
+    with pytest.raises(OnboardingError, match="timed out"):
+        discover_project(root)
+
+    descendant = int(pid_file.read_text())
+    for _ in range(100):
+        try:
+            os.kill(descendant, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("TERM-resistant Git descendant survived process-group KILL")
+
+
+def test_git_failures_never_expose_stderr_or_source_path(tmp_path, monkeypatch):
+    root = _repo(tmp_path, {"main.py": "pass\n"}, git=True)
+    _fake_git(
+        tmp_path,
+        '''\nos.write(2, ("stderr-canary " + os.getcwd()).encode())\nraise SystemExit(9)\n''',
+        monkeypatch,
+    )
+
+    with pytest.raises(OnboardingError) as error:
+        discover_project(root)
+
+    message = str(error.value)
+    assert "stderr-canary" not in message
+    assert str(root) not in message
+
+
+def test_make_commands_require_declared_targets(tmp_path):
+    root = _repo(tmp_path, {"Makefile": "all:\n\t@true\n", "test_example.py": "pass\n"})
+    assert discover_project(root)["commands"] == []
+
+
+@pytest.mark.parametrize("target,kind", [("test", "test"), ("lint", "lint"), ("typecheck", "typecheck"), ("build", "build")])
+def test_make_commands_are_inferred_from_declared_targets(tmp_path, target, kind):
+    root = _repo(tmp_path, {"Makefile": f"{target}:\n\t@true\n"})
+    commands = discover_project(root)["commands"]
+    assert [(item["command"], item["kind"]) for item in commands] == [
+        (f"make {target}", kind)
+    ]
+    assert commands[0]["evidence"][0]["path"] == "Makefile"
+
+
+@pytest.mark.parametrize(
+    "files,ecosystem",
+    [
+        ({"pyproject.toml": "[project]\nname='demo'\n"}, "python"),
+        ({"package.json": "{}"}, "node"),
+        ({"go.mod": "module example.test/demo\n"}, "go"),
+        ({"Cargo.toml": "[package]\nname='demo'\nversion='0.1.0'\n"}, "rust"),
+        ({"requirements-dev.txt": "pytest\n"}, "python_requirements"),
+    ],
+)
+def test_ecosystems_are_source_backed(tmp_path, files, ecosystem):
+    result = discover_project(_repo(tmp_path, files))
+    item = next(item for item in result["ecosystems"] if item["ecosystem"] == ecosystem)
+    assert item["manifests"]
+    assert all(locator["digest"].startswith("sha256:") for locator in item["evidence"])
+
+
+@pytest.mark.parametrize(
+    "kind,path,contract",
+    [
+        ("codex_skill", ".agents/skills/project-review/SKILL.md", "codex.project-skill/v1"),
+        ("claude_skill", ".claude/skills/project-review/SKILL.md", "claude.project-skill/v1"),
+        ("krail_workflow", "research_plan/workflows/project-review.yaml", "krail.workflow/v1"),
+    ],
+)
+def test_materialization_descriptors_bind_exact_authoritative_targets(kind, path, contract):
+    proposal = _materialization_proposal(kind, path, contract)
+    assert validate_proposal(proposal) is proposal
+
+
+@pytest.mark.parametrize("kind", ["claude_command", "opensaddle_definition", "generic_file"])
+def test_legacy_and_unsupported_materialization_kinds_fail_closed(kind):
+    proposal = _materialization_proposal(kind, ".agents/skills/demo/SKILL.md", "codex.project-skill/v1")
+    with pytest.raises(OnboardingError, match="unsupported"):
+        validate_proposal(proposal)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".codex/skills/demo/SKILL.md",
+        ".agents/skills/../demo/SKILL.md",
+        ".agents/skills/Demo/SKILL.md",
+    ],
+)
+def test_non_authoritative_codex_materialization_paths_fail_closed(path):
+    proposal = _materialization_proposal("codex_skill", path, "codex.project-skill/v1")
+    with pytest.raises(OnboardingError, match="target"):
+        validate_proposal(proposal)
+
+
+@pytest.mark.parametrize("binding", ["recommendation_id", "discovery_fingerprint"])
+def test_materialization_bindings_must_match_the_proposal(binding):
+    proposal = _materialization_proposal(
+        "claude_skill",
+        ".claude/skills/demo/SKILL.md",
+        "claude.project-skill/v1",
+    )
+    proposal["recommendations"][0]["materialization"][binding] = "mismatch"
+    with pytest.raises(OnboardingError, match="binding"):
+        validate_proposal(proposal)
 
 
 def test_discovery_fails_closed_at_resource_bounds(tmp_path, monkeypatch):
