@@ -15,12 +15,61 @@
     },
     "krail.project-discovery/v1": {
       "type": "object",
-      "required": ["contract", "fingerprint", "inventory", "commands"],
-      "properties": {"contract": {"const": "krail.project-discovery/v1"}, "fingerprint": {"type": "string"}, "inventory": {"type": "object"}, "commands": {"type": "array"}}
+      "required": ["contract", "fingerprint", "languages", "ecosystems", "inventory", "commands"],
+      "properties": {
+        "contract": {"const": "krail.project-discovery/v1"},
+        "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "languages": {"type": "array", "items": {"type": "string"}},
+        "ecosystems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ecosystem", "manifests", "evidence"],
+            "properties": {
+              "ecosystem": {"type": "string"},
+              "manifests": {"type": "array", "items": {"type": "string"}},
+              "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidenceLocator"}}
+            },
+            "additionalProperties": false
+          }
+        },
+        "inventory": {"type": "object"},
+        "commands": {"type": "array"}
+      }
     },
     "krail.project-profile/v1": {"$ref": "#/$defs/reviewedProposal"},
     "krail.project-pack-proposal/v1": {"$ref": "#/$defs/reviewedProposal"},
-    "krail.automation-recommendations/v1": {"$ref": "#/$defs/reviewedProposal"},
+    "krail.automation-recommendations/v1": {
+      "allOf": [
+        {"$ref": "#/$defs/reviewedProposal"},
+        {
+          "type": "object",
+          "properties": {
+            "recommendations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "materialization": {"$ref": "#/$defs/materializationDescriptor"}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "materializationDescriptor": {
+      "type": "object",
+      "required": ["recommendation_id", "discovery_fingerprint", "artifact_kind", "target_path", "target_contract"],
+      "properties": {
+        "recommendation_id": {"type": "string", "minLength": 1},
+        "discovery_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "artifact_kind": {"enum": ["codex_skill", "claude_skill", "krail_workflow"]},
+        "target_path": {"type": "string", "minLength": 1},
+        "target_contract": {"enum": ["codex.project-skill/v1", "claude.project-skill/v1", "krail.workflow/v1"]}
+      },
+      "additionalProperties": false
+    },
     "reviewedProposal": {
       "type": "object",
       "required": ["contract", "review", "claims"],
