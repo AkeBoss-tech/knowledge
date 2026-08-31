@@ -1,0 +1,13 @@
+id: register_experiment
+description: Refresh graph and local vector artifacts for RAG search.
+schedule: ''
+steps:
+- id: graph_build
+  kind: command
+  run: krail --local graph build
+- id: graph_check
+  kind: command
+  run: krail --local graph check
+- id: vector_build
+  kind: command
+  run: krail --local vector build

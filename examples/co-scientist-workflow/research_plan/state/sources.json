@@ -1,0 +1,29 @@
+[
+  {
+    "id": "co-scientist-nature-2026",
+    "title": "Accelerating scientific discovery with Co-Scientist",
+    "publisher": "Nature",
+    "url": "https://www.nature.com/articles/s41586-026-10644-y",
+    "type": "primary_research_paper",
+    "status": "inspected",
+    "supports": ["workflow architecture", "agent roles", "human-in-the-loop design"]
+  },
+  {
+    "id": "deepmind-overview-2026",
+    "title": "Co-Scientist: A multi-agent AI partner to accelerate research",
+    "publisher": "Google DeepMind",
+    "url": "https://deepmind.google/blog/co-scientist-a-multi-agent-ai-partner-to-accelerate-research/",
+    "type": "primary_product_overview",
+    "status": "inspected",
+    "supports": ["agent role descriptions", "generate-debate-evolve loop"]
+  },
+  {
+    "id": "google-cloud-docs-2026",
+    "title": "Accelerate research and development with Co-Scientist agent",
+    "publisher": "Google Cloud",
+    "url": "https://docs.cloud.google.com/gemini/enterprise/docs/co-scientist-and-alphaevolve",
+    "type": "official_documentation",
+    "status": "inspected",
+    "supports": ["reflection", "ranking", "evolution", "proximity", "meta-review"]
+  }
+]

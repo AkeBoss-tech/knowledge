@@ -1,0 +1,21 @@
+id: build_sota_report
+description: Review captures, refresh retrieval artifacts, and audit platform health.
+schedule: 0 8 * * 1
+steps:
+- id: doctor
+  kind: command
+  run: krail --local doctor
+- id: research_triage
+  kind: agent
+  role: research
+  runner: codex_cli
+  prompt: Review new captures and update topics with evidence-backed notes, gaps,
+    and next actions.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build
+- id: audit
+  kind: agent
+  role: doctor
+  runner: codex_cli
+  prompt: Audit workflow outputs and record unresolved blockers under research_plan/.
