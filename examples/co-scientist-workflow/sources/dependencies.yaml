@@ -1,0 +1,8 @@
+documents:
+  - path: topics/brief.md
+    depends_on:
+      - id: local:research-question
+        type: local_file
+        path: specs/research_question.yaml
+        role: project_spec
+        refresh: manual

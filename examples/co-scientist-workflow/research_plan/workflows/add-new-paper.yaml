@@ -1,0 +1,19 @@
+id: add_new_paper
+description: Capture and triage a new research paper or source pointer.
+schedule: ''
+steps:
+- id: research
+  kind: agent
+  role: research
+  runner: codex_cli
+  prompt: Ingest the provided paper/source pointer, record exact evidence, identify
+    claims, and list gaps.
+- id: refresh_retrieval
+  kind: command
+  run: krail --local graph build && krail --local vector build
+- id: audit
+  kind: agent
+  role: doctor
+  runner: codex_cli
+  prompt: Audit the ingest output for unsupported claims, missing source metadata,
+    and workflow gaps.

@@ -1,0 +1,7 @@
+question: >-
+  For a fictional edge-service workload, what evidence-backed and testable
+  mechanism could reduce energy per request while preserving a fixed latency SLO?
+required_sources:
+  - research_plan/state/sources.json
+  - topics/brief.md
+output: artifacts/final_research_proposal.md

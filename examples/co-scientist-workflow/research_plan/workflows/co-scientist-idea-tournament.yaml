@@ -1,0 +1,65 @@
+id: co_scientist_idea_tournament
+description: >-
+  Human-supervised, evidence-first generate-debate-evolve workflow inspired by
+  Google's Co-Scientist architecture. This is a planning workflow, not an
+  autonomous scientific-validation system.
+schedule: ''
+steps:
+  - id: supervisor_prepare
+    kind: agent
+    role: planner
+    runner: codex_cli
+    prompt: >-
+      Read the goal, constraints, sources, prior candidates, and human feedback.
+      Create a bounded work plan and resource budget. Do not launch experiments
+      or promote a claim.
+  - id: generate_hypotheses
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: >-
+      Generate diverse, falsifiable hypothesis candidates. For each record goal
+      alignment, mechanism, source links, assumptions, predicted outcome, and a
+      possible falsifier in research_plan/state/hypotheses.json.
+  - id: critique_and_debate
+    kind: agent
+    role: critic
+    runner: codex_cli
+    prompt: >-
+      Act as a virtual peer reviewer. Stress-test evidence, correctness,
+      novelty, safety, and testability; record objections and contradictions in
+      research_plan/state/conflicts.json without deleting the original proposal.
+  - id: rank_tournament
+    kind: agent
+    role: critic
+    runner: codex_cli
+    prompt: >-
+      Compare candidates using alignment, plausibility, novelty, testability,
+      safety, and evidence coverage. Document scores, rationale, and
+      uncertainty; do not treat Elo-like scores as ground truth.
+  - id: cluster_for_diversity
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: >-
+      Cluster semantically overlapping candidates, flag near-duplicates, and
+      retain a diverse set of mechanism families for evolution.
+  - id: evolve_finalists
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: >-
+      Revise only top, non-blocked candidates in response to critiques. Preserve
+      lineage, attach new evidence, and state what test could disconfirm each
+      revised hypothesis.
+  - id: meta_review
+    kind: agent
+    role: research
+    runner: codex_cli
+    prompt: >-
+      Synthesize recurring review patterns and tournament outcomes into
+      artifacts/final_research_proposal.md. Separate evidence from inference,
+      give a ranked shortlist and falsification plan, and request human review.
+  - id: verify
+    kind: command
+    run: scripts/run-verification.sh
