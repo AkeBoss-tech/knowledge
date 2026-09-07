@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://krail.dev/contracts/krail.rich-domain-read.v1/schema.json",
+  "title": "KRAIL rich-domain read capability v1",
+  "oneOf": [{"$ref": "#/$defs/Request"}, {"$ref": "#/$defs/Response"}],
+  "$defs": {
+    "Contract": {"const": "krail.rich-domain-read.v1"},
+    "Digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "Timestamp": {"type": "string", "format": "date-time"},
+    "ExactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authority", "resource_type", "resource_id", "version", "digest"],
+      "properties": {
+        "authority": {"type": "string", "pattern": "^[a-z][a-z0-9+.-]*:[^\\s?#]+$", "maxLength": 512},
+        "resource_type": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$", "maxLength": 128},
+        "resource_id": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "version": {"type": "string", "pattern": "^(?!latest$|current$|head$|working-tree$).+$", "maxLength": 512},
+        "digest": {"$ref": "#/$defs/Digest"}
+      }
+    },
+    "Authorization": {
+      "type": "object", "additionalProperties": false,
+      "required": ["signed_context_ref", "authorization_digest"],
+      "properties": {
+        "signed_context_ref": {"$ref": "#/$defs/ExactRef"},
+        "authorization_digest": {"$ref": "#/$defs/Digest"}
+      }
+    },
+    "AuthorizationSnapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorization_digest", "authorized_at"],
+      "properties": {
+        "authorization_digest": {"$ref": "#/$defs/Digest"},
+        "authorized_at": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "Lineage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_refs", "derived_ref"],
+      "properties": {
+        "source_refs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/ExactRef"}},
+        "derived_ref": {"$ref": "#/$defs/ExactRef"}
+      }
+    },
+    "Page": {
+      "type": "object", "additionalProperties": false, "required": ["limit"],
+      "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}
+    },
+    "TimeQuery": {
+      "type": "object", "additionalProperties": false, "required": ["valid_at", "known_at"],
+      "properties": {"valid_at": {"$ref": "#/$defs/Timestamp"}, "known_at": {"$ref": "#/$defs/Timestamp"}}
+    },
+    "Bounds": {
+      "type": "object", "additionalProperties": false, "required": ["frame_id", "map_revision", "units", "min_metres", "max_metres"],
+      "properties": {
+        "frame_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "map_revision": {"type": "string", "minLength": 1, "maxLength": 512},
+        "units": {"const": "metres"},
+        "min_metres": {"$ref": "#/$defs/Point"},
+        "max_metres": {"$ref": "#/$defs/Point"}
+      }
+    },
+    "Point": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "Request": {
+      "oneOf": [
+        {"$ref": "#/$defs/NegotiateRequest"},
+        {"$ref": "#/$defs/AssetMetadataRequest"},
+        {"$ref": "#/$defs/TemporalQueryRequest"},
+        {"$ref": "#/$defs/SpatialQueryRequest"}
+      ]
+    },
+    "BaseRequest": {
+      "type": "object",
+      "required": ["contract", "operation", "authorization"],
+      "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"type": "string"}, "authorization": {"$ref": "#/$defs/Authorization"}}
+    },
+    "NegotiateRequest": {
+      "allOf": [
+        {"$ref": "#/$defs/BaseRequest"},
+        {"properties": {"operation": {"const": "negotiate"}, "consumer_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "requested_operations": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}}, "required": ["consumer_version", "requested_operations"]}
+      ], "unevaluatedProperties": false
+    },
+    "AssetMetadataRequest": {
+      "allOf": [{"$ref": "#/$defs/BaseRequest"}, {"properties": {"operation": {"const": "asset_metadata"}, "asset_ref": {"$ref": "#/$defs/ExactRef"}}, "required": ["asset_ref"]}], "unevaluatedProperties": false
+    },
+    "TemporalQueryRequest": {
+      "allOf": [{"$ref": "#/$defs/BaseRequest"}, {"properties": {"operation": {"const": "temporal_query"}, "entity_ref": {"$ref": "#/$defs/ExactRef"}, "time": {"$ref": "#/$defs/TimeQuery"}, "page": {"$ref": "#/$defs/Page"}}, "required": ["entity_ref", "time", "page"]}], "unevaluatedProperties": false
+    },
+    "SpatialQueryRequest": {
+      "allOf": [{"$ref": "#/$defs/BaseRequest"}, {"properties": {"operation": {"const": "spatial_query"}, "world_ref": {"$ref": "#/$defs/ExactRef"}, "bounds": {"$ref": "#/$defs/Bounds"}, "time": {"$ref": "#/$defs/TimeQuery"}, "page": {"$ref": "#/$defs/Page"}}, "required": ["world_ref", "bounds", "time", "page"]}], "unevaluatedProperties": false
+    },
+    "Response": {"oneOf": [{"$ref": "#/$defs/NegotiateResponse"}, {"$ref": "#/$defs/AssetMetadataResponse"}, {"$ref": "#/$defs/TemporalQueryResponse"}, {"$ref": "#/$defs/SpatialQueryResponse"}]},
+    "BaseResponse": {"type": "object", "required": ["contract", "operation", "authorization"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"type": "string"}, "authorization": {"$ref": "#/$defs/AuthorizationSnapshot"}}},
+    "NegotiateResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "negotiate"}, "compatible": {"type": "boolean"}, "descriptor_digest": {"$ref": "#/$defs/Digest"}, "operations": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}}, "required": ["compatible", "descriptor_digest", "operations"]}], "unevaluatedProperties": false},
+    "AssetMetadataResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "asset_metadata"}, "asset_ref": {"$ref": "#/$defs/ExactRef"}, "media_type": {"type": "string", "minLength": 1, "maxLength": 128}, "byte_length": {"type": "integer", "minimum": 0}, "retention": {"enum": ["available", "rebuildable", "missing"]}, "lineage": {"$ref": "#/$defs/Lineage"}}, "required": ["asset_ref", "media_type", "byte_length", "retention", "lineage"]}], "unevaluatedProperties": false},
+    "TemporalRecord": {"type": "object", "additionalProperties": false, "required": ["record_ref", "valid_from", "recorded_at", "lineage"], "properties": {"record_ref": {"$ref": "#/$defs/ExactRef"}, "valid_from": {"$ref": "#/$defs/Timestamp"}, "valid_to": {"$ref": "#/$defs/Timestamp"}, "recorded_at": {"$ref": "#/$defs/Timestamp"}, "lineage": {"$ref": "#/$defs/Lineage"}}},
+    "TemporalQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "temporal_query"}, "records": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/TemporalRecord"}}, "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["records"]}], "unevaluatedProperties": false},
+    "SpatialQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "spatial_query"}, "object_refs": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/ExactRef"}}, "bounds": {"$ref": "#/$defs/Bounds"}, "lineage": {"$ref": "#/$defs/Lineage"}, "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["object_refs", "bounds", "lineage"]}], "unevaluatedProperties": false}
+  }
+}

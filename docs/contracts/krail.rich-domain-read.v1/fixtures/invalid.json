@@ -1,0 +1,25 @@
+[
+  {
+    "name": "spatial-query-cannot-omit-frame-revision-or-units",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "spatial_query",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "world_ref": {"authority": "robotics://world/table-a", "resource_type": "world", "resource_id": "table-a", "version": "1", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      "bounds": {"min_metres": [0, 0, 0], "max_metres": [1, 1, 1]},
+      "time": {"valid_at": "2026-09-07T12:03:00Z", "known_at": "2026-09-07T12:04:00Z"}, "page": {"limit": 20}
+    }
+  },
+  {
+    "name": "asset-metadata-cannot-embed-bytes",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "asset_metadata",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "asset_ref": {"authority": "mcap+https://robot.example.test", "resource_type": "image", "resource_id": "runs/17/camera/front/42", "version": "capture-42", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      "content": "binary bytes do not belong in this read contract"
+    }
+  },
+  {
+    "name": "v1-request-is-not-a-rich-domain-request",
+    "value": {"contract": "krail.provider.v1", "operation": "spatial_query"}
+  }
+]

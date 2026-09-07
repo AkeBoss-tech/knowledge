@@ -1,0 +1,55 @@
+[
+  {
+    "name": "negotiated-read-only-capability",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "negotiate", "consumer_version": "1.0.0",
+      "requested_operations": ["asset_metadata", "temporal_query", "spatial_query"],
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/operator-1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    }
+  },
+  {
+    "name": "robotics-immutable-asset-metadata",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "asset_metadata",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/operator-1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "asset_ref": {"authority": "mcap+https://robot.example.test", "resource_type": "image", "resource_id": "runs/17/camera/front/42", "version": "capture-42", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+    }
+  },
+  {
+    "name": "robotics-spatial-query-with-frame-and-revision",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "spatial_query",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/operator-1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "world_ref": {"authority": "robotics://world/table-a", "resource_type": "world", "resource_id": "table-a", "version": "scene-7", "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+      "bounds": {"frame_id": "table", "map_revision": "table-map-2", "units": "metres", "min_metres": [0.0, 0.0, -0.1], "max_metres": [0.5, 0.4, 0.1]},
+      "time": {"valid_at": "2026-09-07T12:03:00Z", "known_at": "2026-09-07T12:04:00Z"}, "page": {"limit": 20}
+    }
+  },
+  {
+    "name": "company-effective-tuesday-learned-thursday",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "temporal_query",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/analyst-1", "version": "1", "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}, "authorization_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      "entity_ref": {"authority": "company://service/payments", "resource_type": "service", "resource_id": "payments", "version": "ownership-9", "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+      "time": {"valid_at": "2026-09-08T09:00:00Z", "known_at": "2026-09-11T09:00:00Z"}, "page": {"limit": 10}
+    }
+  },
+  {
+    "name": "robotics-asset-response-has-auth-snapshot-and-lineage",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "asset_metadata",
+      "authorization": {"authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "authorized_at": "2026-09-07T12:04:00Z"},
+      "asset_ref": {"authority": "mcap+https://robot.example.test", "resource_type": "image", "resource_id": "runs/17/camera/front/42", "version": "capture-42", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      "media_type": "image/jpeg", "byte_length": 24576, "retention": "available",
+      "lineage": {"derived_ref": {"authority": "robotics://world-memory", "resource_type": "appearance-observation", "resource_id": "left/opening", "version": "1", "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"}, "source_refs": [{"authority": "mcap+https://robot.example.test", "resource_type": "image", "resource_id": "runs/17/camera/front/42", "version": "capture-42", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]}
+    }
+  },
+  {
+    "name": "company-temporal-response-keeps-effective-and-recorded-times",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "temporal_query",
+      "authorization": {"authorization_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "authorized_at": "2026-09-11T09:00:00Z"},
+      "records": [{"record_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "valid_from": "2026-09-08T09:00:00Z", "recorded_at": "2026-09-11T09:00:00Z", "lineage": {"derived_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "source_refs": [{"authority": "https://company.example.test", "resource_type": "ownership-source", "resource_id": "payments-transfer", "version": "2026-09-11", "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}]}}]
+    }
+  }
+]
