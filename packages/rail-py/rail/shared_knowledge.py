@@ -249,11 +249,11 @@ class SharedKnowledgeWorkspace:
             if existing and existing.get("activated"):
                 raise SharedKnowledgeError("transition was already activated")
             stored = self._validate_transition_locked(state, transition, owner_id=owner_id)
-            if transition.to_mode == self.mode and (
+            if (
                 any(item.get("status") == "pending" for item in state.setdefault("local_commits", {}).values())
                 or any(item.get("status") == "review-pending" for item in state.setdefault("proposals", {}).values())
             ):
-                raise SharedKnowledgeError("cannot activate connected mode with unresolved canonical effects")
+                raise SharedKnowledgeError("cannot activate mode with unresolved canonical effects")
             state["mode"] = transition.to_mode
             state["active_writer"] = "local-git" if transition.to_mode == self.local_mode else "connected-git"
             state["writer_generation"] = int(state["writer_generation"]) + 1

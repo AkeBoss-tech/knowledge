@@ -253,6 +253,25 @@ def test_activation_rejects_stale_head_and_corrupt_backup(tmp_path):
         assert persisted["mode"] == workspace.mode
         assert persisted["writer_generation"] == 0
 
+
+def test_activation_refuses_pending_review_until_connected_recovery(tmp_path):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "shared-state.json"
+    authorizer = LiveActionAuthorizer({"owner", "alice", "reviewer"})
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    alice = checkout(remote, tmp_path / "alice", "alice")
+    proposal = workspace.propose(user_id="alice", checkout=alice, proposal_id="pending-review", path="knowledge.md", content="pending\n")
+    with workspace._locked_state() as persisted:
+        item = persisted["proposals"][proposal.proposal_id]
+        item["status"] = "review-pending"
+        item["reviewer_id"] = "reviewer"
+        item["reviewer_receipt"] = workspace._digest("reviewer:pending-review:" + proposal.candidate_commit)
+    digest = workspace._digest(workspace._remote_ref("refs/heads/main"))
+    preview = workspace.preview_mode_transition(owner_id="owner", transition_id="blocked-pending", to_mode=workspace.local_mode, source_id=remote.resolve().as_uri(), source_digest=digest)
+    with pytest.raises(SharedKnowledgeError, match="unresolved canonical effects"):
+        workspace.commit_mode_transition(preview, owner_id="owner")
+    assert workspace.review_and_promote("pending-review", reviewer_id="reviewer").status == "promoted"
+
     fresh_digest = workspace._digest(workspace._remote_ref("refs/heads/main"))
     corrupt_preview = workspace.preview_mode_transition(
         owner_id="owner", transition_id="corrupt-backup", to_mode="local-canonical-git",
