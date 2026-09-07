@@ -5,7 +5,7 @@ import pytest
 
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import DomainExtensionRegistry
-from rail.robotics_world_memory import Pose, TabletopWorldMemory, WorldObject, robotics_world_extension, tabletop_fixture
+from rail.robotics_world_memory import Pose, TabletopWorldMemory, WorldObject, register_world_memory_extension, robotics_world_extension, tabletop_episode_fixture, tabletop_fixture
 
 NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 
@@ -69,3 +69,18 @@ def test_canonical_store_reopens_world_isolation_and_expiring_estimate(tmp_path)
     assert reopened.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow()).status == "estimated"
     assert reopened.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), estimated=True, reader=Allow()).status == "stale"
     assert reopened.location(world_id="other", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
+
+
+def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
+    memory, episode = tabletop_episode_fixture(NOW)
+    registry = DomainExtensionRegistry()
+    register_world_memory_extension(registry, memory, Allow())
+    initial = episode["left_initial"]
+    result = registry.dispatch("robotics.world-memory.location", "1.0.0", ((memory.record_ref(initial), initial.payload),), config={"world_id": "table-a", "object_id": "cup-left", "at": NOW.isoformat(), "known_at": NOW.isoformat(), "estimated": False}, authorizer=Allow())
+    assert result.output["status"] == "observed"
+    # Similar cups stay ambiguous until an exact object ID is supplied.
+    assert memory.locate_class(world_id="table-a", class_label="red-cup", at=NOW, known_at=NOW, reader=Allow()).status == "ambiguous"
+    expired = memory.location(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2, seconds=1), known_at=NOW + timedelta(minutes=2, seconds=1), estimated=True, reader=Allow())
+    assert expired.status == "stale"
+    reobserved = memory.location(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), estimated=False, reader=Allow())
+    assert (reobserved.status, reobserved.pose.map_revision) == ("observed", "table-map-2")

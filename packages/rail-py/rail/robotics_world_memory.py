@@ -13,7 +13,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from krail.provider.v1 import ResourceRef
-from rail.extension_registry import ExtensionDescriptor, describe_extension, describe_operator
+from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, describe_extension, describe_operator
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
 from rail.semantic.repository import JsonSemanticStore, SemanticRow
 
@@ -67,6 +67,15 @@ def robotics_world_extension() -> ExtensionDescriptor:
     schema = "robotics.world-memory.v1"
     operator = describe_operator(operator_id="robotics.world-memory.location", version="1.0.0", input_schema=schema, output_schema=schema)
     return describe_extension(extension_id="robotics.world-memory", version="1.0.0", payload_schemas=(schema,), operators=(operator,))
+
+
+def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "TabletopWorldMemory", reader: WorldReader) -> ExtensionDescriptor:
+    descriptor = robotics_world_extension()
+    def location(_inputs, config):
+        answer = memory.location(world_id=str(config["world_id"]), object_id=str(config["object_id"]), at=datetime.fromisoformat(str(config["at"])), known_at=datetime.fromisoformat(str(config["known_at"])), estimated=bool(config["estimated"]), reader=reader)
+        return answer.model_dump(mode="json")
+    registry.register(descriptor, {"robotics.world-memory.location": location})
+    return descriptor
 
 
 class TabletopWorldMemory:
@@ -162,4 +171,15 @@ def tabletop_fixture(at: datetime) -> tuple[TabletopWorldMemory, SceneEpisode]:
     return memory, memory.scene(world_id="table-a", scene_id="opening", records=(left, right))
 
 
-__all__ = ["LocationAnswer", "Pose", "SceneEpisode", "TabletopWorldMemory", "WorldObject", "WorldReader", "robotics_world_extension", "tabletop_fixture"]
+def tabletop_episode_fixture(at: datetime) -> tuple[TabletopWorldMemory, dict[str, TemporalRecord]]:
+    """Opening observation, occlusion/unseen move, estimate expiry, reobservation."""
+    memory, _scene = tabletop_fixture(at)
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    obj = WorldObject.model_validate(left.payload["object"])
+    evidence = ResourceRef(authority="fixture://tabletop", resource_type="camera-observation", resource_id="left-reobserved", version="2", digest="sha256:" + sha256(b"left-reobserved").hexdigest())
+    estimate = memory.record(obj, Pose(frame_id="table", metres=(0.5, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at.replace(minute=at.minute + 1), uncertainty_metres=0.08, revision="estimate-1", map_revision="table-map-1"), kind="estimate", evidence=(memory.record_ref(left),), estimate_expires_at=at.replace(minute=at.minute + 2))
+    reobserved = memory.record(obj, Pose(frame_id="table", metres=(0.45, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at.replace(minute=at.minute + 3), uncertainty_metres=0.01, revision="obs-2", map_revision="table-map-2"), kind="observation", evidence=(evidence,))
+    return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved}
+
+
+__all__ = ["LocationAnswer", "Pose", "SceneEpisode", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
