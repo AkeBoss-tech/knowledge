@@ -1,6 +1,13 @@
 {
   "benchmark_date": "2026-09-07",
+  "change_ledger": {
+    "entries": 297
+  },
   "command": "scripts/benchmark_robotics_spatial_projection.py --output docs/agents/knowledge-20-benchmark-baseline.json",
+  "cross_process_update": {
+    "ms": 146.3618,
+    "temporal_rows_parsed": 130
+  },
   "delayed_update": {
     "abstentions": 1,
     "expected_abstention": 1,
@@ -20,19 +27,19 @@
   "incremental_move": {
     "history_rows_read": 4,
     "index_rows_touched": 2,
-    "ms": 83.0838
+    "ms": 86.3999
   },
   "public_authorized_region_query": {
-    "p50_ms": 33.9981,
-    "p95_ms": 42.5456
+    "p50_ms": 30.4915,
+    "p95_ms": 36.7628
   },
   "public_authorized_region_query_forced_refresh": {
-    "p50_ms": 51.6649,
-    "p95_ms": 60.5335
+    "p50_ms": 44.3729,
+    "p95_ms": 50.5884
   },
   "raw_grid_candidate_query": {
-    "p50_ms": 0.0105,
-    "p95_ms": 0.0137
+    "p50_ms": 0.0114,
+    "p95_ms": 0.0139
   },
   "reads": {
     "canonical_rows_loaded": 96,
@@ -46,18 +53,18 @@
   "rebuild": {
     "history_rows_read": 96,
     "index_rows_touched": 32,
-    "ms": 29.774
+    "ms": 24.9232
   },
   "restart": {
     "equivalent_authorized_refs": true,
-    "history_rows_read": 97,
-    "index_rows_touched": 32
+    "history_rows_read": 98,
+    "index_rows_touched": 33
   },
   "retained_metadata_bytes": {
-    "per_object": 6259.1,
-    "per_observation": 1436.5,
+    "per_object": 6304.3,
+    "per_observation": 1436.6,
     "per_snapshot_serialized": 16807,
-    "total": 200290
+    "total": 201739
   },
   "runtime": {
     "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",

@@ -230,6 +230,7 @@ class TabletopWorldMemory:
         self._records: list[TemporalRecord] = []
         self._records_by_ref: dict[tuple[str, str, str, str, str], TemporalRecord] = {}
         self._records_by_entity: dict[tuple[str, str], list[TemporalRecord]] = {}
+        self._loaded_temporal_digests: set[str] = set()
         self._appearance_records: list[TemporalRecord] = []
         self._identity_candidate_records: list[TemporalRecord] = []
         self._region_records: list[TemporalRecord] = []
@@ -355,7 +356,6 @@ class TabletopWorldMemory:
                 if changes is not None:
                     if previous != tuple(record.record_digest for record in self._records):
                         self._spatial_current = None
-                    self._reindex_world_records()
                     self._temporal_scope_cursor = next_cursor
                     self.last_refresh_work = {"temporal_rows_parsed": len(record_ids)}
                     return
@@ -368,6 +368,7 @@ class TabletopWorldMemory:
                 # serve a RAM projection whose declared inputs no longer match.
                 self._spatial_current = None
             self._reindex_world_records()
+            self._loaded_temporal_digests = {record.record_digest for record in all_records}
             self._temporal_scope_cursor = cursor
             self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
@@ -387,9 +388,16 @@ class TabletopWorldMemory:
             "robotics.spatial-relation": self._relation_records,
             "robotics.identity-resolution": self._resolution_records,
         }
+        if record.record_digest in self._loaded_temporal_digests:
+            return
+        self._loaded_temporal_digests.add(record.record_digest)
         target = targets.get(record.payload_schema)
-        if target is not None and all(item.record_digest != record.record_digest for item in target):
+        if target is not None:
             target.append(record)
+        if record.payload_schema == "robotics.world-memory":
+            ref = self.record_ref(record)
+            self._records_by_ref[ref.exact_key] = record
+            self._records_by_entity.setdefault((record.entity_authority, record.entity_id), []).append(record)
 
     def _reindex_world_records(self) -> None:
         """Derived exact-ref/entity lookup; rebuilt after every canonical refresh."""
@@ -427,6 +435,7 @@ class TabletopWorldMemory:
                 self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
             self._records_by_ref[self.record_ref(record).exact_key] = record
             self._records_by_entity.setdefault((record.entity_authority, record.entity_id), []).append(record)
             if self._projection is not None:
@@ -730,6 +739,7 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
                 self._projection.register_alias(self.appearance_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._appearance_records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
         return self._appearance_from_record(record)
 
     def appearance_gallery(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, reader: WorldReader, limit: int = 8) -> tuple[AppearanceObservation, ...]:
@@ -789,6 +799,7 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
                 self._projection.register_alias(self.identity_candidate_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._identity_candidate_records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
         return self._candidate_from_record(record)
 
     def identity_candidates(self, *, world_id: str, appearance_ref: ResourceRef, at: datetime, known_at: datetime, reader: WorldReader) -> tuple[IdentityCandidate, ...]:
@@ -830,6 +841,7 @@ class TabletopWorldMemory:
                 self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
                 self._projection.register_alias(self.resolution_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._resolution_records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
         return IdentityResolution(world_id=candidate.world_id, session_id=candidate.session_id, resolution_ref=self.resolution_ref(record), candidate_ref=candidate.candidate_ref, resolved_object_ref=resolved_object_ref, evidence_refs=evidence_refs, reviewer_id=reviewer_id, valid_from=valid_from, recorded_at=recorded_at)
 
     def resolved_identity(self, *, world_id: str, candidate_ref: ResourceRef, at: datetime, known_at: datetime, reader: WorldReader) -> IdentityResolution | None:
@@ -963,6 +975,7 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
                 self._projection.register_alias(self.region_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._region_records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
         return region
 
     def record_relation(
@@ -1011,6 +1024,7 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
                 self._projection.register_alias(self.relation_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._relation_records.append(record)
+            self._loaded_temporal_digests.add(record.record_digest)
         return relation
 
     def spatial_relations(self, *, world_id: str, session_id: str, at: datetime, known_at: datetime, reader: WorldReader) -> tuple[SpatialRelation, ...]:

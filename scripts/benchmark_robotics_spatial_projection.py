@@ -89,6 +89,12 @@ def main() -> None:
             return public()
         forced_refresh_timing = elapsed_ms(public_forced_refresh, args.repeats)
         public_timing = elapsed_ms(public, args.repeats)
+        observer = TabletopWorldMemory(path, tenant_id="bench", project_id="spatial", clock=lambda: NOW)
+        observer.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+        memory.record(WorldObject(world_id="bench", object_id="external", class_label="fixture", asset_ref=ref("asset", "external")), Pose(frame_id="table", metres=(.8, .2, 0), quaternion_xyzw=(0, 0, 0, 1), observed_at=NOW, uncertainty_metres=.001, revision="external", map_revision="map-1"), kind="observation", evidence=(ref("camera", "external"),), recorded_at=NOW)
+        external_start = time.perf_counter_ns()
+        observer.objects_in_region(world_id="bench", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+        external_update = {"ms": round((time.perf_counter_ns() - external_start) / 1_000_000, 4), **observer.last_refresh_work}
         raw_timing = elapsed_ms(raw, args.repeats)
         update_start = time.perf_counter_ns()
         move = memory.record(WorldObject(world_id="bench", object_id="object-0", class_label="fixture", asset_ref=assets[0]), Pose(frame_id="table", metres=(.9, .2, 0), quaternion_xyzw=(0, 0, 0, 1), observed_at=NOW, uncertainty_metres=.001, revision="move", map_revision="map-1"), kind="observation", evidence=(ref("camera", "move"),), recorded_at=NOW)
@@ -116,6 +122,8 @@ def main() -> None:
             "raw_grid_candidate_query": raw_timing,
             "rebuild": {"ms": round(rebuild_ms, 4), **rebuild_work.__dict__},
             "incremental_move": {"ms": round(update_ms, 4), **update_work.__dict__},
+            "cross_process_update": external_update,
+            "change_ledger": {"entries": len(memory._projection.store.list("bench", "spatial", kind="temporal_scope_change"))},
             "reads": {"public_hits": len(public_answer.object_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work},
             "retained_metadata_bytes": {"total": len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()), "per_observation": round(sum(len(json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()) for record in memory._records) / len(memory._records), 1), "per_object": round(len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()) / args.objects, 1), "per_snapshot_serialized": round(statistics.mean(scene_bytes), 1)},
             "delayed_update": {"queries": 1, "expected_abstention": 1, "abstentions": int(delayed.status in {"stale", "unknown"}), "obsolete_incorrect": int(delayed.status not in {"stale", "unknown"}), "obsolete_rate": float(delayed.status not in {"stale", "unknown"}), "status": delayed.status},

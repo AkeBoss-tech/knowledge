@@ -210,12 +210,14 @@ class TemporalProjectionService:
         ids: list[str] = []
         for revision in range(cursor + 1, current + 1):
             row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_change", f"{revision:020d}")
-            if row is None:
+            if row is None or row.payload.get("cursor") != revision:
                 return None
             record_id = row.payload.get("temporal_record_id")
             if record_id is None:
                 return None
             ids.append(str(record_id))
+        if len(set(ids)) != len(ids):
+            return None
         return current, tuple(ids)
 
     @staticmethod
