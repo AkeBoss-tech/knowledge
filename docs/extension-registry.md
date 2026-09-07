@@ -21,3 +21,41 @@ Robotics and company validators use the same registry interface in the focused
 fixtures. Payload schemas are declared and discoverable, but schema-specific
 validation, durable storage adapters, and sandboxed third-party extension
 installation remain later work.
+
+## Local company incident-response consumer
+
+`rail.company_incident_response` publishes the trusted-local
+`company.incident-response.guidance` operator at `1.0.0`. It consumes the
+versioned `krail.procedure-explanation-request.v1` payload and returns the
+published `krail.procedure-actionable-guidance-result.v1` shape. Registration
+injects the existing `ProcedureExplanationService` and a caller-owned live
+exact-ref authorizer; the extension does not mint authority or activate the
+reviewed procedure. Registration accepts only the established
+`HostedAccessContextAuthorizer`. On every invocation and immediately before
+return, its trusted authority verifies the signature, time and revocation, and
+binds the claims to the procedure service tenant/project plus the exact
+`company.incident-response.guidance` operator ID, `1.0.0` version, and operator
+descriptor digest.
+
+```python
+registry = DomainExtensionRegistry()
+register_company_incident_response_extension(registry, procedure_service, reader)
+
+result = registry.dispatch(
+    "company.incident-response.guidance",
+    "1.0.0",
+    ((incident_evidence_ref, request.model_dump(mode="json")),),
+    config={},
+    authorizer=reader,
+)
+```
+
+The invocation lineage includes the input incident evidence plus every exact
+candidate, reviewed procedure, evidence, reviewer, review-decision,
+invalidation, and current projection reference consumed by the operator.
+Denial of any exact ref fails before output exposure. A stale procedure returns
+the explicit actionable-guidance abstention shape with no guidance payload;
+historical bytes remain available only through separately authorized
+explanation reads. The handler refreshes its explanation after the actionable
+decision, so an invalidation landing during that read becomes the exact
+abstention lineage instead of inheriting the earlier snapshot.

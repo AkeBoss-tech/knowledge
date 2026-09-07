@@ -162,6 +162,23 @@ class TemporalProjectionService:
     def record_ref(record: TemporalRecord) -> ResourceRef:
         return _record_ref(record)
 
+    @staticmethod
+    def current_state_ref(state: ProjectionCurrentState) -> ResourceRef:
+        """Exact reference to the persisted current-state materialization."""
+
+        return ResourceRef(
+            authority="krail://temporal-projection",
+            resource_type="projection-current-state",
+            resource_id=TemporalProjectionService._current_id(
+                state.projection_id,
+                TemporalProjectionService._entity_key_from_identity(
+                    state.entity_authority, state.entity_id
+                ),
+            ),
+            version=str(state.revision),
+            digest=state.state_digest,
+        )
+
     def _rows(self, kind: str):
         return self.store.list(self.tenant_id, self.project_id, kind=kind)  # type: ignore[arg-type]
 
@@ -223,6 +240,10 @@ class TemporalProjectionService:
     @staticmethod
     def _entity_key(record: TemporalRecord) -> str:
         return _digest({"authority": record.entity_authority, "entity_id": record.entity_id})
+
+    @staticmethod
+    def _entity_key_from_identity(entity_authority: str, entity_id: str) -> str:
+        return _digest({"authority": entity_authority, "entity_id": entity_id})
 
     @staticmethod
     def _current_id(projection_id: str, entity_key: str) -> str:

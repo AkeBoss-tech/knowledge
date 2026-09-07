@@ -806,6 +806,14 @@ class ProcedureExplanationService:
         self._projection = projection
         self._projection_id = projection_id
 
+    @property
+    def tenant_id(self) -> str:
+        return self._repository.tenant_id
+
+    @property
+    def project_id(self) -> str:
+        return self._repository.project_id
+
     def explain(
         self,
         request: ProcedureExplanationRequest,
@@ -974,6 +982,20 @@ class ProcedureExplanationService:
                 authorizer.authorize(procedure_record_ref(record), at=at)
         except PermissionError as exc:
             raise PermissionError("procedure guidance access denied") from exc
+
+    def projection_state_ref(self, state_digest: str) -> ResourceRef | None:
+        """Resolve an actionable digest to its exact persisted projection row."""
+
+        if self._projection is None:
+            return None
+        matches = tuple(
+            state
+            for state in self._projection.current_state(self._projection_id)
+            if state.state_digest == state_digest
+        )
+        if len(matches) != 1:
+            return None
+        return self._projection.current_state_ref(matches[0])
 
     def actionable_guidance(
         self,
