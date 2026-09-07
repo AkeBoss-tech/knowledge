@@ -575,6 +575,25 @@ def test_scope_cursor_does_not_hide_interleaved_cross_process_writes(tmp_path):
     assert first.location(world_id="one", object_id="from-first", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "observed"
 
 
+def test_authorized_bounded_scene_diff_preserves_snapshot_time_and_reopen(tmp_path):
+    path = str(tmp_path / "scene-diff.json")
+    memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    left = memory.record(WorldObject(world_id="one", object_id="left", class_label="cup"), pose(.1, "left"), kind="observation", evidence=(evidence("left"),), recorded_at=NOW)
+    right = memory.record(WorldObject(world_id="one", object_id="right", class_label="cup"), pose(.2, "right"), kind="observation", evidence=(evidence("right"),), recorded_at=NOW)
+    before = memory.scene(world_id="one", scene_id="before", records=(left, right), reader=Allow(), session_id="s", valid_at=NOW, recorded_at=NOW)
+    later = NOW + timedelta(minutes=1)
+    moved = memory.record(WorldObject(world_id="one", object_id="right", class_label="cup"), pose(.4, "right-2", later), kind="observation", evidence=(evidence("right-2"),), recorded_at=later)
+    after = memory.scene(world_id="one", scene_id="after", records=(left, moved), reader=Allow(), session_id="s", valid_at=later, recorded_at=later)
+    diff = memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow())
+    assert diff.status == "current" and diff.changed_before_refs == (memory.record_ref(right),) and diff.changed_after_refs == (memory.record_ref(moved),)
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Deny())
+    assert memory.scene_diff(world_id="one", session_id="other", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow()).status == "unknown"
+    assert memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=evidence("missing"), before_at=NOW, after_at=later, known_at=later, reader=Allow()).status == "unknown"
+    reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow()) == diff
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")

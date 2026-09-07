@@ -79,6 +79,16 @@ class SceneEpisode(Strict):
     recorded_at: datetime
 
 
+class SceneDiff(Strict):
+    """Bounded exact-reference change set between two authorized snapshots."""
+
+    status: Literal["current", "unknown"]
+    before_scene_ref: ResourceRef | None = None
+    after_scene_ref: ResourceRef | None = None
+    changed_before_refs: tuple[ResourceRef, ...] = ()
+    changed_after_refs: tuple[ResourceRef, ...] = ()
+
+
 class ObjectHistory(Strict):
     world_id: str
     object_id: str
@@ -1307,6 +1317,34 @@ class TabletopWorldMemory:
         self._authorize_scene(scene, reader)
         self._authorize_scene(scene, reader)
         return scene
+
+    def scene_diff(self, *, world_id: str, session_id: str, before_scene_ref: ResourceRef, after_scene_ref: ResourceRef, before_at: datetime, after_at: datetime, known_at: datetime, reader: WorldReader, limit: int = 128) -> SceneDiff:
+        """Compare two same-world/session snapshots after live authorization."""
+        self._require_world(world_id)
+        self._require_reader(reader)
+        if not 1 <= limit <= 128:
+            raise ValueError("scene diff limit must be between 1 and 128")
+        self._refresh()
+        by_ref = {scene.scene_ref.exact_key: scene for scene in self._scenes}
+        before, after = by_ref.get(before_scene_ref.exact_key), by_ref.get(after_scene_ref.exact_key)
+        if (
+            before is None or after is None
+            or before.world_id != world_id or after.world_id != world_id
+            or before.session_id != session_id or after.session_id != session_id
+            or not self._scene_visible_at(before, before_at, known_at)
+            or not self._scene_visible_at(after, after_at, known_at)
+        ):
+            return SceneDiff(status="unknown")
+        # Authorize both complete snapshots before revealing whether an object
+        # changed; a diff cannot become a side channel for a hidden object.
+        self._authorize_scene(before, reader)
+        self._authorize_scene(after, reader)
+        before_by_id = {self._record_for_ref(ref).entity_id: ref for ref in before.object_refs if self._record_for_ref(ref) is not None}
+        after_by_id = {self._record_for_ref(ref).entity_id: ref for ref in after.object_refs if self._record_for_ref(ref) is not None}
+        changed_ids = tuple(sorted(object_id for object_id in set(before_by_id) | set(after_by_id) if before_by_id.get(object_id) != after_by_id.get(object_id)))
+        if len(changed_ids) > limit:
+            return SceneDiff(status="unknown")
+        return SceneDiff(status="current", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, changed_before_refs=tuple(before_by_id[item] for item in changed_ids if item in before_by_id), changed_after_refs=tuple(after_by_id[item] for item in changed_ids if item in after_by_id))
 
     def episode(self, *, world_id: str, session_id: str, episode_id: str, scene_refs: tuple[ResourceRef, ...], reader: WorldReader, valid_from: datetime, completed_at: datetime | None = None, recorded_at: datetime | None = None, evidence_refs: tuple[ResourceRef, ...] = ()) -> SceneEpisode:
         self._require_world(world_id)

@@ -5,7 +5,7 @@
   },
   "command": "scripts/benchmark_robotics_spatial_projection.py --output docs/agents/knowledge-20-benchmark-baseline.json",
   "cross_process_update": {
-    "ms": 153.9522,
+    "ms": 155.081,
     "temporal_rows_parsed": 130
   },
   "delayed_update": {
@@ -18,40 +18,45 @@
   },
   "fixture": {
     "appearance_records": 32,
+    "current_world_records_after_mutations": 98,
     "embedded_asset_bytes": 0,
-    "external_asset_refs": 32,
-    "objects": 32,
-    "observations_per_object": 3,
+    "initial_external_asset_refs": 32,
+    "initial_objects": 32,
+    "observations_per_initial_object": 3,
     "scene_snapshots": 2
   },
   "incremental_move": {
     "history_rows_read": 4,
     "index_rows_touched": 2,
-    "ms": 92.345
+    "ms": 75.9303
   },
   "public_authorized_appearance_gallery": {
-    "p50_ms": 4.3479,
-    "p95_ms": 4.4048
+    "p50_ms": 4.3573,
+    "p95_ms": 4.3875
   },
-  "public_authorized_object_history": {
-    "p50_ms": 3.5493,
-    "p95_ms": 3.6488
+  "public_authorized_finite_fixture_history": {
+    "p50_ms": 3.581,
+    "p95_ms": 3.8022
   },
   "public_authorized_region_query": {
-    "p50_ms": 32.5221,
-    "p95_ms": 39.0291
+    "p50_ms": 30.9079,
+    "p95_ms": 37.8887
   },
   "public_authorized_region_query_forced_refresh": {
-    "p50_ms": 47.427,
-    "p95_ms": 55.3658
+    "p50_ms": 44.3332,
+    "p95_ms": 50.8035
+  },
+  "public_authorized_scene_diff": {
+    "p50_ms": 3.8665,
+    "p95_ms": 4.5314
   },
   "public_authorized_scene_read": {
-    "p50_ms": 4.0479,
-    "p95_ms": 4.1077
+    "p50_ms": 3.8774,
+    "p95_ms": 4.3911
   },
   "raw_grid_candidate_query": {
-    "p50_ms": 0.0117,
-    "p95_ms": 0.0191
+    "p50_ms": 0.0118,
+    "p95_ms": 0.0145
   },
   "reads": {
     "appearance_refs": 1,
@@ -62,13 +67,14 @@
     "public_hits": 7,
     "raw_candidate_rows": 10,
     "raw_cells": 24,
+    "scene_diff_changed": 0,
     "scene_object_refs": 32,
     "temporal_rows_parsed": 0
   },
   "rebuild": {
     "history_rows_read": 96,
     "index_rows_touched": 32,
-    "ms": 27.3751
+    "ms": 24.8168
   },
   "restart": {
     "equivalent_authorized_refs": true,
@@ -76,9 +82,10 @@
     "index_rows_touched": 33
   },
   "retained_metadata_bytes": {
-    "per_object": 6304.3,
-    "per_observation": 1436.6,
+    "per_initial_object": 6304.3,
     "per_snapshot_serialized": 16807,
+    "per_world_record": 1436.6,
+    "phase": "after external and movement mutations",
     "total": 201739
   },
   "runtime": {
@@ -88,7 +95,6 @@
   "unavailable": [
     "fine geometry fetch: no asset transport",
     "appearance ANN: no vector index",
-    "scene-diff query: no public operation",
     "ROS/MoveIt live control: out of scope"
   ]
 }
