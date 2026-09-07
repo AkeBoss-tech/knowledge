@@ -23,7 +23,7 @@ def evidence(name):
 
 
 def pose(x, revision, at=NOW):
-    return Pose(frame_id="table", metres=(x, 0.0, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at, uncertainty_metres=0.02, revision=revision)
+    return Pose(frame_id="table", metres=(x, 0.0, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at, uncertainty_metres=0.02, revision=revision, map_revision="map-1")
 
 
 def test_registry_fixture_identity_and_structural_scene_refs():
@@ -49,6 +49,7 @@ def test_observed_estimated_occlusion_and_world_isolation():
     assert (answer.status, answer.pose.metres[0]) == ("estimated", 0.4)
     assert memory.location(world_id="two", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
     assert estimated.source_refs[-1].digest == observed.record_digest
+    assert memory.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=False, reader=Allow()).pose.metres[0] == 0.1
 
 
 def test_location_rechecks_exact_evidence_access():

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from hashlib import sha256
+from math import isfinite, sqrt
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import ExtensionDescriptor, describe_extension, describe_operator
@@ -27,6 +28,15 @@ class Pose(Strict):
     observed_at: datetime
     uncertainty_metres: float = Field(ge=0)
     revision: str
+    map_revision: str
+
+    @model_validator(mode="after")
+    def _pose_is_physical(self):
+        if not all(isfinite(value) for value in (*self.metres, *self.quaternion_xyzw, self.uncertainty_metres)):
+            raise ValueError("pose values must be finite")
+        if abs(sqrt(sum(value * value for value in self.quaternion_xyzw)) - 1.0) > 1e-3:
+            raise ValueError("pose quaternion must be normalized")
+        return self
 
 
 class WorldObject(Strict):
@@ -88,12 +98,14 @@ class TabletopWorldMemory:
         return self.record(obj, pose, kind="estimate", evidence=tuple(dict.fromkeys((*evidence, self.record_ref(observation)))))
 
     def scene(self, *, world_id: str, scene_id: str, records: tuple[TemporalRecord, ...]) -> SceneEpisode:
+        if any(record.entity_authority != f"robotics://world/{world_id}" for record in records):
+            raise ValueError("scene records must belong to the exact world")
         refs = tuple(self.record_ref(record) for record in records)
         digest = "sha256:" + sha256((world_id + ":" + scene_id + ":" + ":".join(ref.digest for ref in refs)).encode()).hexdigest()
         return SceneEpisode(world_id=world_id, scene_ref=ResourceRef(authority="robotics://world-memory", resource_type="scene", resource_id=scene_id, version="1", digest=digest), object_refs=refs)
 
     def location(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, estimated: bool, reader: WorldReader) -> LocationAnswer:
-        candidates = [r for r in self._records if r.entity_authority == f"robotics://world/{world_id}" and r.entity_id == object_id]
+        candidates = [r for r in self._records if r.entity_authority == f"robotics://world/{world_id}" and r.entity_id == object_id and (estimated or r.kind == "observation")]
         if not candidates:
             return LocationAnswer(status="unknown")
         current = query_temporal_records(candidates, valid_at=at, known_at=known_at)
@@ -131,7 +143,7 @@ def tabletop_fixture(at: datetime) -> tuple[TabletopWorldMemory, SceneEpisode]:
     """Two visually similar cups plus a shared immutable scene reference."""
     memory = TabletopWorldMemory()
     evidence = lambda name: ResourceRef(authority="fixture://tabletop", resource_type="camera-observation", resource_id=name, version="1", digest="sha256:" + sha256(name.encode()).hexdigest())
-    pose = lambda x, revision: Pose(frame_id="table", metres=(x, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at, uncertainty_metres=0.01, revision=revision)
+    pose = lambda x, revision: Pose(frame_id="table", metres=(x, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at, uncertainty_metres=0.01, revision=revision, map_revision="table-map-1")
     left = memory.record(WorldObject(world_id="table-a", object_id="cup-left", class_label="red-cup"), pose(0.1, "1"), kind="observation", evidence=(evidence("left"),))
     right = memory.record(WorldObject(world_id="table-a", object_id="cup-right", class_label="red-cup"), pose(0.3, "1"), kind="observation", evidence=(evidence("right"),))
     return memory, memory.scene(world_id="table-a", scene_id="opening", records=(left, right))
