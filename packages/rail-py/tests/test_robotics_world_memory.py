@@ -300,6 +300,10 @@ def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
     assert {ref.exact_key for ref in result.input_refs} == {memory.record_ref(initial).exact_key, initial.source_refs[0].exact_key}
     # Similar cups stay ambiguous until an exact object ID is supplied.
     assert memory.locate_class(world_id="table-a", class_label="red-cup", at=NOW, known_at=NOW, reader=Allow()).status == "ambiguous"
+    assert memory.identity_candidates(world_id="table-a", appearance_ref=episode["initial_appearance"].appearance_ref, at=NOW, known_at=NOW, reader=Allow()) == (episode["ambiguous_identity"],)
+    region_answer = memory.objects_in_region(world_id="table-a", region_ref=episode["table_region"].region_ref, at=NOW, known_at=NOW, reader=Allow())
+    assert region_answer.status == "current" and region_answer.object_refs == (memory.record_ref(initial),)
+    assert memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()) == (episode["left_support"],)
     expired = memory.location(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2, seconds=1), known_at=NOW + timedelta(minutes=2, seconds=1), estimated=True, reader=Allow())
     assert expired.status == "stale" and expired.evidence
     reobserved = memory.location(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), estimated=False, reader=Allow())
@@ -452,6 +456,50 @@ def test_persisted_appearance_gallery_and_identity_candidates_are_bitemporal_and
         reopened.appearance_gallery(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Deny())
     with pytest.raises(PermissionError, match="world-memory access denied"):
         reopened.identity_candidates(world_id="table-a", appearance_ref=appearance.appearance_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Deny())
+
+
+def test_persisted_regions_relations_and_bounded_same_frame_membership(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory, _ = tabletop_fixture(NOW, str(path), tenant_id="t", project_id="p")
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    right = next(record for record in memory._records if record.entity_id == "cup-right")
+    region = memory.record_region(
+        world_id="table-a", session_id="session-1", place_id="table", region_id="left-zone",
+        frame_id="table", map_revision="table-map-1", min_metres=(0.0, 0.0, -0.1),
+        max_metres=(0.2, 0.4, 0.1), evidence_refs=(evidence("left-zone"),), revision="1",
+        valid_from=NOW, recorded_at=NOW,
+    )
+    relation = memory.record_relation(
+        world_id="table-a", session_id="session-1", relation_id="left-supported-by-table",
+        relation_type="support", subject_ref=memory.record_ref(left), object_ref=region.region_ref,
+        evidence_refs=(evidence("left-support"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    containment = memory.record_relation(
+        world_id="table-a", session_id="session-1", relation_id="left-contained-in-zone",
+        relation_type="containment", subject_ref=memory.record_ref(left), object_ref=region.region_ref,
+        evidence_refs=(evidence("left-containment"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    attachment = memory.record_relation(
+        world_id="table-a", session_id="session-1", relation_id="left-attached-right",
+        relation_type="attachment", subject_ref=memory.record_ref(left), object_ref=memory.record_ref(right),
+        evidence_refs=(evidence("left-attachment"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    answer = memory.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+    assert answer.status == "current" and answer.object_refs == (memory.record_ref(left),) and answer.evidence
+    assert {item.relation_type for item in memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow())} == {relation.relation_type, containment.relation_type, attachment.relation_type}
+    memory.rebuild_projection(valid_at=NOW, known_at=NOW, at=NOW)
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(left),)
+    assert reopened.objects_in_region(world_id="other", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).status == "unknown"
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Deny())
+    # A frame mismatch is not transformed or guessed; it makes this bounded
+    # membership query abstain instead of returning a partial assertion.
+    reopened.record(WorldObject(world_id="table-a", object_id="camera-frame", class_label="cup"), Pose(frame_id="camera", metres=(0.1, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=NOW, uncertainty_metres=0.01, revision="camera", map_revision="table-map-1"), kind="observation", evidence=(evidence("camera-frame"),), recorded_at=NOW)
+    assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).status == "unknown"
+    estimate = reopened.record(WorldObject.model_validate(left.payload["object"]), pose(0.1, "left-estimate", NOW + timedelta(minutes=1)), kind="estimate", evidence=(evidence("left-estimate"),), estimate_expires_at=NOW + timedelta(minutes=2), recorded_at=NOW + timedelta(minutes=1))
+    assert estimate.payload["state"] == "estimate"
+    assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()).status == "stale"
 
 
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):

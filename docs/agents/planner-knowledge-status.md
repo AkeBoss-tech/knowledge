@@ -48,6 +48,13 @@
   exact object-record refs plus their evidence; candidates are never an object
   merge. Gallery and candidate reads survive reopen/rebuild and filter both
   effective and known time before authorizing every returned dependency.
+- Places/regions and support, containment, or attachment relations are also
+  typed temporal envelopes with exact evidence and endpoints. Regions carry
+  metres, one frame, and one map revision. `objects_in_region` uses only that
+  exact frame/revision; it abstains on a frame or map mismatch and returns
+  `stale` instead of a membership assertion for an expired or invalidated
+  estimate. The tabletop fixture now includes a left-table region and a
+  support relation, and persists/reopens the region query.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
   invalidating either an exact source or map ref writes the projection's
@@ -80,10 +87,9 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_robotics_hosted_authorization.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `158 passed`; compileall and `git diff --check` pass.
+  reports `159 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: the signed hosted adapters are local-contract proof,
-  not a deployed control-plane integration. Explicit support, containment,
-  attachment, and region queries; prediction/action-outcome records;
+  not a deployed control-plane integration. Prediction/action-outcome records;
   camera/perception ingestion; ROS transport; binary asset store;
   live robot control, identity merge, spatial indexes, and a general
   world-model engine remain outside this bounded #19 slice.
