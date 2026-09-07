@@ -43,6 +43,9 @@ Digest = Annotated[
     str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")
 ]
 Action = Literal[
+    "context.read",
+    "procedure.review",
+    "procedure.invalidate",
     "capture.write",
     "capture.read",
     "capture.list",

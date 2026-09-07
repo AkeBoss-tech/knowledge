@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import RLock, local
+from threading import get_ident
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
@@ -43,7 +44,37 @@ SemanticKind = Literal[
     "ontology_package_version",
     "ontology_change_set",
     "semantic_revision",
+    "core_provenance",
+    "procedure_review",
+    "procedure_invalidation",
+    "procedure_freshness",
+    "temporal_record",
+    "procedure_projection_edge",
+    "procedure_projection_checkpoint",
+    "procedure_projection_tombstone",
+    "procedure_projection_current",
+    "procedure_projection_dirty",
+    "procedure_projection_recompute_run",
 ]
+
+_JSON_STORE_LOCKS: dict[Path, RLock] = {}
+_JSON_STORE_LOCKS_GUARD = RLock()
+
+
+@contextmanager
+def _file_lock(path: Path, *, exclusive: bool) -> Iterator[None]:
+    """POSIX advisory lock for one semantic JSON file."""
+    try:
+        import fcntl
+    except ImportError as exc:  # pragma: no cover - supported deployment is POSIX
+        raise RuntimeError("JsonSemanticStore requires POSIX advisory file locks") from exc
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class SemanticRow(BaseModel):
@@ -159,6 +190,14 @@ class JsonSemanticStore(MemorySemanticStore):
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).resolve()
         super().__init__()
+        with _JSON_STORE_LOCKS_GUARD:
+            self._path_lock = _JSON_STORE_LOCKS.setdefault(self.path, RLock())
+        self._file_lock_path = self.path.with_name(self.path.name + ".lock")
+        self._transaction_owner: int | None = None
+        self._reload()
+
+    def _reload(self) -> None:
+        self._rows.clear()
         if self.path.exists():
             value = json.loads(self.path.read_text(encoding="utf-8"))
             if value.get("schema_version") != "krail.semantic-store.v1":
@@ -173,10 +212,38 @@ class JsonSemanticStore(MemorySemanticStore):
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        with super().transaction():
-            yield
-            if self._transaction_dirty:
-                self._flush()
+        if self._transaction_owner == get_ident():
+            raise RuntimeError("nested semantic transactions are not supported")
+        with self._path_lock:
+            with _file_lock(self._file_lock_path, exclusive=True):
+                self._reload()
+                self._transaction_owner = get_ident()
+                try:
+                    with super().transaction():
+                        yield
+                        if self._transaction_dirty:
+                            self._flush()
+                finally:
+                    self._transaction_owner = None
+
+    def _refresh_for_read(self) -> None:
+        if self._transaction_owner == get_ident():
+            return
+        with self._path_lock:
+            with _file_lock(self._file_lock_path, exclusive=False):
+                self._reload()
+
+    def get(self, *args, **kwargs):
+        self._refresh_for_read()
+        return super().get(*args, **kwargs)
+
+    def list(self, *args, **kwargs):
+        self._refresh_for_read()
+        return super().list(*args, **kwargs)
+
+    def iter_list(self, *args, **kwargs):
+        self._refresh_for_read()
+        return super().iter_list(*args, **kwargs)
 
     def _flush(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

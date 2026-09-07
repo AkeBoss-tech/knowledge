@@ -29,6 +29,11 @@ from rail.context_brief import (
     ContextBrief,
     ContextBriefRequest,
 )
+from rail.core_provenance import (
+    PROCEDURE_EXPLANATION_VERSION,
+    ProcedureExplanation,
+    ProcedureExplanationRequest,
+)
 from rail.outcome_observations import (
     OUTCOME_OBSERVATION_VERSION,
     OUTCOME_PROCESSING_VERSION,
@@ -78,6 +83,7 @@ CAPABILITY_VERSION = "1.0.0"
 VERIFICATION_CAPABILITY_ID = "krail.verification-evidence"
 OUTCOME_CAPABILITY_ID = "krail.outcome-evidence"
 SEMANTIC_CAPABILITY_ID = "krail.semantic-operations"
+PROCEDURE_EXPLANATION_CAPABILITY_ID = "krail.procedure-explanation"
 
 
 def context_brief_descriptor() -> CapabilityDescriptor:
@@ -174,6 +180,31 @@ def outcome_evidence_descriptor() -> CapabilityDescriptor:
     )
 
 
+def procedure_explanation_descriptor() -> CapabilityDescriptor:
+    """Publish the bounded, read-only procedure-history explanation contract."""
+    return CapabilityDescriptor.issue(
+        provider="krail.local",
+        capability_id=PROCEDURE_EXPLANATION_CAPABILITY_ID,
+        semantic_version=CAPABILITY_VERSION,
+        operations=(
+            CapabilityOperation(
+                operation_id="explain_procedure",
+                input_schema=ProcedureExplanationRequest.model_json_schema(),
+                output_schema=ProcedureExplanation.model_json_schema(),
+            ),
+        ),
+        effects=EffectDeclaration(),
+        limits=(
+            CapabilityLimit(name="max_reviews", value=32, unit="items"),
+            CapabilityLimit(name="max_explanation_bytes", value=131_072, unit="utf8-bytes"),
+        ),
+        semantic_processing_versions=(
+            SemanticProcessingVersion(component="provider-contract", version="krail.provider.v1"),
+            SemanticProcessingVersion(component="procedure-explanation", version=PROCEDURE_EXPLANATION_VERSION),
+        ),
+    )
+
+
 def semantic_operations_descriptor() -> CapabilityDescriptor:
     operations = (
         ("resolve_entity", ResolveEntityRequest, ResolveEntityResult),
@@ -218,6 +249,7 @@ def capability_descriptors() -> tuple[CapabilityDescriptor, ...]:
         context_brief_descriptor(),
         verification_evidence_descriptor(),
         outcome_evidence_descriptor(),
+        procedure_explanation_descriptor(),
         semantic_operations_descriptor(),
     )
 
@@ -246,10 +278,12 @@ __all__ = [
     "OUTCOME_CAPABILITY_ID",
     "VERIFICATION_CAPABILITY_ID",
     "SEMANTIC_CAPABILITY_ID",
+    "PROCEDURE_EXPLANATION_CAPABILITY_ID",
     "LocalCapabilityPublication",
     "capability_descriptors",
     "context_brief_descriptor",
     "outcome_evidence_descriptor",
+    "procedure_explanation_descriptor",
     "semantic_operations_descriptor",
     "verification_evidence_descriptor",
 ]

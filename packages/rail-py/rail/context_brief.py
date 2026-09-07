@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Protocol
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
@@ -198,6 +198,13 @@ def context_brief_digest(
     )
 
 
+class ContextAuthorizer(Protocol):
+    """Live, caller-owned authorization boundary for exact KRAIL reads."""
+
+    def authorize(self, ref: ResourceRef, *, at: datetime | None = None) -> None:
+        """Raise ``PermissionError`` when the exact ref is not currently allowed."""
+
+
 class ContextBriefService:
     """Read-only context assembly; history recording is an explicit local step."""
 
@@ -205,22 +212,46 @@ class ContextBriefService:
         self.provider = provider
         self.history = history
 
-    def assemble(self, request: ContextBriefRequest) -> ContextBrief:
+    def assemble(
+        self,
+        request: ContextBriefRequest,
+        *,
+        authorizer: "ContextAuthorizer | None" = None,
+    ) -> ContextBrief:
+        """Assemble a bounded brief, optionally through a live read authorizer.
+
+        Authorization is deliberately an injected boundary.  KRAIL does not
+        mint identities or permissions; callers provide the current authority
+        decision.  When present, the decision is checked before candidate
+        shaping, before every exact read, and once more before returning so a
+        revoked context cannot use a previously allowed packet.
+        """
+        if authorizer is not None:
+            self._authorize(authorizer, request.repository)
+            self._authorize(authorizer, request.issue)
+        if authorizer is not None:
+            self._authorize(authorizer, request.repository)
         repository_payload = self.provider.get_resource(
             GetResourceRequest(ref=request.repository, max_bytes=MAX_EVIDENCE_ITEM_BYTES)
         ).resource
+        if authorizer is not None:
+            self._authorize(authorizer, request.issue)
         issue_payload = self.provider.get_resource(
             GetResourceRequest(ref=request.issue, max_bytes=MAX_EVIDENCE_ITEM_BYTES)
         ).resource
         query = request.query or self._query(issue_payload.content, request.issue.resource_id)
         searched = self.provider.search(SearchRequest(query=query, limit=request.max_items))
+        visible_hits = tuple(
+            hit for hit in searched.hits
+            if authorizer is None or self._is_authorized(authorizer, hit.ref)
+        )
         ranking_trace = tuple(
             RankingTraceEntry(rank=index, source=hit.ref, score=hit.score)
-            for index, hit in enumerate(searched.hits, start=1)
+            for index, hit in enumerate(visible_hits, start=1)
         )
 
         ordered_refs: list[ResourceRef] = []
-        for ref in (request.repository, request.issue, *(hit.ref for hit in searched.hits)):
+        for ref in (request.repository, request.issue, *(hit.ref for hit in visible_hits)):
             if ref.exact_key not in {item.exact_key for item in ordered_refs}:
                 ordered_refs.append(ref)
             if len(ordered_refs) >= request.max_items:
@@ -229,7 +260,7 @@ class ContextBriefService:
         evidence_items: list[EvidenceItem] = []
         metadata: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
         remaining = request.max_total_bytes
-        truncated = searched.truncated or len(ordered_refs) < 2 + len(searched.hits)
+        truncated = searched.truncated or len(ordered_refs) < 2 + len(visible_hits)
         mandatory_keys = {request.repository.exact_key, request.issue.exact_key}
         for index, ref in enumerate(ordered_refs):
             if remaining <= 0:
@@ -242,6 +273,8 @@ class ContextBriefService:
             if allocation <= 0:
                 truncated = True
                 break
+            if authorizer is not None:
+                self._authorize(authorizer, ref)
             payload = self.provider.get_resource(
                 GetResourceRequest(ref=ref, max_bytes=allocation)
             ).resource
@@ -256,7 +289,7 @@ class ContextBriefService:
                     locator=locator,
                     excerpt=excerpt,
                     media_type=payload.media_type,
-                    relevance=self._score(ref, searched.hits),
+                    relevance=self._score(ref, visible_hits),
                 )
             )
             remaining -= len(excerpt.encode("utf-8"))
@@ -291,6 +324,10 @@ class ContextBriefService:
         if truncated and not evidence.truncated:
             evidence = evidence.model_copy(update={"truncated": True})
         omissions = (AuthorizationOmission(),) if request.authorization_omission else ()
+
+        if authorizer is not None:
+            for ref in ordered_refs:
+                self._authorize(authorizer, ref)
 
         brief_digest = context_brief_digest(
             repository=request.repository,
@@ -329,6 +366,22 @@ class ContextBriefService:
             truncated=truncated,
         )
 
+    @staticmethod
+    def _authorize(authorizer: "ContextAuthorizer", ref: ResourceRef) -> None:
+        try:
+            authorizer.authorize(ref)
+        except PermissionError as exc:
+            # Keep denials opaque: callers must not learn whether a hidden
+            # resource existed or why it was filtered.
+            raise PermissionError("context access denied") from exc
+
+    @classmethod
+    def _is_authorized(cls, authorizer: "ContextAuthorizer", ref: ResourceRef) -> bool:
+        try:
+            cls._authorize(authorizer, ref)
+        except PermissionError:
+            return False
+        return True
     def record(self, brief: ContextBrief, *, retention_until: datetime | None = None):
         if self.history is None:
             raise RuntimeError("no KRAIL epistemic history store is configured")
