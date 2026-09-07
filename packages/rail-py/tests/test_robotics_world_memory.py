@@ -586,10 +586,19 @@ def test_authorized_bounded_scene_diff_preserves_snapshot_time_and_reopen(tmp_pa
     after = memory.scene(world_id="one", scene_id="after", records=(left, moved), reader=Allow(), session_id="s", valid_at=later, recorded_at=later)
     diff = memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow())
     assert diff.status == "current" and diff.changed_before_refs == (memory.record_ref(right),) and diff.changed_after_refs == (memory.record_ref(moved),)
+    assert memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=before.scene_ref, before_at=NOW, after_at=NOW, known_at=later, reader=Allow()).changed_after_refs == ()
+    removed = memory.scene(world_id="one", scene_id="removed", records=(left,), reader=Allow(), session_id="s", valid_at=later, recorded_at=later)
+    removal = memory.scene_diff(world_id="one", session_id="s", before_scene_ref=after.scene_ref, after_scene_ref=removed.scene_ref, before_at=later, after_at=later, known_at=later, reader=Allow())
+    assert removal.changed_before_refs == (memory.record_ref(moved),) and removal.changed_after_refs == ()
+    with pytest.raises(ValueError, match="one exact record"):
+        memory.scene(world_id="one", scene_id="ambiguous", records=(right, moved), reader=Allow(), session_id="s", valid_at=later, recorded_at=later)
+    assert memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=NOW, reader=Allow()).status == "unknown"
     with pytest.raises(PermissionError, match="world-memory access denied"):
         memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Deny())
     assert memory.scene_diff(world_id="one", session_id="other", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow()).status == "unknown"
     assert memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=evidence("missing"), before_at=NOW, after_at=later, known_at=later, reader=Allow()).status == "unknown"
+    memory.invalidate_map_revision(evidence("right-2"), reason="sensor withdrawn", at=later + timedelta(minutes=1))
+    assert memory.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later + timedelta(minutes=1), known_at=later + timedelta(minutes=1), reader=Allow()).status == "unknown"
     reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
     assert reopened.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow()) == diff
 

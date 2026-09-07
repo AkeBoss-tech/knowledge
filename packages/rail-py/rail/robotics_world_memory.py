@@ -1290,6 +1290,8 @@ class TabletopWorldMemory:
             raise ValueError("scene snapshots require at least one exact object record")
         if any(record.entity_authority != f"robotics://world/{world_id}" for record in records):
             raise ValueError("scene records must belong to the exact world")
+        if len({record.entity_id for record in records}) != len(records):
+            raise ValueError("scene snapshots require one exact record per world object")
         refs = tuple(self.record_ref(record) for record in records)
         valid_at = valid_at or max(record.valid_from for record in records)
         if valid_at < max(record.valid_from for record in records):
@@ -1339,11 +1341,23 @@ class TabletopWorldMemory:
         # changed; a diff cannot become a side channel for a hidden object.
         self._authorize_scene(before, reader)
         self._authorize_scene(after, reader)
-        before_by_id = {self._record_for_ref(ref).entity_id: ref for ref in before.object_refs if self._record_for_ref(ref) is not None}
-        after_by_id = {self._record_for_ref(ref).entity_id: ref for ref in after.object_refs if self._record_for_ref(ref) is not None}
+        before_records = tuple(self._record_for_ref(ref) for ref in before.object_refs)
+        after_records = tuple(self._record_for_ref(ref) for ref in after.object_refs)
+        if (
+            any(record is None for record in (*before_records, *after_records))
+            or len({record.entity_id for record in before_records if record is not None}) != len(before_records)
+            or len({record.entity_id for record in after_records if record is not None}) != len(after_records)
+            or any(self._projection_marks_record_stale(record, valid_at=before_at, known_at=known_at) for record in before_records if record is not None)
+            or any(self._projection_marks_record_stale(record, valid_at=after_at, known_at=known_at) for record in after_records if record is not None)
+        ):
+            return SceneDiff(status="unknown")
+        before_by_id = {record.entity_id: ref for record, ref in zip(before_records, before.object_refs, strict=True) if record is not None}
+        after_by_id = {record.entity_id: ref for record, ref in zip(after_records, after.object_refs, strict=True) if record is not None}
         changed_ids = tuple(sorted(object_id for object_id in set(before_by_id) | set(after_by_id) if before_by_id.get(object_id) != after_by_id.get(object_id)))
         if len(changed_ids) > limit:
             return SceneDiff(status="unknown")
+        self._authorize_scene(before, reader)
+        self._authorize_scene(after, reader)
         return SceneDiff(status="current", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, changed_before_refs=tuple(before_by_id[item] for item in changed_ids if item in before_by_id), changed_after_refs=tuple(after_by_id[item] for item in changed_ids if item in after_by_id))
 
     def episode(self, *, world_id: str, session_id: str, episode_id: str, scene_refs: tuple[ResourceRef, ...], reader: WorldReader, valid_from: datetime, completed_at: datetime | None = None, recorded_at: datetime | None = None, evidence_refs: tuple[ResourceRef, ...] = ()) -> SceneEpisode:
