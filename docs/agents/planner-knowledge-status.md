@@ -55,6 +55,12 @@
   `stale` instead of a membership assertion for an expired or invalidated
   estimate. The tabletop fixture now includes a left-table region and a
   support relation, and persists/reopens the region query.
+- Identity resolution is an explicit reviewed temporal envelope bound to one
+  exact candidate and one listed object ref; it preserves the ambiguous
+  candidate and raw observations. `action_freshness` returns usable,
+  needs-refresh, or unknown only for the exact requested object/frame/map and
+  optional region evidence. Region-source invalidation makes both membership
+  and region-bound action readiness stale after its effective/known cutoff.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
   invalidating either an exact source or map ref writes the projection's
@@ -89,7 +95,7 @@
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_robotics_hosted_authorization.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
   reports `159 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: the signed hosted adapters are local-contract proof,
-  not a deployed control-plane integration. Prediction/action-outcome records;
+  not a deployed control-plane integration. Prediction/action-outcome records (not needed for this tabletop fixture);
   camera/perception ingestion; ROS transport; binary asset store;
   live robot control, identity merge, spatial indexes, and a general
   world-model engine remain outside this bounded #19 slice.

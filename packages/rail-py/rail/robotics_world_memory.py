@@ -164,6 +164,21 @@ class RegionObjectsAnswer(Strict):
     object_refs: tuple[ResourceRef, ...] = ()
     evidence: tuple[ResourceRef, ...] = ()
 
+class IdentityResolution(Strict):
+    world_id: str
+    session_id: str
+    resolution_ref: ResourceRef
+    candidate_ref: ResourceRef
+    resolved_object_ref: ResourceRef
+    evidence_refs: tuple[ResourceRef, ...]
+    reviewer_id: str
+    valid_from: datetime
+    recorded_at: datetime
+
+class ActionFreshness(Strict):
+    status: Literal["usable", "needs-refresh", "unknown"]
+    evidence: tuple[ResourceRef, ...] = ()
+
 
 class WorldReader(Protocol):
     def authorize(self, ref: ResourceRef) -> None: ...
@@ -216,6 +231,7 @@ class TabletopWorldMemory:
         self._identity_candidate_records: list[TemporalRecord] = []
         self._region_records: list[TemporalRecord] = []
         self._relation_records: list[TemporalRecord] = []
+        self._resolution_records: list[TemporalRecord] = []
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
         self._tenant_id, self._project_id = tenant_id, project_id
@@ -303,6 +319,8 @@ class TabletopWorldMemory:
         for record in self._relation_records:
             self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
             self._projection.register_alias(self.relation_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+        for record in self._resolution_records:
+            self._projection.register_alias(self.resolution_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
 
     def _refresh(self) -> None:
         if self._projection is not None:
@@ -312,6 +330,7 @@ class TabletopWorldMemory:
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._region_records = [record for record in all_records if record.payload_schema == "robotics.place-region"]
             self._relation_records = [record for record in all_records if record.payload_schema == "robotics.spatial-relation"]
+            self._resolution_records = [record for record in all_records if record.payload_schema == "robotics.identity-resolution"]
             self._scenes = [SceneSnapshot.model_validate(row.payload["scene"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_scene_snapshot")]
             self._episodes = [SceneEpisode.model_validate(row.payload["episode"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_episode")]
 
@@ -372,6 +391,12 @@ class TabletopWorldMemory:
         if record.payload_schema != "robotics.spatial-relation":
             raise ValueError("relation reference requires a spatial relation")
         return ResourceRef(authority="robotics://world-memory", resource_type="spatial-relation", resource_id=record.record_id, version=record.revision, digest=record.record_digest)
+
+    @staticmethod
+    def resolution_ref(record: TemporalRecord) -> ResourceRef:
+        if record.payload_schema != "robotics.identity-resolution":
+            raise ValueError("resolution reference requires an identity resolution")
+        return ResourceRef(authority="robotics://world-memory", resource_type="identity-resolution", resource_id=record.record_id, version=record.revision, digest=record.record_digest)
 
     @staticmethod
     def map_revision_ref(world_id: str, map_revision: str) -> ResourceRef:
@@ -644,6 +669,63 @@ class TabletopWorldMemory:
             self._authorized_identity_candidate(record, reader)
         return tuple(self._candidate_from_record(record) for record in records)
 
+    def resolve_identity(self, candidate: IdentityCandidate, *, resolved_object_ref: ResourceRef, reviewer_id: str, evidence_refs: tuple[ResourceRef, ...], valid_from: datetime, recorded_at: datetime | None = None) -> IdentityResolution:
+        """Record an explicit reviewed choice; it never changes object identity."""
+        self._require_world(candidate.world_id); self._refresh()
+        candidate_record = self._candidate_record_for_ref(candidate.candidate_ref)
+        target = self._record_for_ref(resolved_object_ref)
+        if candidate_record is None or target is None or resolved_object_ref not in candidate.candidate_object_refs or target.entity_authority != f"robotics://world/{candidate.world_id}" or not reviewer_id.strip() or not evidence_refs:
+            raise ValueError("identity resolution requires an exact candidate, listed object, reviewer, and evidence")
+        if valid_from < candidate.valid_from:
+            raise ValueError("identity resolution cannot predate its candidate")
+        recorded_at = recorded_at or self._clock()
+        if recorded_at < max(candidate_record.ingested_at or candidate_record.recorded_at, target.ingested_at or target.recorded_at):
+            raise ValueError("identity resolution cannot be recorded before its inputs are known")
+        record = create_temporal_record(
+            record_id=f"{candidate.world_id}:{candidate.session_id}:identity-resolution:{candidate.candidate_ref.digest}:{reviewer_id}", entity_id=f"identity-resolution:{candidate.candidate_ref.digest}", entity_authority=f"robotics://world/{candidate.world_id}", payload_schema="robotics.identity-resolution", payload_schema_version="1.0.0", kind="approved_state", authority="robotics://world-memory", writer_family="robotics-world-memory", valid_from=valid_from, recorded_at=recorded_at, source_refs=tuple(dict.fromkeys((candidate.candidate_ref, resolved_object_ref, *evidence_refs))), revision=reviewer_id,
+            payload={"world_id": candidate.world_id, "session_id": candidate.session_id, "candidate_ref": candidate.candidate_ref.model_dump(mode="json"), "resolved_object_ref": resolved_object_ref.model_dump(mode="json"), "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs], "reviewer_id": reviewer_id},
+        )
+        if record not in self._resolution_records:
+            if self._projection is not None:
+                self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
+                self._projection.register_alias(self.resolution_ref(record), self._projection.record_ref(record), at=recorded_at)
+            self._resolution_records.append(record)
+        return IdentityResolution(world_id=candidate.world_id, session_id=candidate.session_id, resolution_ref=self.resolution_ref(record), candidate_ref=candidate.candidate_ref, resolved_object_ref=resolved_object_ref, evidence_refs=evidence_refs, reviewer_id=reviewer_id, valid_from=valid_from, recorded_at=recorded_at)
+
+    def resolved_identity(self, *, world_id: str, candidate_ref: ResourceRef, at: datetime, known_at: datetime, reader: WorldReader) -> IdentityResolution | None:
+        self._require_world(world_id); self._require_reader(reader); self._refresh()
+        records = [r for r in self._resolution_records if r.valid_from <= at and self._record_known_at(r, known_at) and r.payload["world_id"] == world_id and ResourceRef.model_validate(r.payload["candidate_ref"]).exact_key == candidate_ref.exact_key]
+        if not records: return None
+        record = max(records, key=lambda r: (r.valid_from, r.recorded_at, r.record_digest))
+        refs = (self.resolution_ref(record), self.record_ref(record), *(record.source_refs,))
+        try:
+            for ref in refs: reader.authorize(ref)
+        except PermissionError as exc: raise PermissionError("world-memory access denied") from exc
+        payload=record.payload
+        result=IdentityResolution(world_id=str(payload["world_id"]), session_id=str(payload["session_id"]), resolution_ref=self.resolution_ref(record), candidate_ref=ResourceRef.model_validate(payload["candidate_ref"]), resolved_object_ref=ResourceRef.model_validate(payload["resolved_object_ref"]), evidence_refs=tuple(ResourceRef.model_validate(x) for x in payload["evidence_refs"]), reviewer_id=str(payload["reviewer_id"]), valid_from=record.valid_from, recorded_at=record.recorded_at)
+        for ref in refs: reader.authorize(ref)
+        return result
+
+    def action_freshness(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, reader: WorldReader, required_frame_id: str | None = None, required_map_revision: str | None = None, region_ref: ResourceRef | None = None) -> ActionFreshness:
+        region = None
+        if region_ref is not None:
+            region = self.objects_in_region(world_id=world_id, region_ref=region_ref, at=at, known_at=known_at, reader=reader)
+            if region.status == "stale": return ActionFreshness(status="needs-refresh", evidence=region.evidence)
+        answer = self.location(world_id=world_id, object_id=object_id, at=at, known_at=known_at, estimated=True, reader=reader)
+        if answer.status == "stale": return ActionFreshness(status="needs-refresh", evidence=answer.evidence)
+        if answer.status not in {"observed", "estimated"} or answer.pose is None: return ActionFreshness(status="unknown", evidence=answer.evidence)
+        if (required_frame_id and answer.pose.frame_id != required_frame_id) or (required_map_revision and answer.pose.map_revision != required_map_revision): return ActionFreshness(status="unknown", evidence=answer.evidence)
+        evidence = answer.evidence
+        if region_ref is not None:
+            assert region is not None
+            evidence = tuple(dict.fromkeys((*evidence, *region.evidence)))
+            if region.status == "stale": return ActionFreshness(status="needs-refresh", evidence=evidence)
+            history = [r for r in self._records if r.entity_id == object_id and r.entity_authority == f"robotics://world/{world_id}"]
+            current = query_temporal_records(history, valid_at=at, known_at=known_at)
+            if region.status != "current" or not current or self.record_ref(current[-1]) not in region.object_refs: return ActionFreshness(status="unknown", evidence=evidence)
+        for ref in evidence: reader.authorize(ref)
+        return ActionFreshness(status="usable", evidence=evidence)
+
     def _region_from_record(self, record: TemporalRecord) -> PlaceRegion:
         if record.payload_schema != "robotics.place-region":
             raise ValueError("not a place region")
@@ -813,6 +895,11 @@ class TabletopWorldMemory:
         if region.world_id != world_id:
             return RegionObjectsAnswer(status="unknown")
         evidence = list(self._authorized_region(region_record, reader))
+        if self._projection is not None:
+            active = self._projection.active_invalidation_refs(valid_at=at, known_at=known_at)
+            canonical = self._projection.record_ref(region_record)
+            if any(ref.exact_key in {item.exact_key for item in active} for ref in region_record.source_refs) or any(canonical in self._projection.affected_region(ref) for ref in active):
+                return RegionObjectsAnswer(status="stale", evidence=tuple(evidence))
         records_by_object: dict[str, list[TemporalRecord]] = {}
         for record in self._records:
             if record.entity_authority == f"robotics://world/{world_id}":
@@ -1194,9 +1281,10 @@ def tabletop_episode_fixture(at: datetime, path: str | None = None, *, tenant_id
     right = next(record for record in memory._records if record.entity_id == "cup-right")
     occluded = memory.scene(world_id="table-a", scene_id="occluded", records=(estimate, right), reader=_FixtureReader(), place_id="table", session_id="session-1", valid_at=at + timedelta(minutes=1), recorded_at=at + timedelta(minutes=1))
     reobserved = memory.record(obj, Pose(frame_id="table", metres=(0.45, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at + timedelta(minutes=3), uncertainty_metres=0.01, revision="obs-2", map_revision="table-map-2"), kind="observation", evidence=(evidence,), recorded_at=at + timedelta(minutes=3))
+    identity_resolution = memory.resolve_identity(ambiguous_identity, resolved_object_ref=memory.record_ref(left), reviewer_id="fixture-reviewer", evidence_refs=(evidence,), valid_from=at + timedelta(minutes=3), recorded_at=at + timedelta(minutes=3))
     final = memory.scene(world_id="table-a", scene_id="reobserved", records=(reobserved, right), reader=_FixtureReader(), place_id="table", session_id="session-1", valid_at=at + timedelta(minutes=3), recorded_at=at + timedelta(minutes=3))
     episode = memory.episode(world_id="table-a", session_id="session-1", episode_id="occlusion-and-reobservation", scene_refs=(opening.scene_ref, occluded.scene_ref, final.scene_ref), reader=_FixtureReader(), valid_from=at, completed_at=at + timedelta(minutes=3), recorded_at=at + timedelta(minutes=3))
-    return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved, "opening_scene": opening, "occluded_scene": occluded, "final_scene": final, "episode": episode, "table_region": table_region, "left_support": left_support, "initial_appearance": initial_appearance, "ambiguous_identity": ambiguous_identity}
+    return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved, "identity_resolution": identity_resolution, "opening_scene": opening, "occluded_scene": occluded, "final_scene": final, "episode": episode, "table_region": table_region, "left_support": left_support, "initial_appearance": initial_appearance, "ambiguous_identity": ambiguous_identity}
 
 
-__all__ = ["AppearanceObservation", "IdentityCandidate", "LocationAnswer", "ObjectHistory", "PlaceRegion", "Pose", "RegionObjectsAnswer", "SceneEpisode", "SceneSnapshot", "SpatialRelation", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
+__all__ = ["ActionFreshness", "AppearanceObservation", "IdentityCandidate", "IdentityResolution", "LocationAnswer", "ObjectHistory", "PlaceRegion", "Pose", "RegionObjectsAnswer", "SceneEpisode", "SceneSnapshot", "SpatialRelation", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]

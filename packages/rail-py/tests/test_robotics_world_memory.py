@@ -301,6 +301,8 @@ def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
     # Similar cups stay ambiguous until an exact object ID is supplied.
     assert memory.locate_class(world_id="table-a", class_label="red-cup", at=NOW, known_at=NOW, reader=Allow()).status == "ambiguous"
     assert memory.identity_candidates(world_id="table-a", appearance_ref=episode["initial_appearance"].appearance_ref, at=NOW, known_at=NOW, reader=Allow()) == (episode["ambiguous_identity"],)
+    assert memory.resolved_identity(world_id="table-a", candidate_ref=episode["ambiguous_identity"].candidate_ref, at=NOW, known_at=NOW, reader=Allow()) is None
+    assert memory.resolved_identity(world_id="table-a", candidate_ref=episode["ambiguous_identity"].candidate_ref, at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()) == episode["identity_resolution"]
     region_answer = memory.objects_in_region(world_id="table-a", region_ref=episode["table_region"].region_ref, at=NOW, known_at=NOW, reader=Allow())
     assert region_answer.status == "current" and region_answer.object_refs == (memory.record_ref(initial),)
     assert memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()) == (episode["left_support"],)
@@ -486,11 +488,15 @@ def test_persisted_regions_relations_and_bounded_same_frame_membership(tmp_path)
     )
     answer = memory.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
     assert answer.status == "current" and answer.object_refs == (memory.record_ref(left),) and answer.evidence
+    assert memory.action_freshness(world_id="table-a", object_id="cup-left", at=NOW, known_at=NOW, reader=Allow(), required_frame_id="table", required_map_revision="table-map-1", region_ref=region.region_ref).status == "usable"
     assert {item.relation_type for item in memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow())} == {relation.relation_type, containment.relation_type, attachment.relation_type}
     memory.rebuild_projection(valid_at=NOW, known_at=NOW, at=NOW)
     reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
     assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(left),)
     assert reopened.objects_in_region(world_id="other", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).status == "unknown"
+    reopened.invalidate_map_revision(evidence("left-zone"), reason="region calibration withdrawn", at=NOW + timedelta(minutes=1))
+    assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=Allow()).status == "stale"
+    assert reopened.action_freshness(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=Allow(), region_ref=region.region_ref).status == "needs-refresh"
     with pytest.raises(PermissionError, match="world-memory access denied"):
         reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Deny())
     # A frame mismatch is not transformed or guessed; it makes this bounded
