@@ -673,8 +673,9 @@ class TabletopWorldMemory:
         """Record an explicit reviewed choice; it never changes object identity."""
         self._require_world(candidate.world_id); self._refresh()
         candidate_record = self._candidate_record_for_ref(candidate.candidate_ref)
+        canonical_candidate = self._candidate_from_record(candidate_record) if candidate_record is not None else None
         target = self._record_for_ref(resolved_object_ref)
-        if candidate_record is None or target is None or resolved_object_ref not in candidate.candidate_object_refs or target.entity_authority != f"robotics://world/{candidate.world_id}" or not reviewer_id.strip() or not evidence_refs:
+        if canonical_candidate is None or candidate != canonical_candidate or target is None or resolved_object_ref not in canonical_candidate.candidate_object_refs or target.entity_authority != f"robotics://world/{canonical_candidate.world_id}" or not reviewer_id.strip() or not evidence_refs:
             raise ValueError("identity resolution requires an exact candidate, listed object, reviewer, and evidence")
         if valid_from < candidate.valid_from:
             raise ValueError("identity resolution cannot predate its candidate")
@@ -682,8 +683,8 @@ class TabletopWorldMemory:
         if recorded_at < max(candidate_record.ingested_at or candidate_record.recorded_at, target.ingested_at or target.recorded_at):
             raise ValueError("identity resolution cannot be recorded before its inputs are known")
         record = create_temporal_record(
-            record_id=f"{candidate.world_id}:{candidate.session_id}:identity-resolution:{candidate.candidate_ref.digest}:{reviewer_id}", entity_id=f"identity-resolution:{candidate.candidate_ref.digest}", entity_authority=f"robotics://world/{candidate.world_id}", payload_schema="robotics.identity-resolution", payload_schema_version="1.0.0", kind="approved_state", authority="robotics://world-memory", writer_family="robotics-world-memory", valid_from=valid_from, recorded_at=recorded_at, source_refs=tuple(dict.fromkeys((candidate.candidate_ref, resolved_object_ref, *evidence_refs))), revision=reviewer_id,
-            payload={"world_id": candidate.world_id, "session_id": candidate.session_id, "candidate_ref": candidate.candidate_ref.model_dump(mode="json"), "resolved_object_ref": resolved_object_ref.model_dump(mode="json"), "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs], "reviewer_id": reviewer_id},
+            record_id=f"{canonical_candidate.world_id}:{canonical_candidate.session_id}:identity-resolution:{canonical_candidate.candidate_ref.digest}:{reviewer_id}", entity_id=f"identity-resolution:{canonical_candidate.candidate_ref.digest}", entity_authority=f"robotics://world/{canonical_candidate.world_id}", payload_schema="robotics.identity-resolution", payload_schema_version="1.0.0", kind="approved_state", authority="robotics://world-memory", writer_family="robotics-world-memory", valid_from=valid_from, recorded_at=recorded_at, source_refs=tuple(dict.fromkeys((canonical_candidate.candidate_ref, resolved_object_ref, *evidence_refs))), revision=reviewer_id,
+            payload={"world_id": canonical_candidate.world_id, "session_id": canonical_candidate.session_id, "candidate_ref": canonical_candidate.candidate_ref.model_dump(mode="json"), "resolved_object_ref": resolved_object_ref.model_dump(mode="json"), "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs], "reviewer_id": reviewer_id},
         )
         if record not in self._resolution_records:
             if self._projection is not None:
@@ -697,7 +698,7 @@ class TabletopWorldMemory:
         records = [r for r in self._resolution_records if r.valid_from <= at and self._record_known_at(r, known_at) and r.payload["world_id"] == world_id and ResourceRef.model_validate(r.payload["candidate_ref"]).exact_key == candidate_ref.exact_key]
         if not records: return None
         record = max(records, key=lambda r: (r.valid_from, r.recorded_at, r.record_digest))
-        refs = (self.resolution_ref(record), self.record_ref(record), *(record.source_refs,))
+        refs = (self.resolution_ref(record), self.record_ref(record), *record.source_refs)
         try:
             for ref in refs: reader.authorize(ref)
         except PermissionError as exc: raise PermissionError("world-memory access denied") from exc
