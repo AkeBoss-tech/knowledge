@@ -75,8 +75,8 @@ interleaved-writer regression proves a local write cannot fast-forward past an
 unseen external row. The current optimization rebuilds
 authority-qualified exact-ref and entity-history maps after every refresh, so
 each selected candidate no longer linearly scans all refreshed records. It does
-not bypass current reader authorization or invalidation checks; a store-level
-The temporal change ledger now selectively loads exact immutable rows after an
+not bypass current reader authorization or invalidation checks. The temporal
+change ledger selectively loads exact immutable rows after an
 external cursor change; a regression verifies one external row parses one row
 while a repeated current read parses zero. Full rebuild remains the conservative
 fallback for old stores, oversized ledger gaps, or non-temporal cached changes.
@@ -111,7 +111,8 @@ candidate rows and cells inspected on every regional query.
 | Rebuildable spatial projection/restart | constructor rebuild and deterministic restart regression | Met for RAM grid. |
 | Valid/known time, deletion/revocation/invalidation | explicit snapshot admission; same-cutoff canonical writes incrementally apply; authorized `objects_in_region` uses candidate refs then existing reader/invalidation checks; expired/frame-mismatched cases and any active invalidation conservatively fall back | Partial: no direct projection subscription or tombstone index. |
 | World/session isolation and abstention | world/frame/revision buckets, authority-qualified IDs, duplicate-ID regression, no-frame abstention | Partial: world isolation covered; session is not in current object records and remains a world-memory query concern. |
-| Full benchmark fixture | two object/bucket scales and recorded work counts | Partial: no p50/p95, history/appearance/scene/asset byte or delayed-update-rate benchmark. |
+| Full benchmark fixture | deterministic p50/p95 public/raw region, appearance, finite-fixture history, scene and scene-diff reads; metadata bytes, delayed abstention, restart and two scales | Partial: no bounded history interval benchmark, large asset retention policy, or broad full query matrix. |
+| Appearance similarity | opt-in bounded cosine descriptors and rebuildable exact RAM search with live world-reader checks | Partial: exact search only; ANN/vector acceleration and visual-quality evaluation remain absent. |
 | R-tree/ANN/relationship indexes, SQLite tier, live ROS/MoveIt integration | Not introduced | Remaining #20 work. |
 
 The grid intentionally has a fixed query-cell budget; broad regions return
