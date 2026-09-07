@@ -79,8 +79,12 @@ def main() -> None:
         rebuild_work = memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
         rebuild_ms = (time.perf_counter_ns() - rebuild_start) / 1_000_000
         public = lambda: memory.objects_in_region(world_id="bench", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+        appearance = lambda: memory.appearance_gallery(world_id="bench", object_id="object-0", at=NOW, known_at=NOW, reader=Allow())
+        history = lambda: memory.object_history(world_id="bench", object_id="object-0", valid_from=NOW - timedelta(seconds=args.observations), valid_to=None, known_at=NOW, reader=Allow())
+        scene_read = lambda: memory.scene_at(world_id="bench", place_id="table", session_id="bench-session", at=NOW, known_at=NOW, reader=Allow())
         raw = lambda: memory._spatial_current.candidate_query(world_id="bench", frame_id="table", map_revision="map-1", minimum=(-.1, .1, -.1), maximum=(.2, .3, .1))
         public_answer = public()
+        appearance_answer, history_answer, scene_answer = appearance(), history(), scene_read()
         public_work = dict(memory.last_region_read_work)
         raw_answer = raw()
         def public_forced_refresh():
@@ -89,6 +93,9 @@ def main() -> None:
             return public()
         forced_refresh_timing = elapsed_ms(public_forced_refresh, args.repeats)
         public_timing = elapsed_ms(public, args.repeats)
+        appearance_timing = elapsed_ms(appearance, args.repeats)
+        history_timing = elapsed_ms(history, args.repeats)
+        scene_timing = elapsed_ms(scene_read, args.repeats)
         observer = TabletopWorldMemory(path, tenant_id="bench", project_id="spatial", clock=lambda: NOW)
         observer.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
         memory.record(WorldObject(world_id="bench", object_id="external", class_label="fixture", asset_ref=ref("asset", "external")), Pose(frame_id="table", metres=(.8, .2, 0), quaternion_xyzw=(0, 0, 0, 1), observed_at=NOW, uncertainty_metres=.001, revision="external", map_revision="map-1"), kind="observation", evidence=(ref("camera", "external"),), recorded_at=NOW)
@@ -118,17 +125,20 @@ def main() -> None:
             "runtime": {"python": sys.version.split()[0], "platform": platform.platform()},
             "fixture": {"objects": args.objects, "observations_per_object": args.observations, "appearance_records": len(memory._appearance_records), "scene_snapshots": len(memory._scenes), "external_asset_refs": len(assets), "embedded_asset_bytes": 0},
             "public_authorized_region_query": public_timing,
+            "public_authorized_appearance_gallery": appearance_timing,
+            "public_authorized_object_history": history_timing,
+            "public_authorized_scene_read": scene_timing,
             "public_authorized_region_query_forced_refresh": forced_refresh_timing,
             "raw_grid_candidate_query": raw_timing,
             "rebuild": {"ms": round(rebuild_ms, 4), **rebuild_work.__dict__},
             "incremental_move": {"ms": round(update_ms, 4), **update_work.__dict__},
             "cross_process_update": external_update,
             "change_ledger": {"entries": len(memory._projection.store.list("bench", "spatial", kind="temporal_scope_change"))},
-            "reads": {"public_hits": len(public_answer.object_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work},
+            "reads": {"public_hits": len(public_answer.object_refs), "appearance_refs": len(appearance_answer), "history_records": len(history_answer.records), "scene_object_refs": len(scene_answer.object_refs) if scene_answer else 0, "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work},
             "retained_metadata_bytes": {"total": len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()), "per_observation": round(sum(len(json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()) for record in memory._records) / len(memory._records), 1), "per_object": round(len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()) / args.objects, 1), "per_snapshot_serialized": round(statistics.mean(scene_bytes), 1)},
             "delayed_update": {"queries": 1, "expected_abstention": 1, "abstentions": int(delayed.status in {"stale", "unknown"}), "obsolete_incorrect": int(delayed.status not in {"stale", "unknown"}), "obsolete_rate": float(delayed.status not in {"stale", "unknown"}), "status": delayed.status},
             "restart": {"equivalent_authorized_refs": restart_equal, **reopen_work.__dict__},
-            "unavailable": ["fine geometry fetch: no asset transport", "appearance ANN: no vector index", "ROS/MoveIt live control: out of scope"],
+            "unavailable": ["fine geometry fetch: no asset transport", "appearance ANN: no vector index", "scene-diff query: no public operation", "ROS/MoveIt live control: out of scope"],
         }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

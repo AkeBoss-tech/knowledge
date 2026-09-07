@@ -5,7 +5,7 @@
   },
   "command": "scripts/benchmark_robotics_spatial_projection.py --output docs/agents/knowledge-20-benchmark-baseline.json",
   "cross_process_update": {
-    "ms": 146.3618,
+    "ms": 153.9522,
     "temporal_rows_parsed": 130
   },
   "delayed_update": {
@@ -27,33 +27,48 @@
   "incremental_move": {
     "history_rows_read": 4,
     "index_rows_touched": 2,
-    "ms": 86.3999
+    "ms": 92.345
+  },
+  "public_authorized_appearance_gallery": {
+    "p50_ms": 4.3479,
+    "p95_ms": 4.4048
+  },
+  "public_authorized_object_history": {
+    "p50_ms": 3.5493,
+    "p95_ms": 3.6488
   },
   "public_authorized_region_query": {
-    "p50_ms": 30.4915,
-    "p95_ms": 36.7628
+    "p50_ms": 32.5221,
+    "p95_ms": 39.0291
   },
   "public_authorized_region_query_forced_refresh": {
-    "p50_ms": 44.3729,
-    "p95_ms": 50.5884
+    "p50_ms": 47.427,
+    "p95_ms": 55.3658
+  },
+  "public_authorized_scene_read": {
+    "p50_ms": 4.0479,
+    "p95_ms": 4.1077
   },
   "raw_grid_candidate_query": {
-    "p50_ms": 0.0114,
-    "p95_ms": 0.0139
+    "p50_ms": 0.0117,
+    "p95_ms": 0.0191
   },
   "reads": {
+    "appearance_refs": 1,
     "canonical_rows_loaded": 96,
     "exact_candidate_rows": 7,
+    "history_records": 3,
     "history_rows_selected": 7,
     "public_hits": 7,
     "raw_candidate_rows": 10,
     "raw_cells": 24,
+    "scene_object_refs": 32,
     "temporal_rows_parsed": 0
   },
   "rebuild": {
     "history_rows_read": 96,
     "index_rows_touched": 32,
-    "ms": 24.9232
+    "ms": 27.3751
   },
   "restart": {
     "equivalent_authorized_refs": true,
@@ -73,6 +88,7 @@
   "unavailable": [
     "fine geometry fetch: no asset transport",
     "appearance ANN: no vector index",
+    "scene-diff query: no public operation",
     "ROS/MoveIt live control: out of scope"
   ]
 }

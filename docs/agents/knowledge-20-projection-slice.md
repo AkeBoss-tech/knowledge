@@ -57,6 +57,13 @@ Public and raw timings are measured at the same admitted snapshot. A delayed
 observation's expected `unknown`/`stale` abstention is reported separately from
 an incorrect obsolete result.
 
+The same fixture also times authorized appearance-gallery, bounded
+object-history, and scene reads, and records their returned reference/record
+counts. Assets stay immutable references with zero embedded bytes; serialized
+metadata accounting is the retention boundary measured here. A public
+scene-diff operation and an appearance ANN remain unavailable and are reported
+as such rather than inferred from snapshot rows.
+
 [Two-scale read profiling](knowledge-20-read-profile.json) shows the remaining
 owner-path boundary clearly: forced refresh of 16 and 32 objects parses 48 and
 96 temporal rows respectively, while the prepared spatial query selects 4 and
