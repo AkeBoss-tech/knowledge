@@ -550,6 +550,51 @@ class TabletopWorldMemory:
             raise PermissionError("world-memory access denied") from exc
         return tuple(dict.fromkeys((*refs, *appearance_evidence, *object_evidence)))
 
+    def _authorized_identity_resolution(self, record: TemporalRecord, reader: WorldReader) -> tuple[ResourceRef, ...]:
+        """Authorize a resolution and every canonical dependency it discloses.
+
+        A reviewed selection is not independently readable merely because its
+        row is granted: it exposes its candidate, visual observation, raw
+        object observations, and review evidence.  Reconstruct those inputs
+        from canonical records instead of trusting a caller-supplied model.
+        """
+
+        payload = record.payload
+        candidate_ref = ResourceRef.model_validate(payload["candidate_ref"])
+        resolved_object_ref = ResourceRef.model_validate(payload["resolved_object_ref"])
+        candidate_record = self._candidate_record_for_ref(candidate_ref)
+        target = self._record_for_ref(resolved_object_ref)
+        if (
+            candidate_record is None
+            or target is None
+            or candidate_record.entity_authority != record.entity_authority
+            or target.entity_authority != record.entity_authority
+            or resolved_object_ref not in self._candidate_from_record(candidate_record).candidate_object_refs
+        ):
+            raise PermissionError("world-memory access denied")
+        refs = [self.resolution_ref(record), self.record_ref(record), *record.source_refs]
+        if self._projection is not None:
+            refs.append(self._projection.record_ref(record))
+        refs = tuple(dict.fromkeys(refs))
+        try:
+            for ref in refs:
+                reader.authorize(ref)
+            candidate_evidence = self._authorized_identity_candidate(candidate_record, reader)
+            object_evidence = self._authorized_evidence(target, reader)
+        except PermissionError as exc:
+            raise PermissionError("world-memory access denied") from exc
+        return tuple(dict.fromkeys((*refs, *candidate_evidence, *object_evidence)))
+
+    def _projection_marks_record_stale(self, record: TemporalRecord, *, valid_at: datetime, known_at: datetime) -> bool:
+        if self._projection is None:
+            return False
+        active_refs = self._projection.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+        active_keys = {ref.exact_key for ref in active_refs}
+        if any(ref.exact_key in active_keys for ref in record.source_refs):
+            return True
+        canonical = self._projection.record_ref(record)
+        return any(canonical in self._projection.affected_region(ref) for ref in active_refs)
+
     def record_appearance(
         self, obj: WorldObject, source_observation: TemporalRecord, *, asset_ref: ResourceRef,
         crop_ref: ResourceRef | None = None, mask_ref: ResourceRef | None = None,
@@ -670,7 +715,12 @@ class TabletopWorldMemory:
         return tuple(self._candidate_from_record(record) for record in records)
 
     def resolve_identity(self, candidate: IdentityCandidate, *, resolved_object_ref: ResourceRef, reviewer_id: str, evidence_refs: tuple[ResourceRef, ...], valid_from: datetime, recorded_at: datetime | None = None) -> IdentityResolution:
-        """Record an explicit reviewed choice; it never changes object identity."""
+        """Record an explicit reviewed choice; it never changes object identity.
+
+        ``reviewer_id`` is asserted review metadata.  The signed projection
+        writer is the authenticated actor; callers must not treat this label
+        as a substitute for authenticated reviewer identity.
+        """
         self._require_world(candidate.world_id); self._refresh()
         candidate_record = self._candidate_record_for_ref(candidate.candidate_ref)
         canonical_candidate = self._candidate_from_record(candidate_record) if candidate_record is not None else None
@@ -698,13 +748,14 @@ class TabletopWorldMemory:
         records = [r for r in self._resolution_records if r.valid_from <= at and self._record_known_at(r, known_at) and r.payload["world_id"] == world_id and ResourceRef.model_validate(r.payload["candidate_ref"]).exact_key == candidate_ref.exact_key]
         if not records: return None
         record = max(records, key=lambda r: (r.valid_from, r.recorded_at, r.record_digest))
-        refs = (self.resolution_ref(record), self.record_ref(record), *record.source_refs)
-        try:
-            for ref in refs: reader.authorize(ref)
-        except PermissionError as exc: raise PermissionError("world-memory access denied") from exc
+        if self._projection_marks_record_stale(record, valid_at=at, known_at=known_at):
+            return None
+        self._authorized_identity_resolution(record, reader)
         payload=record.payload
         result=IdentityResolution(world_id=str(payload["world_id"]), session_id=str(payload["session_id"]), resolution_ref=self.resolution_ref(record), candidate_ref=ResourceRef.model_validate(payload["candidate_ref"]), resolved_object_ref=ResourceRef.model_validate(payload["resolved_object_ref"]), evidence_refs=tuple(ResourceRef.model_validate(x) for x in payload["evidence_refs"]), reviewer_id=str(payload["reviewer_id"]), valid_from=record.valid_from, recorded_at=record.recorded_at)
-        for ref in refs: reader.authorize(ref)
+        # Repeat the complete authorization chain immediately before return to
+        # close a revocation race between materialization and disclosure.
+        self._authorized_identity_resolution(record, reader)
         return result
 
     def action_freshness(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, reader: WorldReader, required_frame_id: str | None = None, required_map_revision: str | None = None, region_ref: ResourceRef | None = None) -> ActionFreshness:

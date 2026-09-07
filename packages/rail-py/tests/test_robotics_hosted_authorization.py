@@ -262,3 +262,81 @@ def test_hosted_appearance_and_identity_candidate_writes_use_projection_writer(t
     denied = TabletopWorldMemory(str(candidate_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=read_only_writer, projection_invalidation_authorizer=invalidator)
     with pytest.raises(PermissionError, match="denied"):
         denied.propose_identity_candidates(persisted_appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(denied.record_ref(left), denied.record_ref(right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))
+
+
+def test_hosted_identity_resolution_binds_current_writer_and_full_read_dependency_chain(tmp_path):
+    """A reviewed resolution is only visible while every input remains granted."""
+
+    draft = TabletopWorldMemory(clock=lambda: NOW)
+    left_object = WorldObject(world_id=WORLD, object_id="left", class_label="cup")
+    right_object = WorldObject(world_id=WORLD, object_id="right", class_label="cup")
+    left = draft.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    right = draft.record(right_object, pose(0.2, "right"), kind="observation", evidence=(evidence("right-sensor"),))
+    appearance = draft.record_appearance(left_object, left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+    candidate = draft.propose_identity_candidates(appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(draft.record_ref(left), draft.record_ref(right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))
+    resolution = draft.resolve_identity(candidate, resolved_object_ref=draft.record_ref(left), reviewer_id="reviewer-metadata", evidence_refs=(evidence("review"),), valid_from=NOW + timedelta(minutes=1))
+    appearance_record = draft._appearance_records[0]
+    candidate_record = draft._identity_candidate_records[0]
+    resolution_record = draft._resolution_records[0]
+    records = (left, right, appearance_record, candidate_record, resolution_record)
+    refs = tuple(dict.fromkeys((
+        *(ref for record in records for ref in record.source_refs),
+        *(draft.record_ref(record) for record in records),
+        *(TemporalProjectionService.record_ref(record) for record in records),
+        appearance.appearance_ref, candidate.candidate_ref, resolution.resolution_ref,
+    )))
+    event = create_projection_tombstone(event_id="resolution-review-revoked", target_ref=evidence("review"), reason="review evidence withdrawn", effective_at=NOW + timedelta(minutes=2), recorded_at=NOW + timedelta(minutes=2))
+    authority = AccessContextAuthority({"key": b"robotics-key"}, issuer="https://control.example.test")
+
+    def signed(writer_context, reader_context=None):
+        reader_context = reader_context or authority.issue(claims(actions=("context.read",), refs=refs, nonce=f"reader-{writer_context.context_digest}"), key_id="key")
+        invalidation_context = authority.issue(claims(actions=("procedure.invalidate",), refs=refs, nonce=f"invalidate-{writer_context.context_digest}"), key_id="key")
+        return adapters(authority, reader_context=reader_context, writer_context=writer_context, invalidation_context=invalidation_context, refs=refs, records=records, event_digest=event.tombstone_digest)
+
+    writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, nonce="resolution-writer"), key_id="key")
+    reader, writer, invalidator = signed(writer_context)
+    path = tmp_path / "resolution.json"
+    memory = TabletopWorldMemory(str(path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=writer, projection_invalidation_authorizer=invalidator)
+    hosted_left = memory.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    hosted_right = memory.record(right_object, pose(0.2, "right"), kind="observation", evidence=(evidence("right-sensor"),))
+    hosted_appearance = memory.record_appearance(left_object, hosted_left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+    hosted_candidate = memory.propose_identity_candidates(hosted_appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(memory.record_ref(hosted_left), memory.record_ref(hosted_right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))
+    assert memory.resolve_identity(hosted_candidate, resolved_object_ref=memory.record_ref(hosted_left), reviewer_id="reviewer-metadata", evidence_refs=(evidence("review"),), valid_from=NOW + timedelta(minutes=1)) == resolution
+    assert memory.resolved_identity(world_id=WORLD, candidate_ref=hosted_candidate.candidate_ref, at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=reader) == resolution
+
+    # Caller-controlled identity models and cross-world object references cannot
+    # replace the canonical candidate selected by the signed write path.
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.resolve_identity(hosted_candidate.model_copy(update={"world_id": "other"}), resolved_object_ref=memory.record_ref(hosted_left), reviewer_id="forged", evidence_refs=(evidence("review"),), valid_from=NOW + timedelta(minutes=1))
+    foreign = TabletopWorldMemory(clock=lambda: NOW).record(WorldObject(world_id="other", object_id="left", class_label="cup"), pose(0.1, "foreign"), kind="observation", evidence=(evidence("foreign"),))
+    with pytest.raises(ValueError, match="exact candidate"):
+        memory.resolve_identity(hosted_candidate, resolved_object_ref=TabletopWorldMemory.record_ref(foreign), reviewer_id="forged", evidence_refs=(evidence("review"),), valid_from=NOW + timedelta(minutes=1))
+
+    # Reopening the canonical candidate with an expired writer cannot publish
+    # an otherwise-valid resolution.
+    bootstrap_path = tmp_path / "resolution-expired-writer.json"
+    bootstrap = TabletopWorldMemory(str(bootstrap_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=writer, projection_invalidation_authorizer=invalidator)
+    bootstrap_left = bootstrap.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    bootstrap_right = bootstrap.record(right_object, pose(0.2, "right"), kind="observation", evidence=(evidence("right-sensor"),))
+    bootstrap_appearance = bootstrap.record_appearance(left_object, bootstrap_left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+    bootstrap_candidate = bootstrap.propose_identity_candidates(bootstrap_appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(bootstrap.record_ref(bootstrap_left), bootstrap.record_ref(bootstrap_right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))
+    expired_writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, expires_at=NOW - timedelta(seconds=1), nonce="resolution-expired-writer"), key_id="key")
+    expired_reader, expired_writer, expired_invalidator = signed(expired_writer_context)
+    expired = TabletopWorldMemory(str(bootstrap_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=expired_reader, projection_writer=expired_writer, projection_invalidation_authorizer=expired_invalidator)
+    with pytest.raises(PermissionError, match="robotics world-memory"):
+        expired.resolve_identity(bootstrap_candidate, resolved_object_ref=expired.record_ref(bootstrap_left), reviewer_id="reviewer-metadata", evidence_refs=(evidence("review"),), valid_from=NOW + timedelta(minutes=1))
+
+    # A reader that can see the resolution row but lacks raw visual evidence
+    # must not receive the derived reviewed choice.
+    restricted_refs = tuple(ref for ref in refs if ref != evidence("left-sensor"))
+    restricted_context = authority.issue(claims(actions=("context.read",), refs=restricted_refs, nonce="resolution-restricted-reader"), key_id="key")
+    restricted_reader = HostedRoboticsWorldReader(authority, restricted_context, tenant_id="tenant", project_id="project", world_id=WORLD, exact_refs=restricted_refs, capability_digest=robotics_world_memory_scope_digest(tenant_id="tenant", project_id="project", world_id=WORLD, exact_refs=restricted_refs), clock=lambda: NOW)
+    restricted = TabletopWorldMemory(str(path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=restricted_reader, projection_writer=writer, projection_invalidation_authorizer=invalidator)
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        restricted.resolved_identity(world_id=WORLD, candidate_ref=hosted_candidate.candidate_ref, at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=restricted_reader)
+
+    assert memory.invalidate_map_revision(evidence("review"), reason="review evidence withdrawn", at=NOW + timedelta(minutes=2), event_id=event.event_id, world_id=WORLD) == (TemporalProjectionService.record_ref(resolution_record),)
+    assert memory.resolved_identity(world_id=WORLD, candidate_ref=hosted_candidate.candidate_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=reader) is None
+    authority.revocations.revoke_context(reader.context.context_digest, revoked_at=NOW)
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.resolved_identity(world_id=WORLD, candidate_ref=hosted_candidate.candidate_ref, at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=reader)
