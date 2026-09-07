@@ -5,6 +5,8 @@ merge identities by similarity. Poses are SI metres in an explicit frame.
 """
 from __future__ import annotations
 
+import base64
+import json
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import isfinite, sqrt
@@ -95,6 +97,8 @@ class ObjectHistory(Strict):
     object_id: str
     records: tuple[TemporalRecord, ...]
     evidence: tuple[ResourceRef, ...]
+    truncated: bool = False
+    continuation: str | None = None
 
 
 class AppearanceObservation(Strict):
@@ -1446,18 +1450,97 @@ class TabletopWorldMemory:
         self._authorize_episode(episode, reader)
         return episode
 
-    def object_history(self, *, world_id: str, object_id: str, valid_from: datetime, valid_to: datetime | None, known_at: datetime, reader: WorldReader) -> ObjectHistory:
+    @staticmethod
+    def _history_continuation_payload(
+        *, world_id: str, object_id: str, valid_from: datetime, valid_to: datetime | None,
+        known_at: datetime, scope_cursor: int | None, records: tuple[TemporalRecord, ...],
+        after_digest: str,
+    ) -> dict[str, object]:
+        """Bind a cursor to one exact, immutable history query snapshot.
+
+        The value is deliberately self-describing rather than a storage handle.
+        Every use recomputes and verifies this payload from canonical records;
+        callers therefore cannot use a modified token to mix snapshots.
+        """
+        return {
+            "v": 1,
+            "world_id": world_id,
+            "object_id": object_id,
+            "valid_from": valid_from.isoformat(),
+            "valid_to": valid_to.isoformat() if valid_to else None,
+            "known_at": known_at.isoformat(),
+            "scope_cursor": scope_cursor,
+            "records": [record.record_digest for record in records],
+            "after_digest": after_digest,
+        }
+
+    @staticmethod
+    def _encode_history_continuation(payload: dict[str, object]) -> str:
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(encoded).decode().rstrip("=")
+
+    @staticmethod
+    def _decode_history_continuation(token: str) -> dict[str, object]:
+        try:
+            raw = token + "=" * (-len(token) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(raw.encode()))
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("object history continuation is invalid") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("object history continuation is invalid")
+        return payload
+
+    def object_history(
+        self, *, world_id: str, object_id: str, valid_from: datetime,
+        valid_to: datetime | None, known_at: datetime, reader: WorldReader,
+        limit: int = 128, continuation: str | None = None,
+    ) -> ObjectHistory:
         self._require_world(world_id)
         self._require_reader(reader)
+        if not 1 <= limit <= 128:
+            raise ValueError("object history limit must be between 1 and 128")
         self._refresh()
-        records = tuple(sorted((record for record in self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ()) if record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
+        all_records = tuple(sorted((record for record in self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ()) if record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
+        scope_cursor = self._projection.scope_cursor() if self._projection is not None else None
+        start = 0
+        if continuation is not None:
+            received = self._decode_history_continuation(continuation)
+            expected = self._history_continuation_payload(
+                world_id=world_id, object_id=object_id, valid_from=valid_from,
+                valid_to=valid_to, known_at=known_at, scope_cursor=scope_cursor,
+                records=all_records, after_digest=str(received.get("after_digest", "")),
+            )
+            if received != expected:
+                raise ValueError("object history continuation is stale or does not match this query")
+            digests = [record.record_digest for record in all_records]
+            try:
+                start = digests.index(expected["after_digest"]) + 1
+            except ValueError as exc:
+                raise ValueError("object history continuation is stale or does not match this query") from exc
+
+        # The partial marker and continuation expose that additional rows exist.
+        # Establish authority over the whole exact query snapshot before either
+        # can be returned, then recheck the disclosed page immediately before
+        # return. This is intentionally output-bounded, not work-bounded.
+        for record in all_records:
+            self._authorized_evidence(record, reader)
+        records = all_records[start:start + limit]
+        truncated = start + len(records) < len(all_records)
+        next_token = None
+        if truncated:
+            payload = self._history_continuation_payload(
+                world_id=world_id, object_id=object_id, valid_from=valid_from,
+                valid_to=valid_to, known_at=known_at, scope_cursor=scope_cursor,
+                records=all_records, after_digest=records[-1].record_digest,
+            )
+            next_token = self._encode_history_continuation(payload)
         evidence: tuple[ResourceRef, ...] = ()
         for record in records:
             evidence += self._authorized_evidence(record, reader)
         evidence = tuple(dict.fromkeys(evidence))
         for record in records:
             self._authorized_evidence(record, reader)
-        return ObjectHistory(world_id=world_id, object_id=object_id, records=records, evidence=evidence)
+        return ObjectHistory(world_id=world_id, object_id=object_id, records=records, evidence=evidence, truncated=truncated, continuation=next_token)
 
     def location(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, estimated: bool, reader: WorldReader) -> LocationAnswer:
         self._require_world(world_id)

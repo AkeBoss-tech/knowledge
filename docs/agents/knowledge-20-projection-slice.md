@@ -58,9 +58,19 @@ observation's expected `unknown`/`stale` abstention is reported separately from
 an incorrect obsolete result.
 
 The same fixture also times authorized appearance-gallery, finite-fixture
-object-history (the API's `valid_to=None` remains unbounded), scene reads, and
-scene diffs, and records their returned reference/record
-counts. Assets stay immutable references with zero embedded bytes; serialized
+object-history, scene reads, and scene diffs, and records their returned
+reference/record counts. `object_history()` now has an explicit `limit` from 1
+through 128 (default 128). A full page returns `truncated=true` and a
+snapshot-bound continuation; the final page returns `truncated=false` and no
+continuation. The cursor binds world/object, valid interval, known cutoff,
+canonical scope cursor, ordered exact record digests, and the last returned
+digest. It is rejected after a canonical mutation or when reused with another
+query. Before it reveals either a partial marker or cursor, the reader must be
+authorized for the entire matching snapshot, and each disclosed page is
+checked again immediately before return. This bounds output, while the current
+implementation still materializes, orders, and authorizes all matching history
+rows; `valid_to=None` remains an unbounded query domain. Assets stay immutable
+references with zero embedded bytes; serialized
 metadata accounting is the retention boundary measured here. A public
 appearance ANN remains unavailable and is reported as such rather than inferred
 from snapshot rows.
@@ -111,7 +121,7 @@ candidate rows and cells inspected on every regional query.
 | Rebuildable spatial projection/restart | constructor rebuild and deterministic restart regression | Met for RAM grid. |
 | Valid/known time, deletion/revocation/invalidation | explicit snapshot admission; same-cutoff canonical writes incrementally apply; authorized `objects_in_region` uses candidate refs then existing reader/invalidation checks; expired/frame-mismatched cases and any active invalidation conservatively fall back | Partial: no direct projection subscription or tombstone index. |
 | World/session isolation and abstention | world/frame/revision buckets, authority-qualified IDs, duplicate-ID regression, no-frame abstention | Partial: world isolation covered; session is not in current object records and remains a world-memory query concern. |
-| Full benchmark fixture | deterministic p50/p95 public/raw region, appearance, finite-fixture history, scene and scene-diff reads; metadata bytes, delayed abstention, restart and two scales | Partial: no bounded history interval benchmark, large asset retention policy, or broad full query matrix. |
+| Full benchmark fixture | deterministic p50/p95 public/raw region, appearance, finite-fixture history, scene and scene-diff reads; metadata bytes, delayed abstention, restart and two scales | Partial: history output is page-bounded but its current implementation is not work-bounded; no large asset retention policy or broad full query matrix. |
 | Appearance similarity | opt-in bounded cosine descriptors and rebuildable exact RAM search with live world-reader checks | Partial: exact search only; ANN/vector acceleration and visual-quality evaluation remain absent. |
 | R-tree/ANN/relationship indexes, SQLite tier, live ROS/MoveIt integration | Not introduced | Remaining #20 work. |
 

@@ -680,6 +680,52 @@ def test_persisted_scene_episode_and_object_history_queries_preserve_structural_
         reopened.object_history(world_id="table-a", object_id="cup-left", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=3), reader=Deny())
 
 
+def test_object_history_limit_marks_deterministic_partial_results_across_refresh_and_reopen(tmp_path):
+    path = str(tmp_path / "history.json")
+    writer = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    for offset in range(3):
+        at = NOW + timedelta(minutes=offset)
+        writer.record(obj, pose(.1 + offset, f"revision-{offset}", at), kind="observation", evidence=(evidence(f"history-{offset}"),), recorded_at=at)
+
+    # This reader starts before a late canonical write, so the second read
+    # exercises cursor-based external refresh rather than a local cache hit.
+    reader_memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    late_at = NOW + timedelta(minutes=3)
+    writer.record(obj, pose(.4, "revision-late", late_at), kind="observation", evidence=(evidence("history-late"),), recorded_at=late_at)
+
+    early = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=2), reader=Allow(), limit=2)
+    assert [record.revision for record in early.records] == ["revision-0", "revision-1"]
+    assert early.truncated is True
+
+    current = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2)
+    assert [record.revision for record in current.records] == ["revision-0", "revision-1"]
+    assert current.truncated is True and current.continuation
+    final_page = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2, continuation=current.continuation)
+    assert [record.revision for record in final_page.records] == ["revision-2", "revision-late"]
+    assert final_page.truncated is False and final_page.continuation is None
+    narrowed = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW + timedelta(minutes=2), valid_to=late_at, known_at=late_at, reader=Allow(), limit=2)
+    assert [record.revision for record in narrowed.records] == ["revision-2"]
+    assert narrowed.truncated is False
+
+    with pytest.raises(ValueError, match="between 1 and 128"):
+        reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=0)
+    with pytest.raises(ValueError, match="between 1 and 128"):
+        reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=129)
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Deny(), limit=1)
+    # A partial marker would disclose the existence of later rows. The reader
+    # must have authority over the entire snapshot before it is returned.
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=DenyResource("history-2"), limit=1)
+
+    reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2) == current
+    writer.invalidate_map_revision(evidence("history-0"), reason="camera evidence revoked", at=late_at + timedelta(minutes=1))
+    with pytest.raises(ValueError, match="continuation is stale"):
+        reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2, continuation=current.continuation)
+
+
 def test_scene_and_episode_do_not_become_known_before_their_raw_records(tmp_path):
     memory = TabletopWorldMemory(str(tmp_path / "semantic.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
     record = memory.record(
