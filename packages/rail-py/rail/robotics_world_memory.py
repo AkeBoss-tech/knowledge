@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, HANDLER_LINEAGE_REFS, describe_extension, describe_operator
-from rail.procedure_projection import ProjectionCheckpoint, ProjectionRecomputeRun, ProjectionWriter, TemporalProjectionService
+from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidationAuthorizer, ProjectionRecomputeRun, ProjectionWriter, TemporalProjectionService
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
 
 
@@ -75,6 +75,13 @@ class _LocalProjectionWriter:
         return None
 
 
+class _LocalProjectionInvalidationAuthorizer:
+    """Explicit local-only invalidation seam until hosted signing exists."""
+
+    def authorize_invalidation(self, event_id: str, changed_ref: ResourceRef, event_digest: str, *, at: datetime) -> None:
+        return None
+
+
 def robotics_world_extension() -> ExtensionDescriptor:
     schema = "robotics.world-memory.v1"
     operator = describe_operator(operator_id="robotics.world-memory.location", version="1.0.0", input_schema=schema, output_schema=schema, deterministic=False)
@@ -97,13 +104,14 @@ def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "
 
 class TabletopWorldMemory:
     """Small deterministic temporal adapter; worlds never share object IDs."""
-    def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None) -> None:
+    def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None, projection_invalidation_authorizer: ProjectionInvalidationAuthorizer | None = None) -> None:
         self._records: list[TemporalRecord] = []
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
         self._projection = TemporalProjectionService(path, tenant_id=tenant_id, project_id=project_id, clock=self._clock) if path is not None else None
         self._projection_writer = projection_writer or _LocalProjectionWriter()
+        self._projection_invalidation_authorizer = projection_invalidation_authorizer or _LocalProjectionInvalidationAuthorizer()
         self._migrate_legacy_records()
         self._refresh()
 
@@ -171,10 +179,21 @@ class TabletopWorldMemory:
             raise RuntimeError("world-memory projection requires a canonical store path")
         return self._projection.recompute(projection_id=self._projection_id, valid_at=valid_at, known_at=known_at, at=at)
 
-    def invalidate_map_revision(self, changed_ref: ResourceRef, *, reason: str, at: datetime) -> tuple[ResourceRef, ...]:
+    def invalidate_map_revision(self, changed_ref: ResourceRef, *, reason: str, at: datetime, event_id: str | None = None, effective_at: datetime | None = None, recorded_at: datetime | None = None) -> tuple[ResourceRef, ...]:
         if self._projection is None:
             raise RuntimeError("world-memory projection requires a canonical store path")
-        return self._projection.mark_dirty(changed_ref, projection_id=self._projection_id, reason=reason, at=at)
+        effective_at = effective_at or at
+        recorded_at = recorded_at or at
+        event_id = event_id or "robotics-invalidation:" + sha256(
+            ("|".join((*changed_ref.exact_key, reason, effective_at.isoformat(), recorded_at.isoformat()))).encode()
+        ).hexdigest()
+        affected = self._projection.affected_region(changed_ref)
+        self._projection.tombstone(
+            changed_ref, event_id=event_id, reason=reason,
+            effective_at=effective_at, recorded_at=recorded_at,
+            authorizer=self._projection_invalidation_authorizer,
+        )
+        return affected
 
     def _authorized_evidence(self, record: TemporalRecord, reader: WorldReader) -> tuple[ResourceRef, ...]:
         refs = (*record.source_refs, self.record_ref(record))
@@ -196,10 +215,9 @@ class TabletopWorldMemory:
     def _projection_marks_estimate_stale(self, record: TemporalRecord, *, valid_at: datetime, known_at: datetime) -> bool:
         if self._projection is None:
             return False
-        output_ref = self._projection.record_ref(record)
-        if output_ref in self._projection.dirty_outputs(self._projection_id):
-            return True
         dependency_keys = {ref.exact_key for ref in record.source_refs + record.provenance_refs}
+        if dependency_keys & {ref.exact_key for ref in self._projection.active_invalidation_refs(valid_at=valid_at, known_at=known_at)}:
+            return True
         for state in self._projection.current_state(self._projection_id):
             if (state.entity_authority, state.entity_id) != (record.entity_authority, record.entity_id):
                 continue

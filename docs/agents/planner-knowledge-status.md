@@ -24,10 +24,13 @@
   must belong to one exact world.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
-  invalidating either an exact source or map ref durably dirties only its
-  dependent estimate; registry lookup reports it stale before recompute and
-  the rebuilt/reopened state remains stale at later query times. Immutable
-  observations and an unrelated world's projected row remain unchanged.
+  invalidating either an exact source or map ref writes the projection's
+  immutable, effective/recorded-time invalidation event and durably dirties
+  only its dependent estimate. Registry lookup reports it stale only once that
+  event is visible; a historical recompute preserves future dirty work and a
+  current recompute/rebuild derives the same stale state after restart.
+  Immutable observations and an unrelated world's projected row remain
+  unchanged.
 - The real trusted-local registry dispatch registers the world-memory lookup as
   explicitly nondeterministic because it reads a mutable canonical snapshot.
   Handlers may return the reserved `HANDLER_LINEAGE_REFS` channel; dispatch
@@ -37,10 +40,10 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `143 passed`; compileall and `git diff --check` pass.
+  reports `144 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: no signed hosted robotics writer/reader adapter
-  exists yet; the local projection writer and registry authorization are the
-  caller-supplied local seam plus `WorldReader`. No ROS transport,
+  exists yet; the local projection writer/invalidation authorizer and registry
+  authorization are the caller-supplied local seam plus `WorldReader`. No ROS transport,
   perception pipeline, binary asset store, live robot control, identity merge,
   or general world-model engine is claimed.
 

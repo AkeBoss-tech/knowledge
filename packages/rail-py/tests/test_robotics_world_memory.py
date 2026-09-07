@@ -212,6 +212,33 @@ def test_projection_stales_exact_source_and_map_dependencies_through_registry_af
     assert reopened.location(world_id="three", object_id="cup-c", at=later, known_at=later, estimated=True, reader=Allow()).status == "estimated"
 
 
+def test_canonical_dependency_invalidation_respects_historical_cutoffs_and_rebuild(tmp_path):
+    path = tmp_path / "semantic.json"
+    initial_at = NOW + timedelta(minutes=1)
+    invalidated_at = NOW + timedelta(minutes=5)
+    memory = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    memory.record(obj, pose(0.1, "obs"), kind="observation", evidence=(evidence("obs"),))
+    estimate = memory.record(
+        obj, pose(0.2, "estimate", initial_at), kind="estimate", evidence=(evidence("estimate-camera"),),
+        estimate_expires_at=NOW + timedelta(hours=1),
+    )
+    memory.rebuild_projection(valid_at=initial_at, known_at=initial_at, at=initial_at)
+    assert memory.location(world_id="one", object_id="cup", at=initial_at, known_at=initial_at, estimated=True, reader=Allow()).status == "estimated"
+    memory.invalidate_map_revision(evidence("estimate-camera"), reason="camera revoked", at=invalidated_at)
+    # The persisted event is not visible before either its effective or known time.
+    assert memory.location(world_id="one", object_id="cup", at=initial_at, known_at=initial_at, estimated=True, reader=Allow()).status == "estimated"
+    historical = memory.recompute_projection(valid_at=initial_at, known_at=initial_at, at=invalidated_at)
+    assert historical.affected_outputs == ()
+    assert memory._projection.record_ref(estimate) in memory._projection.dirty_outputs("robotics-world-memory")
+    assert memory.location(world_id="one", object_id="cup", at=initial_at, known_at=initial_at, estimated=True, reader=Allow()).status == "estimated"
+    memory.recompute_projection(valid_at=invalidated_at, known_at=invalidated_at, at=invalidated_at)
+    assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
+    memory.rebuild_projection(valid_at=invalidated_at, known_at=invalidated_at, at=invalidated_at)
+    assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
+    assert any(estimate.record_digest in state.record_digests for state in memory._projection.current_state("robotics-world-memory") if state.entity_id == "cup")
+
+
 def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
     memory, episode = tabletop_episode_fixture(NOW)
     registry = DomainExtensionRegistry()

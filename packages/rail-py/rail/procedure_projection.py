@@ -284,6 +284,14 @@ class TemporalProjectionService:
                     projection_id=projection_id, output_ref=target_ref, cause_ref=target_ref,
                     reason="temporal record tombstoned", at=recorded_at,
                 )
+                # External exact source invalidations must also dirty the
+                # records that consumed them. Rebuild derives the same stale
+                # dependency state from this immutable event.
+                for dependent in self.affected_region(target_ref):
+                    self._enqueue_locked(
+                        projection_id=projection_id, output_ref=dependent, cause_ref=target_ref,
+                        reason="temporal dependency invalidated", at=recorded_at,
+                    )
         authorizer.authorize_invalidation(event_id, target_ref, tombstone.tombstone_digest, at=self.clock())
         return tombstone
 
@@ -357,6 +365,14 @@ class TemporalProjectionService:
 
     def _tombstones(self) -> tuple[ProjectionTombstone, ...]:
         return tuple(ProjectionTombstone.model_validate(row.payload["tombstone"]) for row in self._rows("procedure_projection_tombstone"))
+
+    def active_invalidation_refs(self, *, valid_at: datetime, known_at: datetime) -> tuple[ResourceRef, ...]:
+        """Exact invalidation targets visible at a bitemporal query cutoff."""
+
+        return tuple(sorted(
+            (item.target_ref for item in self._tombstones() if item.effective_at <= valid_at and item.recorded_at <= known_at),
+            key=lambda ref: ref.exact_key,
+        ))
 
     def _current_records(self, records: tuple[TemporalRecord, ...], *, valid_at: datetime, known_at: datetime) -> tuple[TemporalRecord, ...]:
         tombstoned = {
@@ -436,12 +452,25 @@ class TemporalProjectionService:
                 if row.payload["entry"]["projection_id"] == projection_id
                 and row.payload["entry"].get("cleared_at") is None
             ]
-            pending = tuple(sorted((item.output_ref for item in pending_entries), key=lambda ref: ref.exact_key))
+            tombstone_targets = {item.target_ref.exact_key for item in self._tombstones()}
+            active_invalidation_keys = {
+                ref.exact_key for ref in self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+            }
+            # Dirty entries caused by a canonical invalidation remain pending
+            # until that event is visible at this bitemporal query cutoff.
+            # Ingest/supersession hints have no separate event cutoff and are
+            # eligible immediately.
+            eligible_entries = [
+                item for item in pending_entries
+                if item.cause_ref.exact_key not in tombstone_targets
+                or item.cause_ref.exact_key in active_invalidation_keys
+            ]
+            pending = tuple(sorted((item.output_ref for item in eligible_entries), key=lambda ref: ref.exact_key))
             consumed_revisions = {
                 self._dirty_id(projection_id, item.output_ref): self.store.get(
                     self.tenant_id, self.project_id, "procedure_projection_dirty", self._dirty_id(projection_id, item.output_ref)
                 ).revision
-                for item in pending_entries
+                for item in eligible_entries
             }
             records = tuple(TemporalRecord.model_validate(row.payload["record"]) for row in self.store.list(self.tenant_id, self.project_id, kind="temporal_record"))
             by_ref = {_record_ref(record).exact_key: record for record in records}
@@ -468,7 +497,10 @@ class TemporalProjectionService:
             )
             current_keys = {_record_ref(item).exact_key for item in current_records}
             dirty_keys = {item.exact_key for item in pending}
-            stale_keys = {item.cause_ref.exact_key for item in pending_entries}
+            stale_keys = {
+                *{item.cause_ref.exact_key for item in eligible_entries if item.cause_ref.exact_key not in tombstone_targets},
+                *active_invalidation_keys,
+            }
             selected = {entity: [] for entity in entities}
             for item in current_records:
                 entity = (item.entity_authority, item.entity_id)
@@ -516,7 +548,7 @@ class TemporalProjectionService:
             entities = {(item.entity_authority, item.entity_id) for item in records}
             for entity in sorted(entities):
                 entity_selected = tuple(item for item in current if (item.entity_authority, item.entity_id) == entity)
-                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys=set(), current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
+                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys={ref.exact_key for ref in self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)}, current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
                 self._write_current_locked(projection_id=projection_id, entity=entity, selected=entity_selected, inputs=tuple(item for item in records if (item.entity_authority, item.entity_id) == entity), dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at)
         state_digests = tuple(sorted(item.state_digest for item in self.current_state(projection_id)))
         input_record_digests = tuple(sorted(item.record_digest for item in records if (item.ingested_at or item.recorded_at) <= known_at))
