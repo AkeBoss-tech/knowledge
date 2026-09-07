@@ -43,6 +43,7 @@ class KnowledgeProposal:
     status: str = "proposed"
     reviewer_receipt: str | None = None
     reviewer_id: str | None = None
+    deleted: bool = False
 
 
 @dataclass(frozen=True)
@@ -53,10 +54,24 @@ class AuthorizedKnowledgeContext:
     lineage: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class KnowledgeModeTransition:
+    transition_id: str
+    from_mode: str
+    to_mode: str
+    canonical_commit: str
+    state_revision: int
+    source_id: str
+    source_digest: str
+    backup_receipt: str
+
+
 class SharedKnowledgeWorkspace:
     """A locked, restartable boundary around one configured bare Git remote."""
 
     mode = "connected-canonical-git-reviewed-changes"
+    local_mode = "local-canonical-git"
+    hosted_mode = "hosted-canonical-service"
     _PROPOSAL_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
     def __init__(self, remote: str | Path, state_path: str | Path, *, action_authorizer: SharedKnowledgeActionAuthorizer) -> None:
@@ -69,9 +84,10 @@ class SharedKnowledgeWorkspace:
         self.action_authorizer = action_authorizer
         self._cache: dict[tuple[str, str], AuthorizedKnowledgeContext] = {}
         with self._locked_state() as state:
-            if state.get("mode", self.mode) != self.mode:
-                raise SharedKnowledgeError("workspace authority mode cannot change implicitly")
+            if state.get("mode", self.mode) not in {self.mode, self.local_mode}:
+                raise SharedKnowledgeError("hosted canonical mode requires a real hosted adapter")
             state.setdefault("mode", self.mode)
+            state.setdefault("active_writer", "connected-git" if state["mode"] == self.mode else "local-git")
             state.setdefault("revision", 0)
             state.setdefault("proposals", {})
 
@@ -138,6 +154,47 @@ class SharedKnowledgeWorkspace:
     def _proposal_ref(self, proposal: KnowledgeProposal) -> ResourceRef:
         return self._ref("proposal/" + proposal.proposal_id, proposal.candidate_commit, proposal.content_digest)
 
+    def preview_mode_transition(self, *, owner_id: str, transition_id: str, to_mode: str, source_id: str, source_digest: str) -> KnowledgeModeTransition:
+        if not self._PROPOSAL_ID.fullmatch(transition_id) or not source_id or not re.fullmatch(r"sha256:[0-9a-f]{64}", source_digest):
+            raise ValueError("transition requires safe id and exact source identity/digest")
+        if to_mode == self.hosted_mode:
+            raise SharedKnowledgeError("hosted canonical mode is unavailable without a real hosted adapter")
+        if to_mode not in {self.mode, self.local_mode}:
+            raise ValueError("unknown canonical mode")
+        with self._locked_state() as state:
+            current = self._remote_ref("refs/heads/main")
+            current_mode = state["mode"]
+            if to_mode == current_mode:
+                raise SharedKnowledgeError("workspace is already in requested authority mode")
+            ref = self._ref("mode-transition/" + transition_id, current, source_digest)
+            self._authorize("shared_knowledge.mode_transition", ref, owner_id)
+            # Leaving this locked preview records an audit revision; bind the
+            # commit preview to that exact next durable revision.
+            next_revision = state["revision"] + 1
+            backup = self._digest(f"backup:{current}:{next_revision}:{source_id}:{source_digest}")
+            return KnowledgeModeTransition(transition_id, current_mode, to_mode, current, next_revision, source_id, source_digest, backup)
+
+    def commit_mode_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> KnowledgeModeTransition:
+        if transition.to_mode == self.hosted_mode:
+            raise SharedKnowledgeError("hosted canonical mode is unavailable without a real hosted adapter")
+        with self._locked_state() as state:
+            current = self._remote_ref("refs/heads/main")
+            if state["mode"] != transition.from_mode or current != transition.canonical_commit or state["revision"] != transition.state_revision:
+                raise SharedKnowledgeError("mode transition preview is stale")
+            ref = self._ref("mode-transition/" + transition.transition_id, current, transition.source_digest)
+            self._authorize("shared_knowledge.mode_transition", ref, owner_id)
+            expected_backup = self._digest(f"backup:{current}:{state['revision']}:{transition.source_id}:{transition.source_digest}")
+            if transition.backup_receipt != expected_backup:
+                raise SharedKnowledgeError("mode transition backup receipt does not match")
+            # One durable state update disables the old writer before naming the
+            # next writer; both modes retain this exact bare Git canonical head.
+            state["writer_disabled"] = state["active_writer"]
+            state["active_writer"] = "local-git" if transition.to_mode == self.local_mode else "connected-git"
+            state["mode"] = transition.to_mode
+            state["last_transition"] = asdict(transition)
+        self._authorize("shared_knowledge.mode_transition", ref, owner_id)
+        return transition
+
     def _authorize(self, action: str, ref: ResourceRef, user_id: str) -> None:
         # Never cache authority. The adapter verifies live signature/grant state.
         self.action_authorizer.authorize(action, ref, subject_id=user_id)
@@ -177,7 +234,7 @@ class SharedKnowledgeWorkspace:
             raise SharedKnowledgeError("checkout Git configuration is not service-controlled")
         return checkout
 
-    def propose(self, *, user_id: str, checkout: str | Path, proposal_id: str, path: str, content: str) -> KnowledgeProposal:
+    def propose(self, *, user_id: str, checkout: str | Path, proposal_id: str, path: str, content: str | None) -> KnowledgeProposal:
         if not self._PROPOSAL_ID.fullmatch(proposal_id):
             raise ValueError("proposal id must be a bounded safe identifier")
         path = self._safe_path(path)
@@ -198,11 +255,17 @@ class SharedKnowledgeWorkspace:
             destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.exists() and destination.is_symlink():
                 raise SharedKnowledgeError("proposal destination may not be a symlink")
-            destination.write_text(content)
-            self._run("git", "-c", "core.hooksPath=/dev/null", "add", "--", path, cwd=checkout_path)
+            deleted = content is None
+            if deleted:
+                if not destination.is_file():
+                    raise SharedKnowledgeError("only an existing regular file can be tombstoned")
+                self._run("git", "-c", "core.hooksPath=/dev/null", "rm", "--", path, cwd=checkout_path)
+            else:
+                destination.write_text(content)
+                self._run("git", "-c", "core.hooksPath=/dev/null", "add", "--", path, cwd=checkout_path)
             self._run("git", "-c", "core.hooksPath=/dev/null", "commit", "-m", f"krail proposal {proposal_id}", cwd=checkout_path)
             candidate = self._run("git", "rev-parse", "HEAD", cwd=checkout_path)
-            proposal = KnowledgeProposal(proposal_id, user_id, "refs/heads/" + branch_name, base, candidate, path, self._digest(content))
+            proposal = KnowledgeProposal(proposal_id, user_id, "refs/heads/" + branch_name, base, candidate, path, self._digest(content if content is not None else f"tombstone:{path}:{base}"), deleted=deleted)
             proposal_ref = self._proposal_ref(proposal)
             self._authorize("shared_knowledge.propose", proposal_ref, user_id)
             # Never honor an untrusted origin.pushurl; the configured bare

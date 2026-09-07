@@ -49,7 +49,7 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     alice = checkout(remote, tmp_path / "alice", "alice")
     bob = checkout(remote, tmp_path / "bob", "bob")
     state = tmp_path / "shared-state.json"
-    grants = {"alice", "bob", "reviewer"}
+    grants = {"alice", "bob", "reviewer", "owner"}
     authorizer = LiveActionAuthorizer(grants)
     workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
     second_workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
@@ -128,6 +128,11 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
         restarted.export("bob")
     assert restarted.authorized_context("alice").files == (("knowledge.md", "alice reviewed change\n"),)
     assert any(action == "shared_knowledge.export" for action, _subject, _ref in authorizer.calls)
+    source_digest = "sha256:" + "1" * 64
+    transition = restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
+    assert restarted.commit_mode_transition(transition, owner_id="owner").to_mode == "local-canonical-git"
+    with pytest.raises(Exception, match="hosted canonical mode"):
+        restarted.preview_mode_transition(owner_id="owner", transition_id="hosted", to_mode="hosted-canonical-service", source_id="canonical.git", source_digest=source_digest)
 
 
 def test_rejects_untrusted_checkout_and_authorizes_before_return(tmp_path):
