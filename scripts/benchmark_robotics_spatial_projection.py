@@ -81,6 +81,7 @@ def main() -> None:
         public = lambda: memory.objects_in_region(world_id="bench", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
         raw = lambda: memory._spatial_current.candidate_query(world_id="bench", frame_id="table", map_revision="map-1", minimum=(-.1, .1, -.1), maximum=(.2, .3, .1))
         public_answer = public()
+        public_work = dict(memory.last_region_read_work)
         raw_answer = raw()
         public_timing = elapsed_ms(public, args.repeats)
         raw_timing = elapsed_ms(raw, args.repeats)
@@ -109,7 +110,7 @@ def main() -> None:
             "raw_grid_candidate_query": raw_timing,
             "rebuild": {"ms": round(rebuild_ms, 4), **rebuild_work.__dict__},
             "incremental_move": {"ms": round(update_ms, 4), **update_work.__dict__},
-            "reads": {"public_hits": len(public_answer.object_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read},
+            "reads": {"public_hits": len(public_answer.object_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work},
             "retained_metadata_bytes": {"total": len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()), "per_observation": round(sum(len(json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()) for record in memory._records) / len(memory._records), 1), "per_object": round(len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()) / args.objects, 1), "per_snapshot_serialized": round(statistics.mean(scene_bytes), 1)},
             "delayed_update": {"queries": 1, "expected_abstention": 1, "abstentions": int(delayed.status in {"stale", "unknown"}), "obsolete_incorrect": int(delayed.status not in {"stale", "unknown"}), "obsolete_rate": float(delayed.status not in {"stale", "unknown"}), "status": delayed.status},
             "restart": {"equivalent_authorized_refs": restart_equal, **reopen_work.__dict__},

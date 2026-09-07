@@ -228,6 +228,8 @@ class TabletopWorldMemory:
     """Small deterministic temporal adapter; worlds never share object IDs."""
     def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None, projection_invalidation_authorizer: ProjectionInvalidationAuthorizer | None = None, hosted_world_id: str | None = None, hosted_reader: WorldReader | None = None) -> None:
         self._records: list[TemporalRecord] = []
+        self._records_by_ref: dict[tuple[str, str, str, str, str], TemporalRecord] = {}
+        self._records_by_entity: dict[tuple[str, str], list[TemporalRecord]] = {}
         self._appearance_records: list[TemporalRecord] = []
         self._identity_candidate_records: list[TemporalRecord] = []
         self._region_records: list[TemporalRecord] = []
@@ -237,6 +239,7 @@ class TabletopWorldMemory:
         self._episodes: list[SceneEpisode] = []
         self._spatial_current: SpatialCurrentProjection | None = None
         self.last_spatial_update_work: ProjectionWork | None = None
+        self.last_region_read_work: dict[str, int] = {}
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
@@ -334,6 +337,7 @@ class TabletopWorldMemory:
                 # A different process may have changed canonical records. Never
                 # serve a RAM projection whose declared inputs no longer match.
                 self._spatial_current = None
+            self._reindex_world_records()
             self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._region_records = [record for record in all_records if record.payload_schema == "robotics.place-region"]
@@ -341,6 +345,14 @@ class TabletopWorldMemory:
             self._resolution_records = [record for record in all_records if record.payload_schema == "robotics.identity-resolution"]
             self._scenes = [SceneSnapshot.model_validate(row.payload["scene"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_scene_snapshot")]
             self._episodes = [SceneEpisode.model_validate(row.payload["episode"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_episode")]
+
+    def _reindex_world_records(self) -> None:
+        """Derived exact-ref/entity lookup; rebuilt after every canonical refresh."""
+        self._records_by_ref = {self.record_ref(record).exact_key: record for record in self._records}
+        grouped: dict[tuple[str, str], list[TemporalRecord]] = {}
+        for record in self._records:
+            grouped.setdefault((record.entity_authority, record.entity_id), []).append(record)
+        self._records_by_entity = grouped
 
     def record(self, obj: WorldObject, pose: Pose, *, kind: Literal["observation", "estimate"], evidence: tuple[ResourceRef, ...], estimate_expires_at: datetime | None = None, recorded_at: datetime | None = None) -> TemporalRecord:
         self._require_world(obj.world_id)
@@ -370,6 +382,8 @@ class TabletopWorldMemory:
                 self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._records.append(record)
+            self._records_by_ref[self.record_ref(record).exact_key] = record
+            self._records_by_entity.setdefault((record.entity_authority, record.entity_id), []).append(record)
             # A prepared RAM snapshot names canonical records as its declared
             # input.  Keep that exact snapshot complete for same-process
             # publication instead of leaving a newly admitted record invisible
@@ -995,10 +1009,12 @@ class TabletopWorldMemory:
                 record = self._record_for_ref(hit.record_ref)
                 if record is not None:
                     records_by_object.setdefault(record.entity_id, []).append(record)
+            self.last_region_read_work = {"canonical_rows_refreshed": len(self._records), "exact_candidate_rows": len(candidates.hits), "history_rows_selected": sum(len(value) for value in records_by_object.values())}
         else:
             for record in self._records:
                 if record.entity_authority == f"robotics://world/{world_id}":
                     records_by_object.setdefault(record.entity_id, []).append(record)
+            self.last_region_read_work = {"canonical_rows_refreshed": len(self._records), "exact_candidate_rows": 0, "history_rows_selected": sum(len(value) for value in records_by_object.values())}
         inside: list[ResourceRef] = []
         unknown = stale = False
         for history in records_by_object.values():
@@ -1124,7 +1140,7 @@ class TabletopWorldMemory:
         return episode
 
     def _record_for_ref(self, ref: ResourceRef) -> TemporalRecord | None:
-        return next((record for record in self._records if self.record_ref(record).exact_key == ref.exact_key), None)
+        return self._records_by_ref.get(ref.exact_key)
 
     def _authorize_scene(self, scene: SceneSnapshot, reader: WorldReader) -> None:
         try:
@@ -1266,7 +1282,7 @@ class TabletopWorldMemory:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
-        records = tuple(sorted((record for record in self._records if record.entity_authority == f"robotics://world/{world_id}" and record.entity_id == object_id and record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
+        records = tuple(sorted((record for record in self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ()) if record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
         evidence: tuple[ResourceRef, ...] = ()
         for record in records:
             evidence += self._authorized_evidence(record, reader)
@@ -1279,7 +1295,7 @@ class TabletopWorldMemory:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
-        candidates = [r for r in self._records if r.entity_authority == f"robotics://world/{world_id}" and r.entity_id == object_id and (estimated or r.kind == "observation")]
+        candidates = [r for r in self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ()) if estimated or r.kind == "observation"]
         if not candidates:
             return LocationAnswer(status="unknown")
         current = query_temporal_records(candidates, valid_at=at, known_at=known_at)

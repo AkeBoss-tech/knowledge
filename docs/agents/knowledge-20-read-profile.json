@@ -1,0 +1,86 @@
+{
+  "command": "benchmark_robotics_spatial_projection.py --objects {16,32} --observations 3 --scenes 2 --repeats 5",
+  "date": "2026-09-07",
+  "scales": [
+    {
+      "fixture": {
+        "appearance_records": 16,
+        "embedded_asset_bytes": 0,
+        "external_asset_refs": 16,
+        "objects": 16,
+        "observations_per_object": 3,
+        "scene_snapshots": 2
+      },
+      "incremental_move": {
+        "history_rows_read": 4,
+        "index_rows_touched": 2,
+        "ms": 39.1777
+      },
+      "public_authorized_region_query": {
+        "p50_ms": 14.6542,
+        "p95_ms": 14.8863
+      },
+      "raw_grid_candidate_query": {
+        "p50_ms": 0.01,
+        "p95_ms": 0.0199
+      },
+      "reads": {
+        "canonical_rows_refreshed": 48,
+        "exact_candidate_rows": 4,
+        "history_rows_selected": 4,
+        "public_hits": 4,
+        "raw_candidate_rows": 5,
+        "raw_cells": 24
+      },
+      "rebuild": {
+        "history_rows_read": 48,
+        "index_rows_touched": 16,
+        "ms": 7.773
+      },
+      "runtime": {
+        "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+        "python": "3.13.12"
+      }
+    },
+    {
+      "fixture": {
+        "appearance_records": 32,
+        "embedded_asset_bytes": 0,
+        "external_asset_refs": 32,
+        "objects": 32,
+        "observations_per_object": 3,
+        "scene_snapshots": 2
+      },
+      "incremental_move": {
+        "history_rows_read": 4,
+        "index_rows_touched": 2,
+        "ms": 75.8583
+      },
+      "public_authorized_region_query": {
+        "p50_ms": 36.0138,
+        "p95_ms": 36.0676
+      },
+      "raw_grid_candidate_query": {
+        "p50_ms": 0.0124,
+        "p95_ms": 0.0202
+      },
+      "reads": {
+        "canonical_rows_refreshed": 96,
+        "exact_candidate_rows": 7,
+        "history_rows_selected": 7,
+        "public_hits": 7,
+        "raw_candidate_rows": 10,
+        "raw_cells": 24
+      },
+      "rebuild": {
+        "history_rows_read": 96,
+        "index_rows_touched": 32,
+        "ms": 21.3262
+      },
+      "runtime": {
+        "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+        "python": "3.13.12"
+      }
+    }
+  ]
+}
