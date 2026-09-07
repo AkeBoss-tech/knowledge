@@ -53,6 +53,15 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path)
     restarted = SharedKnowledgeWorkspace(remote, state)
     assert restarted.authorized_context("alice").canonical_commit == promoted.candidate_commit
     assert restarted.review_and_promote("bob-edit", reviewer_id="reviewer").status == "conflict"
+    # A live instance must reload durable grants before serving its cached
+    # context, so another instance's revocation takes effect immediately.
+    cached_alice = restarted.authorized_context("alice")
+    assert cached_alice.files
+    other_instance = SharedKnowledgeWorkspace(remote, state)
+    other_instance.revoke_source("alice")
+    with pytest.raises(PermissionError, match="revoked"):
+        restarted.authorized_context("alice")
+    other_instance.grant_source("alice")
     restarted.revoke_source("bob")
     with pytest.raises(PermissionError, match="revoked"):
         restarted.authorized_context("bob")

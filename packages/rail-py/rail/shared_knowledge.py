@@ -72,6 +72,13 @@ class SharedKnowledgeWorkspace:
     def _load(self) -> dict:
         return json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
 
+    def _reload_state(self) -> None:
+        """Treat persisted grants as live authority, never a constructor cache."""
+        self._state = self._load()
+        self._state.setdefault("mode", self.mode)
+        self._state.setdefault("proposals", {})
+        self._state.setdefault("grants", {})
+
     def _save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.state_path.with_suffix(".tmp")
@@ -86,15 +93,18 @@ class SharedKnowledgeWorkspace:
         return path
 
     def grant_source(self, user_id: str) -> None:
+        self._reload_state()
         self._state["grants"][user_id] = True
         self._save()
 
     def revoke_source(self, user_id: str) -> None:
+        self._reload_state()
         self._state["grants"][user_id] = False
         self._cache = {key: value for key, value in self._cache.items() if key[0] != user_id}
         self._save()
 
     def propose(self, *, user_id: str, checkout: str | Path, proposal_id: str, path: str, content: str) -> KnowledgeProposal:
+        self._reload_state()
         path = self._safe_path(path)
         if proposal_id in self._state["proposals"]:
             raise SharedKnowledgeError("proposal id already exists")
@@ -117,6 +127,7 @@ class SharedKnowledgeWorkspace:
         return proposal
 
     def review_and_promote(self, proposal_id: str, *, reviewer_id: str) -> KnowledgeProposal:
+        self._reload_state()
         del reviewer_id  # Review identity is caller-owned; this local slice records no grants.
         proposal = KnowledgeProposal(**self._state["proposals"][proposal_id])
         if proposal.status == "conflict":
@@ -142,6 +153,7 @@ class SharedKnowledgeWorkspace:
         return promoted
 
     def authorized_context(self, user_id: str) -> AuthorizedKnowledgeContext:
+        self._reload_state()
         if not self._state["grants"].get(user_id, False):
             raise PermissionError("source grant is revoked or absent")
         commit = self._remote_ref("refs/heads/main")
