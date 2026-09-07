@@ -157,43 +157,15 @@ class SharedKnowledgeWorkspace:
     def preview_mode_transition(self, *, owner_id: str, transition_id: str, to_mode: str, source_id: str, source_digest: str) -> KnowledgeModeTransition:
         if not self._PROPOSAL_ID.fullmatch(transition_id) or not source_id or not re.fullmatch(r"sha256:[0-9a-f]{64}", source_digest):
             raise ValueError("transition requires safe id and exact source identity/digest")
-        if to_mode == self.hosted_mode:
-            raise SharedKnowledgeError("hosted canonical mode is unavailable without a real hosted adapter")
-        if to_mode not in {self.mode, self.local_mode}:
+        if to_mode not in {self.mode, self.local_mode, self.hosted_mode}:
             raise ValueError("unknown canonical mode")
-        with self._locked_state() as state:
-            current = self._remote_ref("refs/heads/main")
-            current_mode = state["mode"]
-            if to_mode == current_mode:
-                raise SharedKnowledgeError("workspace is already in requested authority mode")
-            ref = self._ref("mode-transition/" + transition_id, current, source_digest)
-            self._authorize("shared_knowledge.mode_transition", ref, owner_id)
-            # Leaving this locked preview records an audit revision; bind the
-            # commit preview to that exact next durable revision.
-            next_revision = state["revision"] + 1
-            backup = self._digest(f"backup:{current}:{next_revision}:{source_id}:{source_digest}")
-            return KnowledgeModeTransition(transition_id, current_mode, to_mode, current, next_revision, source_id, source_digest, backup)
+        # A local writer handoff needs a separately provisioned local canonical
+        # adapter with verified backup/restore semantics. This connected-Git
+        # adapter must not pretend that a state hash is such a backup.
+        raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
 
     def commit_mode_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> KnowledgeModeTransition:
-        if transition.to_mode == self.hosted_mode:
-            raise SharedKnowledgeError("hosted canonical mode is unavailable without a real hosted adapter")
-        with self._locked_state() as state:
-            current = self._remote_ref("refs/heads/main")
-            if state["mode"] != transition.from_mode or current != transition.canonical_commit or state["revision"] != transition.state_revision:
-                raise SharedKnowledgeError("mode transition preview is stale")
-            ref = self._ref("mode-transition/" + transition.transition_id, current, transition.source_digest)
-            self._authorize("shared_knowledge.mode_transition", ref, owner_id)
-            expected_backup = self._digest(f"backup:{current}:{state['revision']}:{transition.source_id}:{transition.source_digest}")
-            if transition.backup_receipt != expected_backup:
-                raise SharedKnowledgeError("mode transition backup receipt does not match")
-            # One durable state update disables the old writer before naming the
-            # next writer; both modes retain this exact bare Git canonical head.
-            state["writer_disabled"] = state["active_writer"]
-            state["active_writer"] = "local-git" if transition.to_mode == self.local_mode else "connected-git"
-            state["mode"] = transition.to_mode
-            state["last_transition"] = asdict(transition)
-        self._authorize("shared_knowledge.mode_transition", ref, owner_id)
-        return transition
+        raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
 
     def _authorize(self, action: str, ref: ResourceRef, user_id: str) -> None:
         # Never cache authority. The adapter verifies live signature/grant state.

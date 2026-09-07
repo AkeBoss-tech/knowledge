@@ -134,9 +134,9 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     assert restarted.review_and_promote("remove-knowledge", reviewer_id="reviewer").status == "promoted"
     assert restarted.authorized_context("alice").files == ()
     source_digest = "sha256:" + "1" * 64
-    transition = restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
-    assert restarted.commit_mode_transition(transition, owner_id="owner").to_mode == "local-canonical-git"
-    with pytest.raises(Exception, match="hosted canonical mode"):
+    with pytest.raises(Exception, match="provisioned target adapter"):
+        restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
+    with pytest.raises(Exception, match="provisioned target adapter"):
         restarted.preview_mode_transition(owner_id="owner", transition_id="hosted", to_mode="hosted-canonical-service", source_id="canonical.git", source_digest=source_digest)
 
 
