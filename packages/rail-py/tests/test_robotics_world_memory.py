@@ -622,6 +622,21 @@ def test_exact_appearance_similarity_is_scoped_live_and_numerically_stable():
         memory.similar_appearances(world_id="one", descriptor=(0., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())
 
 
+def test_invalid_appearance_descriptor_is_rejected_before_persistence(tmp_path):
+    path = str(tmp_path / "descriptor.json")
+    memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    observation = memory.record(obj, pose(.1, "obs"), kind="observation", evidence=(evidence("obs"),), recorded_at=NOW)
+    before_records = tuple(memory._appearance_records)
+    before_aliases = tuple(memory._projection.store.list("t", "p", kind="procedure_projection_alias"))
+    with pytest.raises(ValueError, match="descriptor"):
+        memory.record_appearance(obj, observation, asset_ref=evidence("asset"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="bad", descriptor=(float("nan"),), recorded_at=NOW)
+    assert memory._appearance_records == list(before_records)
+    assert memory._projection.store.list("t", "p", kind="procedure_projection_alias") == list(before_aliases)
+    reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.appearance_gallery(world_id="one", object_id="cup", at=NOW, known_at=NOW, reader=Allow()) == ()
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")
