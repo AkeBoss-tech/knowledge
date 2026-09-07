@@ -87,6 +87,7 @@ def main() -> None:
         public_answer = public()
         appearance_answer, history_answer, scene_answer, scene_diff_answer = appearance(), history(), scene_read(), scene_diff()
         public_work = dict(memory.last_region_read_work)
+        history_work = dict(memory.last_history_read_work)
         raw_answer = raw()
         def public_forced_refresh():
             # Same owner API and fixture; benchmark the pre-cursor behavior.
@@ -137,7 +138,7 @@ def main() -> None:
             "incremental_move": {"ms": round(update_ms, 4), **update_work.__dict__},
             "cross_process_update": external_update,
             "change_ledger": {"entries": len(memory._projection.store.list("bench", "spatial", kind="temporal_scope_change"))},
-            "reads": {"public_hits": len(public_answer.object_refs), "appearance_refs": len(appearance_answer), "history_records": len(history_answer.records), "scene_object_refs": len(scene_answer.object_refs) if scene_answer else 0, "scene_diff_changed": len(scene_diff_answer.changed_after_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work},
+            "reads": {"public_hits": len(public_answer.object_refs), "appearance_refs": len(appearance_answer), "history_records": len(history_answer.records), "scene_object_refs": len(scene_answer.object_refs) if scene_answer else 0, "scene_diff_changed": len(scene_diff_answer.changed_after_refs), "raw_candidate_rows": raw_answer.candidate_rows_read, "raw_cells": raw_answer.cells_read, **public_work, "history": history_work},
             "retained_metadata_bytes": {"phase": "after external and movement mutations", "total": len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()), "per_world_record": round(sum(len(json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()) for record in memory._records) / len(memory._records), 1), "per_initial_object": round(len(json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()) / args.objects, 1), "per_snapshot_serialized": round(statistics.mean(scene_bytes), 1)},
             "delayed_update": {"queries": 1, "expected_abstention": 1, "abstentions": int(delayed.status in {"stale", "unknown"}), "obsolete_incorrect": int(delayed.status not in {"stale", "unknown"}), "obsolete_rate": float(delayed.status not in {"stale", "unknown"}), "status": delayed.status},
             "restart": {"equivalent_authorized_refs": restart_equal, **reopen_work.__dict__},

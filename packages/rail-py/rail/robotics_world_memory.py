@@ -6,6 +6,7 @@ merge identities by similarity. Poses are SI metres in an explicit frame.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -27,6 +28,9 @@ from rail.spatial_current_projection import ProjectionWork, SpatialCurrentProjec
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+_MAX_HISTORY_CONTINUATION_BYTES = 4096
 
 
 class Pose(Strict):
@@ -271,6 +275,7 @@ class TabletopWorldMemory:
         self._temporal_scope_cursor: int | None = None
         self.last_spatial_update_work: ProjectionWork | None = None
         self.last_region_read_work: dict[str, int] = {}
+        self.last_history_read_work: dict[str, int] = {}
         self.last_refresh_work: dict[str, int] = {"temporal_rows_parsed": 0}
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -1454,7 +1459,7 @@ class TabletopWorldMemory:
     def _history_continuation_payload(
         *, world_id: str, object_id: str, valid_from: datetime, valid_to: datetime | None,
         known_at: datetime, scope_cursor: int | None, records: tuple[TemporalRecord, ...],
-        after_digest: str,
+        after_order: tuple[str, str, str],
     ) -> dict[str, object]:
         """Bind a cursor to one exact, immutable history query snapshot.
 
@@ -1470,8 +1475,8 @@ class TabletopWorldMemory:
             "valid_to": valid_to.isoformat() if valid_to else None,
             "known_at": known_at.isoformat(),
             "scope_cursor": scope_cursor,
-            "records": [record.record_digest for record in records],
-            "after_digest": after_digest,
+            "snapshot_digest": canonical_digest({"records": [record.record_digest for record in records]}),
+            "after_order": list(after_order),
         }
 
     @staticmethod
@@ -1481,10 +1486,12 @@ class TabletopWorldMemory:
 
     @staticmethod
     def _decode_history_continuation(token: str) -> dict[str, object]:
+        if len(token.encode()) > _MAX_HISTORY_CONTINUATION_BYTES:
+            raise ValueError("object history continuation is invalid")
         try:
             raw = token + "=" * (-len(token) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(raw.encode()))
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = json.loads(base64.b64decode(raw.encode(), altchars=b"-_", validate=True))
+        except (ValueError, UnicodeDecodeError, binascii.Error, json.JSONDecodeError) as exc:
             raise ValueError("object history continuation is invalid") from exc
         if not isinstance(payload, dict):
             raise ValueError("object history continuation is invalid")
@@ -1500,22 +1507,28 @@ class TabletopWorldMemory:
         if not 1 <= limit <= 128:
             raise ValueError("object history limit must be between 1 and 128")
         self._refresh()
-        all_records = tuple(sorted((record for record in self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ()) if record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
+        entity_records = self._records_by_entity.get((f"robotics://world/{world_id}", object_id), ())
+        all_records = tuple(sorted((record for record in entity_records if record.valid_from >= valid_from and (valid_to is None or record.valid_from < valid_to) and (record.ingested_at or record.recorded_at) <= known_at), key=lambda item: (item.valid_from, item.recorded_at, item.record_digest)))
         scope_cursor = self._projection.scope_cursor() if self._projection is not None else None
         start = 0
         if continuation is not None:
             received = self._decode_history_continuation(continuation)
+            raw_after_order = received.get("after_order")
+            if not isinstance(raw_after_order, list) or len(raw_after_order) != 3 or not all(isinstance(item, str) for item in raw_after_order):
+                raise ValueError("object history continuation is invalid")
             expected = self._history_continuation_payload(
                 world_id=world_id, object_id=object_id, valid_from=valid_from,
                 valid_to=valid_to, known_at=known_at, scope_cursor=scope_cursor,
-                records=all_records, after_digest=str(received.get("after_digest", "")),
+                records=all_records, after_order=(raw_after_order[0], raw_after_order[1], raw_after_order[2]),
             )
             if received != expected:
                 raise ValueError("object history continuation is stale or does not match this query")
-            digests = [record.record_digest for record in all_records]
+            after_order = tuple(expected["after_order"])
             try:
-                start = digests.index(expected["after_digest"]) + 1
-            except ValueError as exc:
+                start = next(index + 1 for index, record in enumerate(all_records) if (
+                    record.valid_from.isoformat(), record.recorded_at.isoformat(), record.record_digest,
+                ) == after_order)
+            except StopIteration as exc:
                 raise ValueError("object history continuation is stale or does not match this query") from exc
 
         # The partial marker and continuation expose that additional rows exist.
@@ -1526,12 +1539,21 @@ class TabletopWorldMemory:
             self._authorized_evidence(record, reader)
         records = all_records[start:start + limit]
         truncated = start + len(records) < len(all_records)
+        self.last_history_read_work = {
+            "entity_history_rows": len(entity_records),
+            "matching_rows_materialized": len(all_records),
+            "authorized_rows": len(all_records),
+            "output_rows": len(records),
+        }
         next_token = None
         if truncated:
             payload = self._history_continuation_payload(
                 world_id=world_id, object_id=object_id, valid_from=valid_from,
                 valid_to=valid_to, known_at=known_at, scope_cursor=scope_cursor,
-                records=all_records, after_digest=records[-1].record_digest,
+                records=all_records, after_order=(
+                    records[-1].valid_from.isoformat(), records[-1].recorded_at.isoformat(),
+                    records[-1].record_digest,
+                ),
             )
             next_token = self._encode_history_continuation(payload)
         evidence: tuple[ResourceRef, ...] = ()

@@ -701,6 +701,12 @@ def test_object_history_limit_marks_deterministic_partial_results_across_refresh
     current = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2)
     assert [record.revision for record in current.records] == ["revision-0", "revision-1"]
     assert current.truncated is True and current.continuation
+    assert reader_memory.last_history_read_work == {
+        "entity_history_rows": 4,
+        "matching_rows_materialized": 4,
+        "authorized_rows": 4,
+        "output_rows": 2,
+    }
     final_page = reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2, continuation=current.continuation)
     assert [record.revision for record in final_page.records] == ["revision-2", "revision-late"]
     assert final_page.truncated is False and final_page.continuation is None
@@ -724,6 +730,31 @@ def test_object_history_limit_marks_deterministic_partial_results_across_refresh
     writer.invalidate_map_revision(evidence("history-0"), reason="camera evidence revoked", at=late_at + timedelta(minutes=1))
     with pytest.raises(ValueError, match="continuation is stale"):
         reader_memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=late_at, reader=Allow(), limit=2, continuation=current.continuation)
+
+
+def test_object_history_continuation_is_fixed_size_and_rejects_tampering():
+    def continuation_length(count: int) -> int:
+        memory = TabletopWorldMemory(clock=lambda: NOW)
+        obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+        for offset in range(count):
+            at = NOW + timedelta(seconds=offset)
+            memory.record(obj, pose(.1, f"revision-{offset}", at), kind="observation", evidence=(evidence(f"cursor-{offset}"),), recorded_at=at)
+        answer = memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=2), reader=Allow(), limit=1)
+        assert answer.continuation is not None
+        return len(answer.continuation)
+
+    assert continuation_length(3) == continuation_length(30)
+    memory = TabletopWorldMemory(clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    for offset in range(2):
+        at = NOW + timedelta(seconds=offset)
+        memory.record(obj, pose(.1, f"revision-{offset}", at), kind="observation", evidence=(evidence(f"tamper-{offset}"),), recorded_at=at)
+    page = memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=1), reader=Allow(), limit=1)
+    assert page.continuation
+    with pytest.raises(ValueError, match="stale or does not match"):
+        memory.object_history(world_id="one", object_id="cup", valid_from=NOW + timedelta(seconds=1), valid_to=None, known_at=NOW + timedelta(minutes=1), reader=Allow(), limit=1, continuation=page.continuation)
+    with pytest.raises(ValueError, match="continuation is invalid"):
+        memory.object_history(world_id="one", object_id="cup", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=1), reader=Allow(), limit=1, continuation="a" * 4097)
 
 
 def test_scene_and_episode_do_not_become_known_before_their_raw_records(tmp_path):
