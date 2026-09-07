@@ -1,4 +1,6 @@
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -50,11 +52,19 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     grants = {"alice", "bob", "reviewer"}
     authorizer = LiveActionAuthorizer(grants)
     workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
-    first = workspace.propose(user_id="alice", checkout=alice, proposal_id="alice-edit", path="knowledge.md", content="alice reviewed change\n")
-    # A second process reloads under the same lock rather than overwriting the
-    # first process's metadata.
     second_workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
-    second = second_workspace.propose(user_id="bob", checkout=bob, proposal_id="bob-edit", path="knowledge.md", content="bob competing change\n")
+    barrier = threading.Barrier(2)
+
+    def propose(instance, **kwargs):
+        barrier.wait(timeout=5)
+        return instance.propose(**kwargs)
+
+    # Independent workspaces enter at once. The state-file lock serializes
+    # metadata mutation while both bare-remote branches remain valid.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(propose, workspace, user_id="alice", checkout=alice, proposal_id="alice-edit", path="knowledge.md", content="alice reviewed change\n")
+        second_future = executor.submit(propose, second_workspace, user_id="bob", checkout=bob, proposal_id="bob-edit", path="knowledge.md", content="bob competing change\n")
+        first, second = first_future.result(), second_future.result()
     assert first.base_commit == second.base_commit
 
     grants.remove("reviewer")
