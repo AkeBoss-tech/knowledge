@@ -1,0 +1,277 @@
+[
+  {
+    "issue_number": 3,
+    "head": "c3b33212478e36003be3e0d349dda2505ec42ae5",
+    "requirements": [
+      {
+        "original_text": "Release `v0.2.1-local-preview` after CI validates the latest `future`/`main` commit.",
+        "status": "partial",
+        "evidence": [
+          "/private/tmp/knowledge-release-audit-live.json verifies a published stable `v0.2.1` release at 2026-06-15T13:21:09Z; the release list contains no `v0.2.1-local-preview` entry.",
+          "Local annotated tag `v0.2.1` points to commit 349e97767d4a41657b28d6f03759758d0903dc94.",
+          "Gap: the available evidence does not prove CI validated the latest `future`/`main` commit before publication. Release-list absence is not treated as proof that no remote tag or package publication with the preview name ever existed."
+        ]
+      },
+      {
+        "original_text": "Company-brain scaffold verifier no longer requires panel data.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:150-154 records the change; packages/rail-py/tests/test_bootstrap.py passed in the 182-test audit run at c3b3321."]
+      },
+      {
+        "original_text": "Capture timestamps and legacy YAML timestamp graph ingestion are safe.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:150 records both changes; packages/rail-py/tests/test_markdown_graph.py::test_graph_build_handles_legacy_unquoted_yaml_timestamps and test_bootstrap.py passed in the audit run."]
+      },
+      {
+        "original_text": "Markdown graph artifacts are deterministic across identical rebuilds.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:151 records the invariant; packages/rail-py/tests/test_markdown_graph.py passed in the audit run."]
+      },
+      {
+        "original_text": "CLI JSON output stringifies datetime-like values safely.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:152 records the fix; packages/rail-py/tests/test_cli.py passed in the audit run."]
+      },
+      {
+        "original_text": "Deterministic `think` includes citations and source freshness.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:143 records citations, freshness, affected documents, and refresh actions; test_think.py and test_source_dependencies.py passed in the audit run."]
+      },
+      {
+        "original_text": "Local scheduler wrappers are available.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:144 names `krail --local schedule install/list/remove`; test_cli.py and test_workflows.py passed in the audit run."]
+      },
+      {
+        "original_text": "Pack workflow materialization is clearer.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:146 and :154 record materialization guidance and explicit initialization behavior; test_workflows.py passed in the audit run."]
+      },
+      {
+        "original_text": "`auto` runner fallback supports installed local CLIs instead of assuming `codex_cli`.",
+        "status": "verified",
+        "evidence": ["CHANGELOG.md:146 and commit 1bb1348 document the change; packages/rail-py/tests/test_workflows.py::test_dispatch_auto_runner_falls_back_to_available_cli passed."]
+      },
+      {
+        "original_text": "Use `RELEASE.md` as the source checklist and run the listed pytest, compileall, py_compile, and git diff checks before tagging.",
+        "status": "unverified",
+        "evidence": [
+          "The original focused pytest families were rerun within this audit's larger selection and passed; total result was 182 passed in 23.43s. `git diff --check` also passed.",
+          "Gap: no retained receipt proves the complete historical pre-tag command set, compile checks, and CI ran against exact release commit 349e977. Current RELEASE.md:1-5 now targets v1.1.12."
+        ]
+      },
+      {
+        "original_text": "Create and push annotated tag `v0.2.1-local-preview`.",
+        "status": "missing",
+        "evidence": [
+          "Local Git has no exact preview tag and instead has annotated `v0.2.1`.",
+          "The live GitHub release inventory has a stable `v0.2.1` release and no preview-named release. This verifies the release rename/result, but does not independently enumerate every remote tag or package registry publication."
+        ]
+      }
+    ],
+    "publishable_comment": "Audited the original release scope at committed head `c3b3321`. The planned functional changes are present and their release-focused test families pass in a current 182-test run: company-brain verification, timestamp handling, deterministic graph artifacts, datetime-safe JSON, cited/freshness-aware `think`, scheduler wrappers, workflow materialization, and installed-CLI fallback. The release was published under a different identity: live GitHub metadata verifies stable `v0.2.1` on 2026-06-15, while neither the local tags nor release list show `v0.2.1-local-preview`. Historical CI/full pre-tag execution remains unverified, and release-list absence is not being used to infer all remote-tag or package-publication state. Close only if stable `v0.2.1` is accepted as superseding the proposed preview release."
+  },
+  {
+    "issue_number": 12,
+    "head": "c3b33212478e36003be3e0d349dda2505ec42ae5",
+    "requirements": [
+      {
+        "original_text": "Expose one stable, bounded, read-only operational snapshot for RAIL and other clients without creating a second authority.",
+        "status": "missing",
+        "evidence": ["No source, schema, test, or documentation occurrence of `krail.operations-snapshot.v1` exists under packages/ or docs/. Feature-specific snapshots do not implement the named aggregate contract."]
+      },
+      {
+        "original_text": "Git-backed project files remain durable truth; generated graph/index/DuckDB/OWL state remains rebuildable; the archived Streamlit app and optional API are not authority; the snapshot is built through public KRAIL domain services and performs no writes.",
+        "status": "partial",
+        "evidence": ["RELEASE.md:7-10 preserves repo-backed truth and excludes unsupported platform surfaces. Related projections are rebuildable, but no operations-snapshot builder or no-write test composes all four constraints."]
+      },
+      {
+        "original_text": "Add `krail.operations-snapshot.v1` with deterministic, bounded sections for authority/Git; mode/pack/mounts/health; tasks/workflows/approvals/runs/traces; integrity/evidence; source freshness; inbox; topic/claim/gap/conflict/artifact summaries; graph/ontology; runner capabilities; warnings/next actions/partial failures/truncation.",
+        "status": "missing",
+        "evidence": ["No OperationsSnapshot model, builder, capability descriptor, schema fixture, conformance test, or aggregate acceptance test was found."]
+      },
+      {
+        "original_text": "Every section/item carries state, provenance, observed time, optional stale deadline and immutable references; missing data is `unavailable` or `not_materialized`; no bodies, secrets, credentials, arbitrary SQL, unrestricted paths, or unauthorized identifiers.",
+        "status": "missing",
+        "evidence": ["No named wire model exists to enforce these fields, truthful missing states, exclusions, or authorization rules. Related provider constraints are not evidence for this absent aggregate response."]
+      },
+      {
+        "original_text": "Reconcile package metadata `1.2.0rc2` with stale `RELEASE.md` targeting v1.1.12.",
+        "status": "partial",
+        "evidence": [
+          "packages/rail-py/pyproject.toml:5-8 and mcp-server metadata declare 1.2.0rc2; /private/tmp/knowledge-release-audit-live.json verifies prerelease `v1.2.0rc2` published 2026-08-17T11:00:05Z.",
+          "docs/release-1.2-reconciliation.md:1-14 records a limited reconciliation, but RELEASE.md:1-5 still targets v1.1.12."
+        ]
+      },
+      {
+        "original_text": "Verify tag/publication state, and compare open PRs #5 and #7 with current main/merged work without automatically closing or merging them.",
+        "status": "partial",
+        "evidence": [
+          "/private/tmp/knowledge-release-audit-live.json verifies v1.2.0rc2 publication metadata and that PR #5 (`agent/harden-krail-contact-runners`) and PR #7 (`codex/create-branch-for-krail-1.2.0-integration`) are both OPEN, unmerged, and based on main.",
+          "docs/release-1.2-reconciliation.md:3-13 says the requested objects/refs were unavailable and no Phase 5 change was claimed as ported.",
+          "Gap: no substantive committed patch comparison of PR #5 or #7 against current head was found. No issue or PR was mutated during this audit."
+        ]
+      },
+      {
+        "original_text": "Identical repo state yields byte-identical JSON/digest; stable order is enumeration-independent; dirty/exact Git and partial/unavailable state are truthful; limits/truncation are deterministic.",
+        "status": "missing",
+        "evidence": ["No operations-snapshot implementation or acceptance tests exist for these invariants."]
+      },
+      {
+        "original_text": "The builder performs no write and exports only public DTOs; UI/API/generated state cannot override repo truth.",
+        "status": "missing",
+        "evidence": ["No operations-snapshot builder exists, so neither a no-write boundary nor public-DTO-only export has executable evidence."]
+      },
+      {
+        "original_text": "Provider/management/onboarding/integrity tests and package build pass.",
+        "status": "unverified",
+        "evidence": ["The audit ran 182 relevant release/semantic/shared tests successfully in 23.43s, but not the complete named issue-12 matrix or package build; no operations-snapshot tests exist."]
+      },
+      {
+        "original_text": "No tag or publication claim is inferred.",
+        "status": "verified",
+        "evidence": ["Publication claims above use exact live release metadata. docs/release-1.2-reconciliation.md:3-7 explicitly refuses to infer unavailable remote/Phase 5 state."]
+      }
+    ],
+    "publishable_comment": "The original `krail.operations-snapshot.v1` deliverable remains missing at `c3b3321`: no named model, builder, descriptor/schema, fixture, or acceptance test exists. Existing APIs cover pieces but not the bounded aggregate or its provenance, truthful-unavailable, determinism, and no-write invariants. Release truth is partial: live metadata verifies prerelease `v1.2.0rc2` published 2026-08-17, and PRs #5/#7 are both open and unmerged, but `RELEASE.md` still targets v1.1.12 and no substantive committed comparison of either PR against current head was found. No tag/publication state is inferred beyond the supplied live metadata."
+  },
+  {
+    "issue_number": 28,
+    "head": "c3b33212478e36003be3e0d349dda2505ec42ae5",
+    "requirements": [
+      {
+        "original_text": "Define canonical repo-backed records for skills, prompts, playbooks, workflow templates and evaluation sets with owner, license/provenance, schema version, exact dependencies, resource requirements and test expectations.",
+        "status": "partial",
+        "evidence": ["rail/procedural_memory.py and docs/procedural-memory.md:1-24 provide immutable procedure/review records with exact refs; rail/semantic/packs.py provides signed packs/evaluations. No unified native record contract covers every named artifact and field."]
+      },
+      {
+        "original_text": "Keep policy/instruction ownership explicit. Refer to OpenSaddle-granted capabilities and execution definitions; a skill cannot issue permissions, schedule itself or hide an executable extension inside prose.",
+        "status": "partial",
+        "evidence": ["docs/core-provenance.md:46-59 separates review authority from readable lineage; docs/extension-registry.md:16-18 denies import/evaluation/install/activation. No native skill preview/import contract proves the prose constraint across adapters."]
+      },
+      {
+        "original_text": "Provide capability-tested export/adaptation for supported native agent formats, preserving semantic constraints and marking unsupported features.",
+        "status": "missing",
+        "evidence": ["No production skill exporter/adapter, supported-format descriptor, native skill schema, or cross-harness conformance test exists. Actionable guidance is a provider result, not native skill export."]
+      },
+      {
+        "original_text": "Capture improvement candidates from verified run/artifact/feedback evidence with proposed diff, supporting/counter-evidence, affected tasks, confidence limits, expected cost/quality change and reviewer requirements.",
+        "status": "partial",
+        "evidence": ["Core receipt/procedure-review tests retain exact candidate, evidence, and reviewer lineage and passed. The candidate schema lacks the full requested diff, counter-evidence, affected-task, confidence-limit, and expected cost/quality fields."]
+      },
+      {
+        "original_text": "Evaluate candidates against held-out or regression fixtures appropriate to the change. Check both usefulness and regressions in authority, factuality, cost and user attention. Do not accept self-reported success alone or optimize against a single memorized example.",
+        "status": "partial",
+        "evidence": ["rail/semantic/packs.py:192-227,300-366 and test_semantic_foundation.py::test_pack_signature_quality_drift_and_immutable_version implement deterministic pack drift metrics. No general held-out runner or mandatory procedure-promotion gate covers all requested dimensions."]
+      },
+      {
+        "original_text": "Promote only through the configured review gate; pin exact accepted versions into runs/Factory definitions. Support staged rollout, rollback, supersession and tracing which outputs used which version.",
+        "status": "partial",
+        "evidence": ["Commits 230c085 and c89669f implement exact signed review, actionable guidance, supersession, and lineage; core/actionable tests passed. No OpenSaddle run/Factory pinning, staged rollout controller, or future-selection rollback exists."]
+      },
+      {
+        "original_text": "Keep per-user/project adaptations separate from organization-wide defaults. Sharing a skill does not share private examples, transcripts, provider credentials or personal memory.",
+        "status": "partial",
+        "evidence": ["Signed guidance is tenant/project/exact-ref scoped and dispatch tests deny wrong, expired, revoked, tampered, or incomplete authority. No native skill-sharing/export implementation tests adaptation tiers or private-example exclusion."]
+      },
+      {
+        "original_text": "Two skills—repository maintenance and a cited weekly research brief—run on supported adapters using fixed versions. A proposed improvement is evaluated, reviewed, promoted and then rolled back without changing historical run provenance.",
+        "status": "missing",
+        "evidence": ["No end-to-end fixture runs both named native skills and completes evaluation, review, promotion, rollback, and historical run-provenance assertions."]
+      },
+      {
+        "original_text": "Every executed procedure resolves to an immutable reviewed version and declared dependencies.",
+        "status": "partial",
+        "evidence": ["Actionable guidance returns only accepted/current reviewed records with exact dependencies; test_actionable_guidance_dispatch.py and test_extension_registry.py passed. KRAIL does not own execution, and no test proves every external execution is pinned."]
+      },
+      {
+        "original_text": "Skill import/export never expands capability grants or executes code during preview.",
+        "status": "missing",
+        "evidence": ["The extension registry is non-installing/non-evaluating, but native skill import/export and preview do not exist."]
+      },
+      {
+        "original_text": "Proposed changes retain evidence, reviewer identity and evaluation results; a regression or failed evaluation blocks promotion.",
+        "status": "partial",
+        "evidence": ["ProcedureReviewDecision retains exact candidate/reviewer/evidence/outcome and durable tests pass; pack evaluations are separate. No mandatory evaluation binding gates procedure improvement promotion."]
+      },
+      {
+        "original_text": "Private examples are excluded from shared packs and exports.",
+        "status": "missing",
+        "evidence": ["Exact authorization protects guidance and shared-Git exports, but no native skill-pack export/private-example filter exists."]
+      },
+      {
+        "original_text": "Rollback affects future selection while preserving which version past outcomes used.",
+        "status": "missing",
+        "evidence": ["Procedure supersession preserves immutable history, but no skill rollout selector/rollback and past-run version integration exists."]
+      }
+    ],
+    "publishable_comment": "Committed work provides a strong reviewed-procedure substrate, not the complete native-skill lifecycle. Immutable candidates/reviews, exact evidence and reviewer lineage, signed actionable-guidance dispatch, stale/conflict abstention, supersession, and the company incident replay journey are implemented and pass in the current 182-test audit run (`230c085`, `c89669f`, `9a53864`). Signed semantic packs also have deterministic drift records. Missing are native agent skill import/export/adaptation, the full improvement-candidate schema, held-out evaluation as a mandatory promotion gate, run/Factory pinning, staged rollout/rollback selection, private-example export tests, and the specified two-skill fixture. Reviewed guidance is not native skill export/evaluation/rollout completion."
+  },
+  {
+    "issue_number": 29,
+    "head": "c3b33212478e36003be3e0d349dda2505ec42ae5",
+    "requirements": [
+      {
+        "original_text": "Declare one authority mode per knowledge workspace: local canonical Git repository, connected canonical Git repository with reviewed changes, or explicitly hosted canonical service. Do not silently promote a cache/mirror into a writer.",
+        "status": "partial",
+        "evidence": ["rail/shared_knowledge.py defines connected/local modes, one active_writer, and writer generation; hosted mode fails closed. docs/agents/knowledge-29-shared-knowledge-journey.md:3-11 states bare Git is canonical and caches cannot promote. Hosted composition is absent."]
+      },
+      {
+        "original_text": "Define transitions between modes with owner consent, source IDs, exact versions/digests, backup, verification and rollback/forward recovery. The original source of external documents remains canonical for those documents.",
+        "status": "partial",
+        "evidence": ["Commits 4288dce, 5870fd2, ffb18e7, 33afc76, 46fbf32, 64294c7, and 08cb95b plus passing tests cover verified local/connected transitions, bundles, fencing, reverse transition, and pending-effect refusal. Hosted/external connector transitions remain absent."]
+      },
+      {
+        "original_text": "Implement Git synchronization through approved connector actions: fetch/snapshot, candidate branch/PR, review, merge reconciliation and tombstones. Handle conflicting edits, changed heads, duplicate webhooks and interrupted promotion without overwriting canonical history.",
+        "status": "partial",
+        "evidence": ["test_shared_knowledge.py:42-173 uses real temporary Git clones/remote for candidates, durable review-pending, exact-head CAS, conflicts, interrupted recovery, and tombstones. No GitHub connector, PR API, webhook ingestion/deduplication, or credential-bearing composition exists."]
+      },
+      {
+        "original_text": "Keep hosted indexes, graph/vector projections and compiled context as rebuildable derived storage keyed by source version plus authorization scope. Incremental invalidation must respond to content updates, membership changes, source revocation and deletion.",
+        "status": "partial",
+        "evidence": ["The local cache is keyed by user and canonical commit and reauthorizes exact bytes/lineage; test_shared_knowledge.py:104-148 proves cached/reopened revocation and deletion. No hosted shared-knowledge graph/vector/summary composition exists."]
+      },
+      {
+        "original_text": "Isolate protected bytes at the storage/runtime boundary. KRAIL's local public-by-default metadata does not become a hosted default; anyone with raw access to a shared repository can bypass per-record metadata, so do not co-locate mutually private records in a universally readable checkout.",
+        "status": "partial",
+        "evidence": ["docs/hosted-storage.md specifies scoped storage/authorization, while docs/agents/knowledge-29-shared-knowledge-journey.md:30-44 documents raw-filesystem bypass. No production hosted shared workspace or physical multi-tenant checkout/runtime isolation exists."]
+      },
+      {
+        "original_text": "Apply access checks to filenames, citations, lineage, graph neighbors, exports and summary caches, not only direct reads. Keep secret material out of knowledge Git histories.",
+        "status": "partial",
+        "evidence": ["Commit c89669f and rail/shared_knowledge.py authorize repository, every file, and exact proposal/local-write lineage; cached/reopened writer-mode export tests pass. No citation/graph/summary seam or connector-side secret scanner exists, and raw Git writers remain outside enforcement."]
+      },
+      {
+        "original_text": "Provide explicit retention/export/deletion behavior, including dependent projections and backup-policy limitations. Minimal audit tombstones must not retain deleted private content under a different label.",
+        "status": "partial",
+        "evidence": ["Commit c3b3321; docs/shared-knowledge-retention.md:3-61; and test_shared_knowledge.py:191-430 prove metadata inventory, exact owner/digest prune, 128 live-bundle bound, no expiry, transition protection, revocation, wrong digest/path/symlink/hardlink defenses, streamed hashing, crash/restart idempotence, minimal receipt, and lifetime backup-ID non-reuse. It deletes only service-owned local bundles, not Git history, external clones, hosted projections, or production backups."]
+      },
+      {
+        "original_text": "Retain local/offline drafts as proposals requiring current authorization and revision checks before shared promotion.",
+        "status": "verified",
+        "evidence": ["test_shared_knowledge.py:42-119 proves independent exact-base proposals, live reviewer authority, expected-old CAS, conflict, and restart recovery; writer generation/head CAS tests passed."]
+      },
+      {
+        "original_text": "Two users propose conflicting edits to a connected knowledge repository. One reviewed version is merged; the other becomes a conflict requiring review. Revoking a source grant removes its derived search/context results from the narrower user's view.",
+        "status": "verified",
+        "evidence": ["packages/rail-py/tests/test_shared_knowledge.py::test_two_user_git_proposals_review_conflict_restart_and_revocation executes this exact journey with real temporary Git and passed."]
+      },
+      {
+        "original_text": "Each mutable record/store has one writer; stale heads/concurrent promotion cannot overwrite accepted knowledge; mode migration cannot leave two active writers.",
+        "status": "partial",
+        "evidence": ["Verified for local SharedKnowledgeWorkspace through active_writer/generation, state lock, Git CAS, and stale-instance fencing tests. Hosted and connector writers are not implemented."]
+      },
+      {
+        "original_text": "Revocation/deletion invalidates authorized derived data within a documented bound; cross-user tests cover direct reads, caches, summaries, lineage and exports.",
+        "status": "partial",
+        "evidence": ["Local cached context/search/export/lineage rechecks authority immediately, and tombstoned bytes disappear across restart; exact lineage export tests cover both writer modes. No shared summary API or hosted/connector invalidation bound is tested."]
+      },
+      {
+        "original_text": "Direct-filesystem limitations and safe checkout isolation are documented and tested where enforced.",
+        "status": "partial",
+        "evidence": ["docs/agents/knowledge-29-shared-knowledge-journey.md:30-44 documents restrictions/bypass; test_rejects_untrusted_checkout_and_authorizes_before_return and path/symlink tests pass. These are adapter checks, not host sandbox isolation."]
+      }
+    ],
+    "publishable_comment": "Issue #29 now has a meaningful local Git implementation at `c3b3321`: real-Git two-user review/conflict/recovery, immediate cached/restarted revocation, tombstones, exact export lineage, fenced local↔connected transitions, and owner-authorized bundle inventory/pruning. Retention is narrow and honest: 128 live service-owned bundles, no automatic expiry, protected transition backups, lifetime single-use IDs, and content-free receipts; it does not erase Git history or external clones. Still missing are connector PR/webhook synchronization, hosted shared canonical composition, production identity/audit/revocation, physical multi-tenant isolation, and hosted graph/vector/summary invalidation. Local retention and committed export protections are not connector or hosted isolation."
+  }
+]
