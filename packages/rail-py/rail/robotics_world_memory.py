@@ -19,6 +19,7 @@ from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidati
 from rail.semantic.models import canonical_digest
 from rail.semantic.repository import SemanticRow
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
+from rail.spatial_current_projection import ProjectionWork, SpatialCurrentProjection
 
 
 class Strict(BaseModel):
@@ -234,6 +235,7 @@ class TabletopWorldMemory:
         self._resolution_records: list[TemporalRecord] = []
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
+        self._spatial_current: SpatialCurrentProjection | None = None
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
@@ -324,8 +326,13 @@ class TabletopWorldMemory:
 
     def _refresh(self) -> None:
         if self._projection is not None:
+            previous = tuple(record.record_digest for record in self._records)
             all_records = self._projection._records()
             self._records = [record for record in all_records if record.payload_schema == "robotics.world-memory"]
+            if previous != tuple(record.record_digest for record in self._records):
+                # A different process may have changed canonical records. Never
+                # serve a RAM projection whose declared inputs no longer match.
+                self._spatial_current = None
             self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._region_records = [record for record in all_records if record.payload_schema == "robotics.place-region"]
@@ -363,6 +370,16 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._records.append(record)
         return record
+
+    def prepare_spatial_snapshot(self, *, valid_at: datetime, known_at: datetime) -> ProjectionWork:
+        """Explicitly build the disposable candidate grid for one time snapshot.
+
+        This is a bounded-scope admission point: it reports any full rebuild
+        rather than hiding that cost inside an authorized region read.
+        """
+        self._refresh()
+        self._spatial_current = SpatialCurrentProjection(tuple(self._records), valid_at=valid_at, known_at=known_at)
+        return self._spatial_current.last_build_work
 
     @staticmethod
     def record_ref(record: TemporalRecord) -> ResourceRef:
@@ -953,9 +970,26 @@ class TabletopWorldMemory:
             if any(ref.exact_key in {item.exact_key for item in active} for ref in region_record.source_refs) or any(canonical in self._projection.affected_region(ref) for ref in active):
                 return RegionObjectsAnswer(status="stale", evidence=tuple(evidence))
         records_by_object: dict[str, list[TemporalRecord]] = {}
-        for record in self._records:
-            if record.entity_authority == f"robotics://world/{world_id}":
-                records_by_object.setdefault(record.entity_id, []).append(record)
+        spatial = self._spatial_current
+        if spatial is not None and (spatial.valid_at, spatial.known_at) == (at, known_at) and not spatial.requires_conservative_fallback(world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision):
+            margin = spatial.max_uncertainty_metres
+            candidates = spatial.candidate_query(
+                world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision,
+                minimum=tuple(value - margin for value in region.min_metres),
+                maximum=tuple(value + margin for value in region.max_metres),
+            )
+            # A broad region is not silently changed into an unbounded scan.
+            # The caller must explicitly prepare a suitable projection/region.
+            if candidates.status == "too-large":
+                return RegionObjectsAnswer(status="unknown", evidence=tuple(evidence))
+            for hit in candidates.hits:
+                record = self._record_for_ref(hit.record_ref)
+                if record is not None:
+                    records_by_object.setdefault(record.entity_id, []).append(record)
+        else:
+            for record in self._records:
+                if record.entity_authority == f"robotics://world/{world_id}":
+                    records_by_object.setdefault(record.entity_id, []).append(record)
         inside: list[ResourceRef] = []
         unknown = stale = False
         for history in records_by_object.values():
@@ -971,6 +1005,9 @@ class TabletopWorldMemory:
             state = record.payload["state"]
             pose = Pose.model_validate(record.payload["pose"])
             expires = record.payload.get("estimate_expires_at")
+            if self._projection_marks_record_stale(record, valid_at=at, known_at=known_at):
+                stale = True
+                continue
             if (state == "estimate" and ((expires is not None and datetime.fromisoformat(expires) <= at) or self._projection_marks_estimate_stale(record, valid_at=at, known_at=known_at))):
                 stale = True
                 continue

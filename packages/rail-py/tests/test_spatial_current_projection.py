@@ -36,7 +36,8 @@ def test_rebuild_restart_and_local_move_have_measured_bounded_work():
 
     later = NOW + timedelta(seconds=1)
     moved = memory.record(WorldObject(world_id="one", object_id="o0", class_label="cup"), pose(.9, "moved", later), kind="observation", evidence=(ev("moved"),))
-    index.advance_snapshot(valid_at=later, known_at=later)
+    advance_work = index.advance_snapshot(valid_at=later, known_at=later)
+    assert advance_work.history_rows_read == 100 and advance_work.index_rows_touched == 100
     work = index.apply(moved)
     assert work.history_rows_read == 2 and work.index_rows_touched == 2
     assert {hit.object_id for hit in region(index).hits} == {"o1", "o2"}

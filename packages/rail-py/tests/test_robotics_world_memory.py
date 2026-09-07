@@ -495,10 +495,17 @@ def test_persisted_regions_relations_and_bounded_same_frame_membership(tmp_path)
     )
     answer = memory.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
     assert answer.status == "current" and answer.object_refs == (memory.record_ref(left),) and answer.evidence
+    work = memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+    assert work.history_rows_read == 2 and work.index_rows_touched == 2
+    # This is the public authorized query path: the RAM grid only narrows
+    # exact candidates; lineage authorization and uncertainty stay here.
+    projected_answer = memory.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+    assert projected_answer.status == answer.status and projected_answer.object_refs == answer.object_refs
     assert memory.action_freshness(world_id="table-a", object_id="cup-left", at=NOW, known_at=NOW, reader=Allow(), required_frame_id="table", required_map_revision="table-map-1", region_ref=region.region_ref).status == "usable"
     assert {item.relation_type for item in memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow())} == {relation.relation_type, containment.relation_type, attachment.relation_type}
     memory.rebuild_projection(valid_at=NOW, known_at=NOW, at=NOW)
     reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW).history_rows_read == 2
     assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(left),)
     assert reopened.objects_in_region(world_id="other", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).status == "unknown"
     reopened.invalidate_map_revision(evidence("left-zone"), reason="region calibration withdrawn", at=NOW + timedelta(minutes=1))
@@ -509,9 +516,11 @@ def test_persisted_regions_relations_and_bounded_same_frame_membership(tmp_path)
     # A frame mismatch is not transformed or guessed; it makes this bounded
     # membership query abstain instead of returning a partial assertion.
     reopened.record(WorldObject(world_id="table-a", object_id="camera-frame", class_label="cup"), Pose(frame_id="camera", metres=(0.1, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=NOW, uncertainty_metres=0.01, revision="camera", map_revision="table-map-1"), kind="observation", evidence=(evidence("camera-frame"),), recorded_at=NOW)
+    reopened.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
     assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).status == "unknown"
     estimate = reopened.record(WorldObject.model_validate(left.payload["object"]), pose(0.1, "left-estimate", NOW + timedelta(minutes=1)), kind="estimate", evidence=(evidence("left-estimate"),), estimate_expires_at=NOW + timedelta(minutes=2), recorded_at=NOW + timedelta(minutes=1))
     assert estimate.payload["state"] == "estimate"
+    reopened.prepare_spatial_snapshot(valid_at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2))
     assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()).status == "stale"
 
 

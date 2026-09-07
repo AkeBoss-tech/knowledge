@@ -23,6 +23,7 @@ class SpatialHit:
     frame_id: str
     map_revision: str
     metres: tuple[float, float, float]
+    uncertainty_metres: float
 
 
 @dataclass(frozen=True)
@@ -64,10 +65,12 @@ class SpatialCurrentProjection:
         self._locations: dict[tuple[str, str], tuple[tuple[str, str, str, tuple[int, int, int]], SpatialHit]] = {}
         self._cells: dict[tuple[str, str, str, tuple[int, int, int]], dict[tuple[str, str], SpatialHit]] = {}
         self._frames: dict[tuple[str, str, str], int] = {}
+        self._conservative_worlds: set[str] = set()
+        self.max_uncertainty_metres = 0.0
         for record in records:
             if record.payload_schema == "robotics.world-memory":
                 self._histories.setdefault((record.entity_authority, record.entity_id), []).append(record)
-        self.rebuild()
+        self.last_build_work = self.rebuild()
 
     def _cell(self, metres: tuple[float, float, float]) -> tuple[int, int, int]:
         return tuple(floor(value / self.cell_metres) for value in metres)  # type: ignore[return-value]
@@ -76,6 +79,8 @@ class SpatialCurrentProjection:
         self._locations.clear()
         self._cells.clear()
         self._frames.clear()
+        self._conservative_worlds.clear()
+        self.max_uncertainty_metres = 0.0
         history_rows = index_rows = 0
         for key in self._histories:
             work = self._materialize(key)
@@ -87,7 +92,8 @@ class SpatialCurrentProjection:
         """Move to a new bitemporal snapshot by rebuilding from exact records."""
         self.valid_at, self.known_at = valid_at, known_at
         self._built_snapshot = (valid_at, known_at)
-        return self.rebuild()
+        self.last_build_work = self.rebuild()
+        return self.last_build_work
 
     def _require_current_snapshot(self) -> None:
         if (self.valid_at, self.known_at) != self._built_snapshot:
@@ -116,15 +122,19 @@ class SpatialCurrentProjection:
             return ProjectionWork(len(history), touched)
         record = current[-1]
         payload, pose = record.payload, record.payload["pose"]
+        world = str(payload["object"]["world_id"])
         # Estimate expiry is local record semantics. Observation freshness and
         # invalidation remain with the owning authorized world-memory read.
         if record.freshness != "current" or (payload["state"] == "estimate" and payload.get("estimate_expires_at") and datetime.fromisoformat(str(payload["estimate_expires_at"])) <= self.valid_at):
+            self._conservative_worlds.add(world)
             return ProjectionWork(len(history), touched)
-        world = str(payload["object"]["world_id"])
-        hit = SpatialHit(world, key[1], _ref(record), str(pose["frame_id"]), str(pose["map_revision"]), tuple(pose["metres"]))
+        if payload["state"] == "observation" and datetime.fromisoformat(str(pose["observed_at"])) < self.valid_at:
+            self._conservative_worlds.add(world)
+        hit = SpatialHit(world, key[1], _ref(record), str(pose["frame_id"]), str(pose["map_revision"]), tuple(pose["metres"]), float(pose["uncertainty_metres"]))
         bucket = (world, hit.frame_id, hit.map_revision, self._cell(hit.metres))
         self._cells.setdefault(bucket, {})[key] = hit
         self._locations[key] = (bucket, hit)
+        self.max_uncertainty_metres = max(self.max_uncertainty_metres, hit.uncertainty_metres)
         frame = bucket[:3]
         self._frames[frame] = self._frames.get(frame, 0) + 1
         return ProjectionWork(len(history), touched + 1)
@@ -145,6 +155,13 @@ class SpatialCurrentProjection:
         if located is None:
             return SpatialQueryResult("abstained", (), 0, 0)
         return SpatialQueryResult("current-candidates", (located[1],), 1, 0)
+
+    def requires_conservative_fallback(self, *, world_id: str, frame_id: str, map_revision: str) -> bool:
+        """True when pruning could hide an owner-level unknown/stale outcome."""
+        return world_id in self._conservative_worlds or any(
+            world == world_id and (frame != frame_id or revision != map_revision)
+            for world, frame, revision in self._frames
+        )
 
     def candidate_query(self, *, world_id: str, frame_id: str, map_revision: str, minimum: tuple[float, float, float], maximum: tuple[float, float, float]) -> SpatialQueryResult:
         """Return bounded grid candidates for a region, or abstain on no hit."""
