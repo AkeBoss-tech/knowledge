@@ -108,6 +108,9 @@ def test_hosted_world_memory_binds_signed_read_write_and_invalidation_at_live_cl
         memory.location(world_id="other", object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=reader)
     assert memory.invalidate_map_revision(evidence("estimate"), reason="camera revoked", at=invalidated_at, event_id=event.event_id, world_id=WORLD) == (TemporalProjectionService.record_ref(estimate),)
     assert memory.location(world_id=WORLD, object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=reader).status == "stale"
+    revocations.revoke_context(reader_context.context_digest, revoked_at=NOW)
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.location(world_id=WORLD, object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=reader)
 
 
 def test_hosted_similarity_reader_revocation_denies_all_results(tmp_path):
