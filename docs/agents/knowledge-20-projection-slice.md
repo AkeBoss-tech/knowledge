@@ -41,6 +41,22 @@ Run the focused fixture with:
 PYTHONPATH=packages/rail-py /private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_spatial_current_projection.py
 ```
 
+The reproducible opt-in timing benchmark is:
+
+```sh
+PYTHONPATH=packages/rail-py /private/tmp/krail-temporal.zSLchI/bin/python \
+  scripts/benchmark_robotics_spatial_projection.py \
+  --output docs/agents/knowledge-20-benchmark-baseline.json
+```
+
+The committed [baseline JSON](knowledge-20-benchmark-baseline.json) records
+its dated Python/platform assumptions, exact command, fixture scale, measured
+p50/p95 values, raw-grid microbenchmark, update/rebuild work and time,
+serialized metadata bytes, restart equality, and unavailable operations.
+Public and raw timings are measured at the same admitted snapshot. A delayed
+observation's expected `unknown`/`stale` abstention is reported separately from
+an incorrect obsolete result.
+
 The fixture uses 0.1 m cells and deterministic 2026-09-07 timestamps. Its
 assertions record work counts rather than machine-specific latency claims:
 

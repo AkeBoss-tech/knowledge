@@ -236,6 +236,7 @@ class TabletopWorldMemory:
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
         self._spatial_current: SpatialCurrentProjection | None = None
+        self.last_spatial_update_work: ProjectionWork | None = None
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
@@ -375,7 +376,7 @@ class TabletopWorldMemory:
             # until a second explicit rebuild.  ``apply`` still evaluates the
             # fixed valid/known cutoffs, so future/unknown records cannot leak.
             if self._spatial_current is not None:
-                self._spatial_current.apply(record)
+                self.last_spatial_update_work = self._spatial_current.apply(record)
         return record
 
     def prepare_spatial_snapshot(self, *, valid_at: datetime, known_at: datetime) -> ProjectionWork:

@@ -1,0 +1,63 @@
+{
+  "benchmark_date": "2026-09-07",
+  "command": "scripts/benchmark_robotics_spatial_projection.py --output docs/agents/knowledge-20-benchmark-baseline.json",
+  "delayed_update": {
+    "abstentions": 1,
+    "expected_abstention": 1,
+    "obsolete_incorrect": 0,
+    "obsolete_rate": 0.0,
+    "queries": 1,
+    "status": "unknown"
+  },
+  "fixture": {
+    "appearance_records": 32,
+    "embedded_asset_bytes": 0,
+    "external_asset_refs": 32,
+    "objects": 32,
+    "observations_per_object": 3,
+    "scene_snapshots": 2
+  },
+  "incremental_move": {
+    "history_rows_read": 4,
+    "index_rows_touched": 2,
+    "ms": 72.3401
+  },
+  "public_authorized_region_query": {
+    "p50_ms": 37.3775,
+    "p95_ms": 45.8273
+  },
+  "raw_grid_candidate_query": {
+    "p50_ms": 0.0116,
+    "p95_ms": 0.0203
+  },
+  "reads": {
+    "public_hits": 7,
+    "raw_candidate_rows": 10,
+    "raw_cells": 24
+  },
+  "rebuild": {
+    "history_rows_read": 96,
+    "index_rows_touched": 32,
+    "ms": 21.8528
+  },
+  "restart": {
+    "equivalent_authorized_refs": true,
+    "history_rows_read": 97,
+    "index_rows_touched": 32
+  },
+  "retained_metadata_bytes": {
+    "per_object": 6259.1,
+    "per_observation": 1436.5,
+    "per_snapshot_serialized": 16807,
+    "total": 200290
+  },
+  "runtime": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12"
+  },
+  "unavailable": [
+    "fine geometry fetch: no asset transport",
+    "appearance ANN: no vector index",
+    "ROS/MoveIt live control: out of scope"
+  ]
+}
