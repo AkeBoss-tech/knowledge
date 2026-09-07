@@ -610,7 +610,8 @@ def test_exact_appearance_similarity_is_scoped_live_and_numerically_stable():
         return memory.record_appearance(WorldObject(world_id=world, object_id=object_id, class_label="cup"), record, asset_ref=evidence(object_id + "asset"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="a", descriptor=vector, recorded_at=NOW)
     foreign = add("other", "foreign", (1., 0.))
     target = add("one", "target", (1e308, 1e308))
-    assert memory.similar_appearances(world_id="one", descriptor=(1e308, 1e308), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0].appearance.appearance_ref == target.appearance_ref
+    extreme = memory.similar_appearances(world_id="one", descriptor=(1e308, 1e308), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0]
+    assert extreme.appearance.appearance_ref == target.appearance_ref and extreme.score == pytest.approx(1.0)
     fresh = add("one", "fresh", (1., 0.))
     assert memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0].appearance.appearance_ref == fresh.appearance_ref
     with pytest.raises(ValueError):

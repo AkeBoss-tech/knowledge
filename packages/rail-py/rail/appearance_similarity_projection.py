@@ -12,8 +12,15 @@ class AppearanceSimilarityProjection:
     def query(self, *, descriptor: tuple[float, ...], model: str, version: str, world_id: str) -> tuple[tuple[TemporalRecord, float], ...]:
         if not 1 <= len(descriptor) <= 512:
             raise ValueError("appearance query descriptor must be 1..512 values")
-        norm = hypot(*descriptor)
-        if not norm:
+        def unit(values):
+            scale = max(abs(value) for value in values)
+            if not scale:
+                return None
+            scaled = tuple(value / scale for value in values)
+            norm = hypot(*scaled)
+            return tuple(value / norm for value in scaled)
+        query_unit = unit(descriptor)
+        if query_unit is None:
             raise ValueError("appearance query descriptor must not be zero")
         matches = []
         for record in self.rows:
@@ -21,8 +28,8 @@ class AppearanceSimilarityProjection:
             vector = tuple(float(value) for value in payload["descriptor"])
             if payload["descriptor_model"] != model or payload["descriptor_version"] != version or payload["world_id"] != world_id or len(vector) != len(descriptor):
                 continue
-            other = hypot(*vector)
-            if not other:
+            other_unit = unit(vector)
+            if other_unit is None:
                 continue
-            matches.append((record, sum((a / norm) * (b / other) for a,b in zip(descriptor, vector, strict=True))))
+            matches.append((record, sum(a*b for a,b in zip(query_unit, other_unit, strict=True))))
         return tuple(sorted(matches, key=lambda item: (-item[1], item[0].record_digest)))
