@@ -21,9 +21,11 @@ from rail.procedural_memory import (
     ProcedureReviewDecision,
     create_procedure,
     create_review_decision,
+    procedure_temporal_history,
     procedure_temporal_record,
     promote_reviewed_procedure,
 )
+from rail.procedure_projection import ProjectionWriter, TemporalProjectionService
 from rail.semantic.repository import JsonSemanticStore, SemanticRow
 
 
@@ -415,6 +417,8 @@ class CoreProvenanceRepository:
         reason: str,
         at: datetime,
         authorizer: ProcedureInvalidationAuthorizer,
+        projection: TemporalProjectionService | None = None,
+        projection_id: str = "core-provenance",
     ) -> ProcedureInvalidationEvent:
         if not callable(getattr(authorizer, "authorize_invalidation", None)):
             raise PermissionError("procedure invalidation action denied")
@@ -454,6 +458,9 @@ class CoreProvenanceRepository:
             authorizer.authorize_invalidation(event_id, changed_ref, event.event_digest, at=at)
         except PermissionError as exc:
             raise PermissionError("procedure invalidation access denied") from exc
+        if projection is not None:
+            projection.mark_dirty(changed_ref, projection_id=projection_id, reason=reason, at=at)
+            projection.recompute(projection_id=projection_id, valid_at=at, known_at=at, at=at)
         return event
 
     def rebuild_freshness_projection(self, *, at: datetime) -> tuple[ProcedureFreshnessProjection, ...]:
@@ -574,9 +581,21 @@ class CoreProvenanceRepository:
 class ProcedureReviewService:
     """Explicit, authorized review and promotion over Core-provenance candidates."""
 
-    def __init__(self, *, repository: CoreProvenanceRepository, clock=None) -> None:
+    def __init__(self, *, repository: CoreProvenanceRepository, clock=None, projection: TemporalProjectionService | None = None, projection_writer: ProjectionWriter | None = None, projection_id: str = "core-provenance") -> None:
+        if (projection is None) != (projection_writer is None):
+            raise ValueError("projection and explicit projection writer must be paired")
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._projection = projection
+        self._projection_writer = projection_writer
+        self._projection_id = projection_id
+
+    def _sync_projection(self, records: tuple[ProcedureRecord, ...], *, at: datetime) -> None:
+        if self._projection is None or self._projection_writer is None:
+            return
+        for temporal in procedure_temporal_history(records):
+            self._projection.ingest(temporal, at=at, writer=self._projection_writer)
+        self._projection.rebuild(projection_id=self._projection_id, valid_at=at, known_at=at, at=at)
 
     def review(
         self,
@@ -636,6 +655,7 @@ class ProcedureReviewService:
                     authorizer.authorize(ref, at=final_now)
             except PermissionError as exc:
                 raise PermissionError("procedure review access denied") from exc
+            self._sync_projection(tuple(record for record in (candidate, reviewed) if record is not None), at=now)
             return existing
         candidate = self._repository.find_procedure(candidate_digest)
         if candidate is None:
@@ -689,15 +709,18 @@ class ProcedureReviewService:
             )
         except PermissionError as exc:
             raise PermissionError("procedure review action denied") from exc
+        self._sync_projection(tuple(record for record in (candidate, result.promoted_record) if record is not None), at=final_now)
         return result
 
 
 class ProcedureExplanationService:
     """Authorized read-only explanation over the canonical procedure history."""
 
-    def __init__(self, *, repository: CoreProvenanceRepository, clock=None) -> None:
+    def __init__(self, *, repository: CoreProvenanceRepository, clock=None, projection: TemporalProjectionService | None = None, projection_id: str = "core-provenance") -> None:
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._projection = projection
+        self._projection_id = projection_id
 
     def explain(
         self,
@@ -768,6 +791,15 @@ class ProcedureExplanationService:
                    if projection.procedure_digest == record.record_digest)
             for record in all_records
         )
+        if self._projection is not None:
+            temporal = procedure_temporal_history(all_records)
+            temporal_digests = {item.record_digest for item in temporal}
+            projection_stale = any(
+                any(digest in temporal_digests for digest in state.record_digests)
+                and any(item.status != "current" for item in state.dependency_states)
+                for state in self._projection.current_state(self._projection_id)
+            )
+            stale = stale or projection_stale
         gaps: list[str] = []
         if review_status == "missing":
             gaps.append("no persisted review decision supports this candidate")
@@ -776,6 +808,8 @@ class ProcedureExplanationService:
         if stale:
             gaps.extend(reason for record in all_records for reason in record.stale_reasons)
             gaps.extend(reason for projection in projections for reason in projection.stale_reasons)
+            if self._projection is not None and not projection_reasons:
+                gaps.append("temporal dependency projection reports stale or dirty exact input state")
         if reviewed is None and accepted:
             gaps.append("accepted review history is not uniquely selectable")
         if review_status == "conflicting":
@@ -837,10 +871,15 @@ class ProcedureExplanationService:
 class CoreProvenanceService:
     """Pure idempotent receipt ingestion; durable storage is caller-owned."""
 
-    def __init__(self, *, clock=None, repository: CoreProvenanceRepository | None = None) -> None:
+    def __init__(self, *, clock=None, repository: CoreProvenanceRepository | None = None, projection: TemporalProjectionService | None = None, projection_writer: ProjectionWriter | None = None, projection_id: str = "core-provenance") -> None:
+        if (projection is None) != (projection_writer is None):
+            raise ValueError("projection and explicit projection writer must be paired")
         self._receipts: dict[str, CoreProvenanceIngestion] = {}
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = repository
+        self._projection = projection
+        self._projection_writer = projection_writer
+        self._projection_id = projection_id
 
     def ingest(
         self,
@@ -875,6 +914,8 @@ class CoreProvenanceService:
                     authorizer.authorize(ref, at=replay_now)
             except PermissionError as exc:
                 raise PermissionError("Core provenance access denied") from exc
+            if self._projection is not None and self._projection_writer is not None:
+                self._projection.ingest(existing.temporal_record, at=replay_now, writer=self._projection_writer)
             return existing
 
         receipt_ref = ResourceRef(
@@ -914,6 +955,9 @@ class CoreProvenanceService:
         )
         if self._repository is not None:
             result = self._repository.save(result, at=now)
+        if self._projection is not None and self._projection_writer is not None:
+            self._projection.ingest(result.temporal_record, at=final_now, writer=self._projection_writer)
+            self._projection.rebuild(projection_id=self._projection_id, valid_at=final_now, known_at=final_now, at=final_now)
         self._receipts[receipt.receipt_id] = result
         return result
 

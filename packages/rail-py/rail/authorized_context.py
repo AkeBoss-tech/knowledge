@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 from krail.provider.v1 import ResourceRef
 from rail.context_brief import ContextBrief, ContextBriefRequest, ContextBriefService
 from rail.hosted.access import AccessContextAuthority, SignedAccessContext
+from rail.temporal_records import TemporalRecord
 
 
 Digest = Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
@@ -24,6 +25,8 @@ PROCEDURE_REVIEW_CAPABILITY_ID = "krail.procedure-review"
 PROCEDURE_REVIEW_CAPABILITY_VERSION = "1.0.0"
 PROCEDURE_INVALIDATION_CAPABILITY_ID = "krail.procedure-invalidation"
 PROCEDURE_INVALIDATION_CAPABILITY_VERSION = "1.0.0"
+PROCEDURE_PROJECTION_CAPABILITY_ID = "krail.procedure-projection"
+PROCEDURE_PROJECTION_CAPABILITY_VERSION = "1.0.0"
 
 
 def _digest(value: object) -> str:
@@ -203,6 +206,37 @@ class HostedProcedureInvalidationAuthorizer:
             or event_digest not in self.allowed_event_digests
         ):
             raise PermissionError("procedure invalidation action denied")
+
+
+class HostedTemporalProjectionWriter:
+    """Signed exact-record writer; read contexts cannot publish projection inputs."""
+
+    def __init__(self, authority: AccessContextAuthority, context: SignedAccessContext, *, tenant_id: str, project_id: str, exact_refs: tuple[ResourceRef, ...], allowed_record_digests: tuple[str, ...], capability_digest: str, clock: Callable[[], datetime] | None = None) -> None:
+        if not exact_refs or not allowed_record_digests:
+            raise ValueError("exact projection refs and record digests are required")
+        self.authority, self.context = authority, context
+        self.tenant_id, self.project_id = tenant_id, project_id
+        self.exact_refs = frozenset(ref.exact_key for ref in exact_refs)
+        self.allowed_record_digests = frozenset(allowed_record_digests)
+        self.capability_digest, self.clock = capability_digest, clock or (lambda: datetime.now(UTC))
+
+    def authorize(self, record: TemporalRecord, *, at: datetime) -> None:
+        del at
+        try:
+            claims = self.authority.verify(self.context, as_of=self.clock())
+        except PermissionError as exc:
+            raise PermissionError("procedure projection write denied") from exc
+        if ((claims.tenant_id, claims.project_id) != (self.tenant_id, self.project_id)
+            or claims.capability_id != PROCEDURE_PROJECTION_CAPABILITY_ID
+            or claims.capability_version != PROCEDURE_PROJECTION_CAPABILITY_VERSION
+            or claims.capability_digest != self.capability_digest
+            or "projection.write" not in claims.actions
+            or claims.source_ids == ("*",)
+            or record.record_digest not in self.allowed_record_digests):
+            raise PermissionError("procedure projection write denied")
+        for ref in record.source_refs + record.provenance_refs:
+            if ref.exact_key not in self.exact_refs or ref.resource_id not in claims.source_ids:
+                raise PermissionError("procedure projection write denied")
 def assemble_authorized_context(
     service: ContextBriefService,
     request: ContextBriefRequest,
@@ -239,9 +273,12 @@ __all__ = [
     "HostedAccessContextAuthorizer",
     "HostedProcedureReviewAuthorizer",
     "HostedProcedureInvalidationAuthorizer",
+    "HostedTemporalProjectionWriter",
     "PROCEDURE_REVIEW_CAPABILITY_ID",
     "PROCEDURE_REVIEW_CAPABILITY_VERSION",
     "PROCEDURE_INVALIDATION_CAPABILITY_ID",
     "PROCEDURE_INVALIDATION_CAPABILITY_VERSION",
+    "PROCEDURE_PROJECTION_CAPABILITY_ID",
+    "PROCEDURE_PROJECTION_CAPABILITY_VERSION",
     "assemble_authorized_context",
 ]

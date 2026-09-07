@@ -62,6 +62,16 @@ replayable derived state. Exact external input refs are retained but their
 provider freshness is not resolved by this local projection. This does not
 replace temporal history or claim a general dependency scheduler.
 
+Core provenance can opt into this projection only by supplying both the shared
+projection and an explicit projection writer. `CoreProvenanceService` ingests
+its temporal envelope, and `ProcedureReviewService` uses
+`procedure_temporal_history` so a reviewed successor depends on the exact
+parent envelope. The existing signed `procedure.invalidate` write may then
+mark and recompute that derived region. `ProcedureExplanationService` reads
+the persisted derived state under its existing exact read checks and reports
+stale support when an authorized candidate/review chain has stale or dirty
+temporal dependencies. A read grant never becomes projection-write authority.
+
 The minimum typed temporal-record envelope from #16 now exists and this record
 composes into it. `procedure_temporal_history` converts a complete procedure
 chain, preserving procedure revisions and translating each procedure digest

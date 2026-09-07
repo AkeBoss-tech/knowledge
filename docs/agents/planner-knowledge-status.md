@@ -78,6 +78,30 @@
   idempotent no-op recompute. JSON-store atomic transactions remain the crash
   boundary; no scheduler, second database, or general dependency engine was
   added.
+
+### Core provenance projection bridge (2026-09-07)
+
+- `CoreProvenanceService` and `ProcedureReviewService` now accept a projection
+  only with an explicit paired `ProjectionWriter`; ordinary Core/read
+  authorization cannot publish temporal inputs. Reviews are synchronized using
+  `procedure_temporal_history`, preserving the exact envelope supersession
+  parent as a typed projection edge. Existing receipt/procedure/review digests
+  are not rewritten.
+- `record_invalidation` may update this non-authoritative projection only after
+  its existing signed invalidation action succeeds. `ProcedureExplanationService`
+  can read the persisted projection and reports stale support for an authorized
+  candidate/review chain with stale or dirty temporal dependencies. It does
+  not expose new source identities.
+- Added signed `krail.procedure-projection` `1.0.0` / `projection.write`
+  adapter support. It binds tenant/project, exact source refs, exact temporal
+  record digests, capability digest, and the live clock; `context.read` and an
+  expired context are rejected. The action is only typed availability in
+  `AccessClaims`, never a default grant.
+- Focused integration proves Core ingest, review, exact parent invalidation,
+  stale explanation, and reopen replay use one persisted temporal projection.
+  Current bounded verification is `127 passed` across projection, Core,
+  authorization, hosted, procedural, temporal, capability, and extension
+  tests; compileall and `git diff --check` pass.
 - Exact current command (isolated Python 3.13.12):
   `/private/tmp/krail-temporal.zSLchI/bin/pytest -q packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
   Result: `117 passed`; compileall and `git diff --check` pass. No scheduler,

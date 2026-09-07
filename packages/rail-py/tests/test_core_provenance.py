@@ -19,6 +19,7 @@ from rail.core_provenance import (
 )
 from rail.semantic.repository import JsonSemanticStore, SemanticRow
 from rail.procedural_memory import create_procedure, procedure_temporal_history
+from rail.procedure_projection import TemporalProjectionService
 from rail.temporal_records import query_temporal_records
 from rail.authorized_context import (
     HostedAccessContextAuthorizer,
@@ -72,6 +73,11 @@ class AllowReview:
 
 class AllowInvalidation:
     def authorize_invalidation(self, event_id, changed_ref, event_digest, *, at):
+        return None
+
+
+class AllowProjectionWriter:
+    def authorize(self, record, *, at):
         return None
 
 
@@ -234,7 +240,6 @@ def test_procedure_review_promotes_or_rejects_durably_and_is_idempotent(tmp_path
             authorizer=Allow(),
             review_authorizer=AllowReview(),
         )
-
     rejected = service.review(
         ingested.record.record_digest,
         decision_id="review:rejected",
@@ -258,26 +263,44 @@ def test_procedure_review_promotes_or_rejects_durably_and_is_idempotent(tmp_path
         review_authorizer=AllowReview(),
     ) == accepted
     with pytest.raises(ValueError, match="conflicting review identifier"):
-        restarted.review(
-            "sha256:" + "f" * 64,
-            decision_id="review:accepted",
-            reviewer_ref=reviewer,
-            evidence_refs=(evidence,),
-            accepted=True,
-            authorizer=Allow(),
-            review_authorizer=AllowReview(),
-        )
+        restarted.review("sha256:" + "f" * 64, decision_id="review:accepted", reviewer_ref=reviewer, evidence_refs=(evidence,), accepted=True, authorizer=Allow(), review_authorizer=AllowReview())
     with pytest.raises(ValueError, match="stale or unavailable"):
-        restarted.review(
-            "sha256:" + "e" * 64,
-            decision_id="review:stale",
-            reviewer_ref=reviewer,
-            evidence_refs=(evidence,),
-            accepted=True,
-            authorizer=Allow(),
-            review_authorizer=AllowReview(),
-        )
+        restarted.review("sha256:" + "e" * 64, decision_id="review:stale", reviewer_ref=reviewer, evidence_refs=(evidence,), accepted=True, authorizer=Allow(), review_authorizer=AllowReview())
 
+
+def test_core_review_and_explanation_share_persisted_temporal_projection(tmp_path) -> None:
+    path = tmp_path / ".krail" / "semantic.json"
+    repository = CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a")
+    projection = TemporalProjectionService(str(path), tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW)
+    writer = AllowProjectionWriter()
+    ingested = CoreProvenanceService(
+        repository=repository, clock=lambda: NOW, projection=projection, projection_writer=writer,
+    ).ingest(_receipt(), authorizer=Allow(), trust=AllowTrust())
+    reviewed = ProcedureReviewService(
+        repository=repository, clock=lambda: NOW, projection=projection, projection_writer=writer,
+    ).review(
+        ingested.record.record_digest, decision_id="review:projection", reviewer_ref=_ref("reviewer", "reviewer/projection", "1", "reviewer"),
+        evidence_refs=(_ref("evidence", "test/projection", "1", "evidence"),), accepted=True,
+        authorizer=Allow(), review_authorizer=AllowReview(),
+    )
+    assert reviewed.promoted_record is not None
+    base_temporal, reviewed_temporal = procedure_temporal_history([ingested.record, reviewed.promoted_record])
+    assert tuple(item.digest for item in projection.affected_region(projection.record_ref(base_temporal))) == (reviewed_temporal.record_digest,)
+    repository.record_invalidation(
+        event_id="invalidation:temporal-parent", changed_ref=projection.record_ref(base_temporal),
+        reason="parent temporal revision invalidated", at=NOW, authorizer=AllowInvalidation(),
+        projection=projection,
+    )
+    explained = ProcedureExplanationService(
+        repository=repository, clock=lambda: NOW, projection=projection,
+    ).explain(ProcedureExplanationRequest(candidate_digest=ingested.record.record_digest), authorizer=Allow())
+    assert explained.support_status == "stale"
+    assert "temporal dependency projection" in explained.gaps[-1]
+    reopened = TemporalProjectionService(str(path), tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW)
+    replayed = ProcedureExplanationService(repository=CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a"), clock=lambda: NOW, projection=reopened).explain(
+        ProcedureExplanationRequest(candidate_digest=ingested.record.record_digest), authorizer=Allow()
+    )
+    assert replayed.support_status == "stale"
 
 def test_procedure_review_requires_authenticated_review_action(tmp_path) -> None:
     path = tmp_path / ".krail" / "semantic.json"

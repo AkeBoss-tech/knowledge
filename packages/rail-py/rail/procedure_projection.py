@@ -365,13 +365,20 @@ class TemporalProjectionService:
 
     def _dependency_states(
         self, *, selected: tuple[TemporalRecord, ...], records: tuple[TemporalRecord, ...],
-        dirty_keys: set[str], current_keys: set[str], valid_at: datetime, known_at: datetime,
+        dirty_keys: set[str], stale_keys: set[str], current_keys: set[str], valid_at: datetime, known_at: datetime,
     ) -> tuple[ProjectionDependencyState, ...]:
         by_ref = {_record_ref(item).exact_key: item for item in records}
         states: dict[str, ProjectionDependencyState] = {}
         for record in selected:
-            for input_ref in record.source_refs + record.provenance_refs:
-                if input_ref.exact_key in dirty_keys:
+            input_refs = record.source_refs + record.provenance_refs
+            if record.supersedes_digest is not None:
+                parent = next((item for item in records if item.record_digest == record.supersedes_digest), None)
+                if parent is not None:
+                    input_refs += (_record_ref(parent),)
+            for input_ref in input_refs:
+                if input_ref.exact_key in stale_keys:
+                    status = "stale"
+                elif input_ref.exact_key in dirty_keys:
                     status = "dirty"
                 elif input_ref.exact_key in by_ref:
                     status = "current" if input_ref.exact_key in current_keys else "stale"
@@ -444,6 +451,7 @@ class TemporalProjectionService:
             )
             current_keys = {_record_ref(item).exact_key for item in current_records}
             dirty_keys = {item.exact_key for item in pending}
+            stale_keys = {item.cause_ref.exact_key for item in pending_entries}
             selected = {entity: [] for entity in entities}
             for item in current_records:
                 entity = (item.entity_authority, item.entity_id)
@@ -452,7 +460,7 @@ class TemporalProjectionService:
             changed: list[str] = []
             for entity in sorted(entities):
                 inputs = tuple(by_entity[entity])
-                dependencies = self._dependency_states(selected=tuple(selected[entity]), records=records, dirty_keys=dirty_keys, current_keys=current_keys, valid_at=valid_at, known_at=known_at)
+                dependencies = self._dependency_states(selected=tuple(selected[entity]), records=records, dirty_keys=dirty_keys, stale_keys=stale_keys, current_keys=current_keys, valid_at=valid_at, known_at=known_at)
                 if self._write_current_locked(projection_id=projection_id, entity=entity, selected=tuple(selected[entity]), inputs=inputs, dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at):
                     changed.append(self._entity_key(by_ref[next(item.exact_key for item in pending if item.exact_key in by_ref and (by_ref[item.exact_key].entity_authority, by_ref[item.exact_key].entity_id) == entity)]))
             for output_ref in pending:
@@ -491,7 +499,7 @@ class TemporalProjectionService:
             entities = {(item.entity_authority, item.entity_id) for item in records}
             for entity in sorted(entities):
                 entity_selected = tuple(item for item in current if (item.entity_authority, item.entity_id) == entity)
-                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
+                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys=set(), current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
                 self._write_current_locked(projection_id=projection_id, entity=entity, selected=entity_selected, inputs=tuple(item for item in records if (item.entity_authority, item.entity_id) == entity), dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at)
         state_digests = tuple(sorted(item.state_digest for item in self.current_state(projection_id)))
         input_record_digests = tuple(sorted(item.record_digest for item in records if (item.ingested_at or item.recorded_at) <= known_at))

@@ -46,6 +46,7 @@ Action = Literal[
     "context.read",
     "procedure.review",
     "procedure.invalidate",
+    "projection.write",
     "capture.write",
     "capture.read",
     "capture.list",

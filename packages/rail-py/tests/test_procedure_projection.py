@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from threading import Event, Thread
 
@@ -8,8 +8,11 @@ from krail.provider.v1 import ResourceRef
 from rail.authorized_context import (
     HostedAccessContextAuthorizer,
     HostedProcedureInvalidationAuthorizer,
+    HostedTemporalProjectionWriter,
     PROCEDURE_INVALIDATION_CAPABILITY_ID,
     PROCEDURE_INVALIDATION_CAPABILITY_VERSION,
+    PROCEDURE_PROJECTION_CAPABILITY_ID,
+    PROCEDURE_PROJECTION_CAPABILITY_VERSION,
 )
 from rail.hosted.access import AccessClaims, AccessContextAuthority
 from rail.procedure_projection import TemporalProjectionService, create_projection_tombstone
@@ -280,3 +283,25 @@ def test_signed_exact_invalidation_action_authorizes_tombstone_at_live_clock(tmp
             target, event_id="reader-tombstone", reason="read is not write", effective_at=NOW,
             recorded_at=NOW, authorizer=reader,
         )
+
+
+def test_signed_projection_writer_rejects_read_only_context(tmp_path):
+    service = TemporalProjectionService(str(tmp_path / "semantic.json"), tenant_id="tenant", project_id="project", clock=lambda: NOW)
+    item = record("signed-write", "1")
+    capability_digest = "sha256:" + "c" * 64
+    authority = AccessContextAuthority({"key": b"writer-key"}, issuer="https://control.example.test", required_capability_id=PROCEDURE_PROJECTION_CAPABILITY_ID)
+    claims = AccessClaims(
+        issuer="https://control.example.test", tenant_id="tenant", project_id="project", subject="agent/writer", delegator="user/alice", delegation_id="delegation/writer",
+        capability_id=PROCEDURE_PROJECTION_CAPABILITY_ID, capability_version=PROCEDURE_PROJECTION_CAPABILITY_VERSION, capability_digest=capability_digest,
+        actions=("projection.write",), source_ids=(item.source_refs[0].resource_id,), classifications=("internal",), policy_digest="sha256:" + "b" * 64,
+        issued_at=NOW, not_before=NOW, expires_at=NOW.replace(hour=23), nonce="writer",
+    )
+    writer = HostedTemporalProjectionWriter(authority, authority.issue(claims, key_id="key"), tenant_id="tenant", project_id="project", exact_refs=item.source_refs, allowed_record_digests=(item.record_digest,), capability_digest=capability_digest, clock=lambda: NOW)
+    assert service.ingest(item, at=NOW, writer=writer) == item
+    reader = HostedTemporalProjectionWriter(authority, authority.issue(claims.model_copy(update={"actions": ("context.read",), "nonce": "reader"}), key_id="key"), tenant_id="tenant", project_id="project", exact_refs=item.source_refs, allowed_record_digests=(item.record_digest,), capability_digest=capability_digest, clock=lambda: NOW)
+    with pytest.raises(PermissionError, match="projection write denied"):
+        TemporalProjectionService(str(tmp_path / "reader.json"), tenant_id="tenant", project_id="project", clock=lambda: NOW).ingest(item, at=NOW, writer=reader)
+    expired_claims = claims.model_copy(update={"issued_at": NOW - timedelta(hours=2), "not_before": NOW - timedelta(hours=1), "expires_at": NOW - timedelta(seconds=1), "nonce": "expired"})
+    expired = HostedTemporalProjectionWriter(authority, authority.issue(expired_claims, key_id="key"), tenant_id="tenant", project_id="project", exact_refs=item.source_refs, allowed_record_digests=(item.record_digest,), capability_digest=capability_digest, clock=lambda: NOW)
+    with pytest.raises(PermissionError, match="projection write denied"):
+        TemporalProjectionService(str(tmp_path / "expired.json"), tenant_id="tenant", project_id="project", clock=lambda: NOW).ingest(item, at=NOW.replace(year=2020), writer=expired)
