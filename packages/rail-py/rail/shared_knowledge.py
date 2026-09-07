@@ -10,9 +10,11 @@ import fcntl
 import json
 import os
 import re
+import stat
 import subprocess
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
@@ -75,6 +77,37 @@ class KnowledgeBackupReceipt:
 
 
 @dataclass(frozen=True)
+class KnowledgeBackupInventoryItem:
+    backup_id: str
+    canonical_commit: str
+    bundle_digest: str
+    byte_length: int
+    availability: str
+    eligible_for_prune: bool
+    protected_by_transitions: tuple[str, ...]
+    may_retain_prior_content: bool = True
+
+
+@dataclass(frozen=True)
+class KnowledgeBackupInventory:
+    retention_policy: str
+    maximum_managed_backups: int
+    automatic_expiry: bool
+    canonical_git_history_may_retain_prior_content: bool
+    external_clones_may_retain_prior_content: bool
+    backups: tuple[KnowledgeBackupInventoryItem, ...]
+
+
+@dataclass(frozen=True)
+class KnowledgeBackupPruneReceipt:
+    backup_id: str
+    canonical_commit: str
+    bundle_digest: str
+    pruned_at: str
+    audit_digest: str
+
+
+@dataclass(frozen=True)
 class LocalKnowledgeCommit:
     write_id: str
     user_id: str
@@ -94,6 +127,8 @@ class SharedKnowledgeWorkspace:
     local_mode = "local-canonical-git"
     hosted_mode = "hosted-canonical-service"
     _PROPOSAL_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+    maximum_managed_backups = 128
+    backup_retention_policy = "explicit-owner-prune-only"
 
     def __init__(self, remote: str | Path, state_path: str | Path, *, action_authorizer: SharedKnowledgeActionAuthorizer) -> None:
         if action_authorizer is None:
@@ -113,6 +148,7 @@ class SharedKnowledgeWorkspace:
             state.setdefault("revision", 0)
             state.setdefault("proposals", {})
             state.setdefault("backups", {})
+            state.setdefault("backup_prunes", {})
             state.setdefault("transitions", {})
             state.setdefault("local_commits", {})
             state.setdefault(
@@ -182,18 +218,60 @@ class SharedKnowledgeWorkspace:
     def _proposal_ref(self, proposal: KnowledgeProposal) -> ResourceRef:
         return self._ref("proposal/" + proposal.proposal_id, proposal.candidate_commit, proposal.content_digest)
 
+    def _backup_ref(self, backup: KnowledgeBackupReceipt) -> ResourceRef:
+        return self._ref(
+            "backup/" + backup.backup_id,
+            backup.canonical_commit,
+            backup.bundle_digest,
+        )
+
+    def _backup_directory(self) -> Path:
+        return self.state_path.with_name(self.state_path.name + ".backups")
+
+    def _expected_backup_path(self, backup_id: str) -> Path:
+        return self._backup_directory() / (backup_id + ".bundle")
+
+    @staticmethod
+    def _file_digest(path: Path) -> str:
+        """Hash a bundle with fixed memory rather than loading it as bytes."""
+
+        digest = sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        return "sha256:" + digest.hexdigest()
+
+    def _protected_backup_transitions(
+        self, state: dict, backup: KnowledgeBackupReceipt
+    ) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                transition_id
+                for transition_id, stored in state.setdefault(
+                    "transitions", {}
+                ).items()
+                if stored.get("backup") == asdict(backup)
+            )
+        )
+
     def create_backup(self, *, owner_id: str, backup_id: str) -> KnowledgeBackupReceipt:
         """Create and verify an immutable, service-owned bundle of canonical main."""
         if not self._PROPOSAL_ID.fullmatch(backup_id):
             raise ValueError("backup id must be a bounded safe identifier")
         with self._locked_state() as state:
             backups = state.setdefault("backups", {})
-            if backup_id in backups:
-                raise SharedKnowledgeError("backup id already exists")
+            if backup_id in backups or backup_id in state.setdefault(
+                "backup_prunes", {}
+            ):
+                raise SharedKnowledgeError(
+                    "backup id already exists or was previously used"
+                )
+            if len(backups) >= self.maximum_managed_backups:
+                raise SharedKnowledgeError("managed backup retention bound reached")
             commit = self._remote_ref("refs/heads/main")
             ref = self._repository_ref(commit)
             self._authorize("shared_knowledge.backup", ref, owner_id)
-            directory = self.state_path.with_name(self.state_path.name + ".backups")
+            directory = self._backup_directory()
             if directory.is_symlink():
                 raise SharedKnowledgeError("backup directory may not be a symlink")
             directory.mkdir(mode=0o700, exist_ok=True)
@@ -202,10 +280,194 @@ class SharedKnowledgeWorkspace:
                 raise SharedKnowledgeError("backup bundle path already exists or is unsafe")
             self._run("git", "--git-dir", str(self.remote), "bundle", "create", str(bundle), "refs/heads/main")
             self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
-            digest = "sha256:" + sha256(bundle.read_bytes()).hexdigest()
+            digest = self._file_digest(bundle)
             receipt = KnowledgeBackupReceipt(backup_id, commit, str(bundle), digest)
             backups[backup_id] = asdict(receipt)
         self._authorize("shared_knowledge.backup", ref, owner_id)
+        return receipt
+
+    def backup_inventory(self, *, owner_id: str) -> KnowledgeBackupInventory:
+        """Return bounded retention metadata, never bundle or Git contents."""
+
+        with self._locked_state() as state:
+            backups = state.setdefault("backups", {})
+            if len(backups) > self.maximum_managed_backups:
+                raise SharedKnowledgeError("managed backup inventory exceeds bound")
+            current = self._remote_ref("refs/heads/main")
+            self._authorize(
+                "shared_knowledge.backup_inventory",
+                self._repository_ref(current),
+                owner_id,
+            )
+            items = []
+            for backup_id in sorted(backups):
+                backup = KnowledgeBackupReceipt(**backups[backup_id])
+                self._authorize(
+                    "shared_knowledge.backup_inventory",
+                    self._backup_ref(backup),
+                    owner_id,
+                )
+                expected = self._expected_backup_path(backup.backup_id)
+                stored = Path(backup.bundle_path)
+                safe_path = (
+                    stored.absolute() == expected.absolute()
+                    and not self._backup_directory().is_symlink()
+                    and not stored.is_symlink()
+                )
+                available = (
+                    safe_path
+                    and stored.is_file()
+                    and self._file_digest(stored) == backup.bundle_digest
+                )
+                protected = self._protected_backup_transitions(state, backup)
+                items.append(
+                    KnowledgeBackupInventoryItem(
+                        backup_id=backup.backup_id,
+                        canonical_commit=backup.canonical_commit,
+                        bundle_digest=backup.bundle_digest,
+                        byte_length=stored.stat().st_size if available else 0,
+                        availability="available" if available else "unavailable",
+                        eligible_for_prune=available and not protected,
+                        protected_by_transitions=protected,
+                    )
+                )
+        result = KnowledgeBackupInventory(
+            retention_policy=self.backup_retention_policy,
+            maximum_managed_backups=self.maximum_managed_backups,
+            automatic_expiry=False,
+            canonical_git_history_may_retain_prior_content=True,
+            external_clones_may_retain_prior_content=True,
+            backups=tuple(items),
+        )
+        self._authorize(
+            "shared_knowledge.backup_inventory",
+            self._repository_ref(current),
+            owner_id,
+        )
+        for backup_id in sorted(backups):
+            self._authorize(
+                "shared_knowledge.backup_inventory",
+                self._backup_ref(KnowledgeBackupReceipt(**backups[backup_id])),
+                owner_id,
+            )
+        return result
+
+    def _unlink_backup_bundle(
+        self, path: Path, expected_identity: tuple[int, int, int]
+    ) -> None:
+        try:
+            current = path.stat(follow_symlinks=False)
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or (current.st_dev, current.st_ino, current.st_size)
+                != expected_identity
+            ):
+                raise SharedKnowledgeError("backup bundle changed before prune")
+            path.unlink()
+        except OSError as exc:
+            raise SharedKnowledgeError("backup bundle changed before prune") from exc
+
+    def prune_backup(
+        self,
+        *,
+        owner_id: str,
+        backup_id: str,
+        expected_digest: str,
+    ) -> KnowledgeBackupPruneReceipt:
+        """Prune one exact eligible service-owned bundle with crash recovery."""
+
+        if not self._PROPOSAL_ID.fullmatch(backup_id):
+            raise ValueError("backup id must be a bounded safe identifier")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest):
+            raise ValueError("expected backup digest must be exact")
+        with self._locked_state() as state:
+            prunes = state.setdefault("backup_prunes", {})
+            prior = prunes.get(backup_id)
+            if prior is not None and prior.get("status") == "complete":
+                if prior.get("bundle_digest") != expected_digest:
+                    raise SharedKnowledgeError("backup prune digest does not match")
+                receipt = KnowledgeBackupPruneReceipt(**prior["receipt"])
+                synthetic = KnowledgeBackupReceipt(
+                    receipt.backup_id,
+                    receipt.canonical_commit,
+                    "",
+                    receipt.bundle_digest,
+                )
+                self._authorize(
+                    "shared_knowledge.backup_prune",
+                    self._backup_ref(synthetic),
+                    owner_id,
+                )
+                return receipt
+            raw_backup = state.setdefault("backups", {}).get(backup_id)
+            if raw_backup is None:
+                raise SharedKnowledgeError("backup is unavailable")
+            backup = KnowledgeBackupReceipt(**raw_backup)
+            if backup.bundle_digest != expected_digest:
+                raise SharedKnowledgeError("backup prune digest does not match")
+            ref = self._backup_ref(backup)
+            self._authorize("shared_knowledge.backup_prune", ref, owner_id)
+            if self._protected_backup_transitions(state, backup):
+                raise SharedKnowledgeError("backup is required by a mode transition")
+            expected_path = self._expected_backup_path(backup_id)
+            bundle = Path(backup.bundle_path)
+            if (
+                bundle.absolute() != expected_path.absolute()
+                or self._backup_directory().is_symlink()
+                or bundle.is_symlink()
+            ):
+                raise SharedKnowledgeError("backup bundle path is unsafe")
+            pending = prior is not None and prior.get("status") == "pending"
+            if pending and prior.get("bundle_digest") != expected_digest:
+                raise SharedKnowledgeError("backup prune journal digest does not match")
+            if bundle.exists():
+                if not bundle.is_file():
+                    raise SharedKnowledgeError("backup bundle path is unsafe")
+                before = bundle.stat(follow_symlinks=False)
+                if not stat.S_ISREG(before.st_mode):
+                    raise SharedKnowledgeError("backup bundle path is unsafe")
+                verified_identity = (before.st_dev, before.st_ino, before.st_size)
+                actual_digest = self._file_digest(bundle)
+                if actual_digest != expected_digest:
+                    raise SharedKnowledgeError("backup bundle digest does not match")
+                self._run(
+                    "git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle)
+                )
+                after = bundle.stat(follow_symlinks=False)
+                if (after.st_dev, after.st_ino, after.st_size) != verified_identity:
+                    raise SharedKnowledgeError("backup bundle changed during verification")
+            elif not pending:
+                raise SharedKnowledgeError("backup bundle is unavailable")
+            else:
+                verified_identity = None
+            if not pending:
+                prunes[backup_id] = {
+                    "status": "pending",
+                    "bundle_digest": expected_digest,
+                }
+                self._persist_locked(state)
+            self._authorize("shared_knowledge.backup_prune", ref, owner_id)
+            if bundle.exists():
+                if verified_identity is None:
+                    raise SharedKnowledgeError("backup bundle identity is unavailable")
+                self._unlink_backup_bundle(bundle, verified_identity)
+            pruned_at = datetime.now(UTC).isoformat()
+            receipt = KnowledgeBackupPruneReceipt(
+                backup_id=backup_id,
+                canonical_commit=backup.canonical_commit,
+                bundle_digest=expected_digest,
+                pruned_at=pruned_at,
+                audit_digest=self._digest(
+                    f"backup-prune:{backup_id}:{expected_digest}:{pruned_at}"
+                ),
+            )
+            state["backups"].pop(backup_id, None)
+            prunes[backup_id] = {
+                "status": "complete",
+                "bundle_digest": expected_digest,
+                "receipt": asdict(receipt),
+            }
+        self._authorize("shared_knowledge.backup_prune", ref, owner_id)
         return receipt
 
     def preview_mode_transition(self, *, owner_id: str, transition_id: str, to_mode: str, source_id: str, source_digest: str) -> KnowledgeModeTransition:
@@ -279,7 +541,7 @@ class SharedKnowledgeWorkspace:
             raise SharedKnowledgeError("transition source or canonical head is stale")
         backup = KnowledgeBackupReceipt(**stored["backup"])
         bundle = Path(backup.bundle_path)
-        if bundle.is_symlink() or not bundle.is_file() or "sha256:" + sha256(bundle.read_bytes()).hexdigest() != backup.bundle_digest:
+        if bundle.is_symlink() or not bundle.is_file() or self._file_digest(bundle) != backup.bundle_digest:
             raise SharedKnowledgeError("transition backup bundle is missing or corrupt")
         self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
         heads = self._run("git", "bundle", "list-heads", str(bundle)).splitlines()

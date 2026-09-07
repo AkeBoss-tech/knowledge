@@ -158,6 +158,8 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
         restarted._validated_transition(forged, owner_id="owner")
     grants.remove("owner")
     with pytest.raises(PermissionError, match="revoked"):
+        workspace.backup_inventory(owner_id="owner")
+    with pytest.raises(PermissionError, match="revoked"):
         restarted._validated_transition(preview, owner_id="owner")
     grants.add("owner")
     receipt = restarted.create_backup(owner_id="owner", backup_id="main-snapshot")
@@ -184,6 +186,249 @@ def _bootstrap_remote(tmp_path: Path) -> Path:
     git("push", "origin", "HEAD:main", cwd=owner)
     git("branch", "-M", "main", cwd=owner)
     return remote
+
+
+def test_backup_inventory_and_exact_prune_retention_journey(
+    tmp_path, monkeypatch
+):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "shared-state.json"
+    grants = {"owner", "alice", "reviewer"}
+    authorizer = LiveActionAuthorizer(grants)
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+
+    private_backup = workspace.create_backup(
+        owner_id="owner", backup_id="private-before-tombstone"
+    )
+    private_bundle = Path(private_backup.bundle_path)
+    assert private_bundle.is_file()
+
+    alice = checkout(remote, tmp_path / "alice", "alice")
+    tombstone = workspace.propose(
+        user_id="alice",
+        checkout=alice,
+        proposal_id="remove-private-content",
+        path="knowledge.md",
+        content=None,
+    )
+    workspace.review_and_promote(tombstone.proposal_id, reviewer_id="reviewer")
+    assert workspace.authorized_context("alice").files == ()
+    assert workspace.search("alice", "base") == ()
+    assert workspace.export("alice")["files"] == {}
+
+    current = workspace._remote_ref("refs/heads/main")
+    transition = workspace.preview_mode_transition(
+        owner_id="owner",
+        transition_id="retention-pending",
+        to_mode=workspace.local_mode,
+        source_id=remote.resolve().as_uri(),
+        source_digest=workspace._digest(current),
+    )
+    transition_backup_id = "transition-retention-pending"
+    transition_bundle = state.with_name(state.name + ".backups") / (
+        transition_backup_id + ".bundle"
+    )
+    assert transition_bundle.is_file()
+
+    inventory = workspace.backup_inventory(owner_id="owner")
+    assert inventory.retention_policy == "explicit-owner-prune-only"
+    assert inventory.maximum_managed_backups == 128
+    assert inventory.automatic_expiry is False
+    assert inventory.canonical_git_history_may_retain_prior_content is True
+    assert inventory.external_clones_may_retain_prior_content is True
+    items = {item.backup_id: item for item in inventory.backups}
+    assert set(items) == {private_backup.backup_id, transition_backup_id}
+    assert all(item.may_retain_prior_content for item in items.values())
+    assert items[private_backup.backup_id].eligible_for_prune is True
+    assert items[transition_backup_id].eligible_for_prune is False
+    assert items[transition_backup_id].protected_by_transitions == (
+        transition.transition_id,
+    )
+
+    grants.remove("owner")
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest=private_backup.bundle_digest,
+        )
+    assert private_bundle.is_file()
+    grants.add("owner")
+
+    with pytest.raises(SharedKnowledgeError, match="digest does not match"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest="sha256:" + "0" * 64,
+        )
+    assert private_bundle.is_file()
+
+    with workspace._locked_state() as persisted:
+        original_path = persisted["backups"][private_backup.backup_id][
+            "bundle_path"
+        ]
+        persisted["backups"][private_backup.backup_id]["bundle_path"] = str(
+            transition_bundle
+        )
+    with pytest.raises(SharedKnowledgeError, match="path is unsafe"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest=private_backup.bundle_digest,
+        )
+    with workspace._locked_state() as persisted:
+        persisted["backups"][private_backup.backup_id][
+            "bundle_path"
+        ] = original_path
+
+    saved_bundle = private_bundle.with_suffix(".saved")
+    private_bundle.rename(saved_bundle)
+    private_bundle.symlink_to(transition_bundle)
+    with pytest.raises(SharedKnowledgeError, match="path is unsafe"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest=private_backup.bundle_digest,
+        )
+    private_bundle.unlink()
+    saved_bundle.rename(private_bundle)
+
+    unlink_verified = workspace._unlink_backup_bundle
+
+    def substitute_after_verification(path, expected_identity):
+        path.rename(saved_bundle)
+        path.hardlink_to(transition_bundle)
+        try:
+            unlink_verified(path, expected_identity)
+        finally:
+            path.unlink(missing_ok=True)
+            saved_bundle.rename(path)
+
+    monkeypatch.setattr(
+        workspace, "_unlink_backup_bundle", substitute_after_verification
+    )
+    with pytest.raises(SharedKnowledgeError, match="changed before prune"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest=private_backup.bundle_digest,
+        )
+    assert private_bundle.is_file()
+    assert transition_bundle.is_file()
+    monkeypatch.setattr(workspace, "_unlink_backup_bundle", unlink_verified)
+
+    with pytest.raises(SharedKnowledgeError, match="mode transition"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=transition_backup_id,
+            expected_digest=items[transition_backup_id].bundle_digest,
+        )
+    assert transition_bundle.is_file()
+
+    persist = workspace._persist_locked
+
+    def unbounded_read_forbidden(_path):
+        raise AssertionError("backup lifecycle loaded the whole bundle")
+
+    monkeypatch.setattr(Path, "read_bytes", unbounded_read_forbidden)
+
+    def interrupt_after_unlink(persisted):
+        prune = persisted.get("backup_prunes", {}).get(private_backup.backup_id)
+        if prune is not None and prune.get("status") == "complete":
+            raise OSError("interrupted after exact bundle unlink")
+        persist(persisted)
+
+    monkeypatch.setattr(workspace, "_persist_locked", interrupt_after_unlink)
+    with pytest.raises(OSError, match="interrupted"):
+        workspace.prune_backup(
+            owner_id="owner",
+            backup_id=private_backup.backup_id,
+            expected_digest=private_backup.bundle_digest,
+        )
+    assert not private_bundle.exists()
+    assert transition_bundle.is_file()
+
+    restarted = SharedKnowledgeWorkspace(
+        remote, state, action_authorizer=authorizer
+    )
+    receipt = restarted.prune_backup(
+        owner_id="owner",
+        backup_id=private_backup.backup_id,
+        expected_digest=private_backup.bundle_digest,
+    )
+    assert receipt.backup_id == private_backup.backup_id
+    assert receipt.bundle_digest == private_backup.bundle_digest
+    assert set(receipt.__dict__) == {
+        "backup_id",
+        "canonical_commit",
+        "bundle_digest",
+        "pruned_at",
+        "audit_digest",
+    }
+    assert "base" not in str(receipt.__dict__)
+    assert restarted.prune_backup(
+        owner_id="owner",
+        backup_id=private_backup.backup_id,
+        expected_digest=private_backup.bundle_digest,
+    ) == receipt
+    assert transition_bundle.is_file()
+    assert "base" in git(
+        "--git-dir", str(remote), "show", f"{private_backup.canonical_commit}:knowledge.md"
+    )
+    with restarted._locked_state() as persisted:
+        assert persisted["mode"] == restarted.mode
+        assert persisted["active_writer"] == "connected-git"
+
+
+def test_pruned_backup_id_cannot_be_reused_after_restart_and_head_change(
+    tmp_path,
+):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "shared-state.json"
+    authorizer = LiveActionAuthorizer({"owner", "alice", "reviewer"})
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    original = workspace.create_backup(owner_id="owner", backup_id="reuse")
+    original_receipt = workspace.prune_backup(
+        owner_id="owner",
+        backup_id=original.backup_id,
+        expected_digest=original.bundle_digest,
+    )
+    assert not Path(original.bundle_path).exists()
+
+    alice = checkout(remote, tmp_path / "reuse-alice", "alice")
+    proposal = workspace.propose(
+        user_id="alice",
+        checkout=alice,
+        proposal_id="changed-head-after-prune",
+        path="knowledge.md",
+        content="changed head\n",
+    )
+    workspace.review_and_promote(proposal.proposal_id, reviewer_id="reviewer")
+    assert workspace._remote_ref("refs/heads/main") != original.canonical_commit
+
+    restarted = SharedKnowledgeWorkspace(
+        remote, state, action_authorizer=authorizer
+    )
+    with pytest.raises(SharedKnowledgeError, match="previously used"):
+        restarted.create_backup(owner_id="owner", backup_id="reuse")
+
+    replacement = restarted.create_backup(
+        owner_id="owner", backup_id="changed-head-control"
+    )
+    assert replacement.canonical_commit != original.canonical_commit
+    assert replacement.bundle_digest != original.bundle_digest
+    assert Path(replacement.bundle_path).is_file()
+
+    assert restarted.prune_backup(
+        owner_id="owner",
+        backup_id=original.backup_id,
+        expected_digest=original.bundle_digest,
+    ) == original_receipt
+    assert Path(replacement.bundle_path).is_file()
+    assert {
+        item.backup_id
+        for item in restarted.backup_inventory(owner_id="owner").backups
+    } == {replacement.backup_id}
 
 
 def test_export_requires_exact_promoted_proposal_lineage_authority_for_cached_and_reopened_readers(
