@@ -19,6 +19,7 @@ from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidati
 from rail.semantic.models import canonical_digest
 from rail.semantic.repository import SemanticRow
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
+from rail.appearance_similarity_projection import AppearanceSimilarityProjection
 from rail.spatial_current_projection import ProjectionWork, SpatialCurrentProjection
 
 
@@ -122,6 +123,11 @@ class AppearanceObservation(Strict):
         if self.descriptor is not None and (not 1 <= len(self.descriptor) <= 512 or not all(isfinite(value) for value in self.descriptor)):
             raise ValueError("appearance descriptor must be 1..512 finite values")
         return self
+
+
+class AppearanceMatch(Strict):
+    appearance: AppearanceObservation
+    score: float
 
 
 class IdentityCandidate(Strict):
@@ -250,6 +256,7 @@ class TabletopWorldMemory:
         self._records_by_entity: dict[tuple[str, str], list[TemporalRecord]] = {}
         self._loaded_temporal_digests: set[str] = set()
         self._appearance_records: list[TemporalRecord] = []
+        self._appearance_similarity: AppearanceSimilarityProjection | None = None
         self._identity_candidate_records: list[TemporalRecord] = []
         self._region_records: list[TemporalRecord] = []
         self._relation_records: list[TemporalRecord] = []
@@ -777,6 +784,32 @@ class TabletopWorldMemory:
         for record in selected:
             self._authorized_appearance(record, reader)
         return tuple(self._appearance_from_record(record) for record in selected)
+
+    def prepare_appearance_similarity_snapshot(self, *, valid_at: datetime, known_at: datetime) -> None:
+        self._refresh()
+        self._appearance_similarity = AppearanceSimilarityProjection(tuple(self._appearance_records), valid_at=valid_at, known_at=known_at)
+
+    def similar_appearances(self, *, world_id: str, descriptor: tuple[float, ...], descriptor_model: str, descriptor_version: str, at: datetime, known_at: datetime, reader: WorldReader, limit: int = 8) -> tuple[AppearanceMatch, ...]:
+        self._require_world(world_id)
+        self._require_reader(reader)
+        if not 1 <= limit <= 8 or not descriptor or not all(isfinite(value) for value in descriptor):
+            raise ValueError("appearance similarity query is invalid")
+        self._refresh()
+        if self._appearance_similarity is None or (self._appearance_similarity.valid_at, self._appearance_similarity.known_at) != (at, known_at):
+            self.prepare_appearance_similarity_snapshot(valid_at=at, known_at=known_at)
+        matches = []
+        for record, score in self._appearance_similarity.query(descriptor=descriptor, model=descriptor_model, version=descriptor_version, limit=limit):
+            appearance = self._appearance_from_record(record)
+            if appearance.world_id != world_id or not self._appearance_visible_at(record, at, known_at) or self._projection_marks_record_stale(record, valid_at=at, known_at=known_at):
+                continue
+            self._authorized_appearance(record, reader)
+            matches.append(AppearanceMatch(appearance=appearance, score=score))
+        for match in matches:
+            record = self._appearance_record_for_ref(match.appearance.appearance_ref)
+            if record is None:
+                raise PermissionError("world-memory access denied")
+            self._authorized_appearance(record, reader)
+        return tuple(matches)
 
     def propose_identity_candidates(
         self, appearance: AppearanceObservation, *, session_id: str, candidate_id: str,
