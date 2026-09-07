@@ -603,6 +603,20 @@ def test_authorized_bounded_scene_diff_preserves_snapshot_time_and_reopen(tmp_pa
     assert reopened.scene_diff(world_id="one", session_id="s", before_scene_ref=before.scene_ref, after_scene_ref=after.scene_ref, before_at=NOW, after_at=later, known_at=later, reader=Allow()) == diff
 
 
+def test_exact_appearance_similarity_is_scoped_live_and_numerically_stable():
+    memory = TabletopWorldMemory(clock=lambda: NOW)
+    def add(world, object_id, vector):
+        record = memory.record(WorldObject(world_id=world, object_id=object_id, class_label="cup"), pose(.1, object_id), kind="observation", evidence=(evidence(object_id),), recorded_at=NOW)
+        return memory.record_appearance(WorldObject(world_id=world, object_id=object_id, class_label="cup"), record, asset_ref=evidence(object_id + "asset"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="a", descriptor=vector, recorded_at=NOW)
+    foreign = add("other", "foreign", (1., 0.))
+    target = add("one", "target", (1e308, 1e308))
+    assert memory.similar_appearances(world_id="one", descriptor=(1e308, 1e308), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0].appearance.appearance_ref == target.appearance_ref
+    fresh = add("one", "fresh", (1., 0.))
+    assert memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0].appearance.appearance_ref == fresh.appearance_ref
+    with pytest.raises(ValueError):
+        memory.similar_appearances(world_id="one", descriptor=(0., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")

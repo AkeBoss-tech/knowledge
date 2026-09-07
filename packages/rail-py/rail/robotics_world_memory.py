@@ -396,6 +396,7 @@ class TabletopWorldMemory:
             self._loaded_temporal_digests = {record.record_digest for record in all_records}
             self._temporal_scope_cursor = cursor
             self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
+            self._appearance_similarity = None
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._region_records = [record for record in all_records if record.payload_schema == "robotics.place-region"]
             self._relation_records = [record for record in all_records if record.payload_schema == "robotics.spatial-relation"]
@@ -419,6 +420,8 @@ class TabletopWorldMemory:
         target = targets.get(record.payload_schema)
         if target is not None:
             target.append(record)
+        if record.payload_schema == "robotics.appearance-observation":
+            self._appearance_similarity = None
         if record.payload_schema == "robotics.world-memory":
             ref = self.record_ref(record)
             self._records_by_ref[ref.exact_key] = record
@@ -768,6 +771,7 @@ class TabletopWorldMemory:
                 self._projection.register_alias(self.appearance_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._appearance_records.append(record)
             self._loaded_temporal_digests.add(record.record_digest)
+            self._appearance_similarity = None
         return self._appearance_from_record(record)
 
     def appearance_gallery(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, reader: WorldReader, limit: int = 8) -> tuple[AppearanceObservation, ...]:
@@ -798,12 +802,14 @@ class TabletopWorldMemory:
         if self._appearance_similarity is None or (self._appearance_similarity.valid_at, self._appearance_similarity.known_at) != (at, known_at):
             self.prepare_appearance_similarity_snapshot(valid_at=at, known_at=known_at)
         matches = []
-        for record, score in self._appearance_similarity.query(descriptor=descriptor, model=descriptor_model, version=descriptor_version, limit=limit):
+        for record, score in self._appearance_similarity.query(descriptor=descriptor, model=descriptor_model, version=descriptor_version, world_id=world_id):
             appearance = self._appearance_from_record(record)
             if appearance.world_id != world_id or not self._appearance_visible_at(record, at, known_at) or self._projection_marks_record_stale(record, valid_at=at, known_at=known_at):
                 continue
             self._authorized_appearance(record, reader)
             matches.append(AppearanceMatch(appearance=appearance, score=score))
+            if len(matches) == limit:
+                break
         for match in matches:
             record = self._appearance_record_for_ref(match.appearance.appearance_ref)
             if record is None:
