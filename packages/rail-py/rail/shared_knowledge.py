@@ -215,6 +215,28 @@ class SharedKnowledgeWorkspace:
     def commit_mode_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> KnowledgeModeTransition:
         raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
 
+    def _validated_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> dict:
+        """Validate a durable preview and its immutable bundle before activation."""
+        with self._locked_state() as state:
+            stored = state.setdefault("transitions", {}).get(transition.transition_id)
+            if not stored or stored.get("owner_id") != owner_id or stored.get("transition") != asdict(transition):
+                raise SharedKnowledgeError("transition preview is forged, missing, or owned by another subject")
+            if state["mode"] != transition.from_mode or state["writer_generation"] != stored["generation"]:
+                raise SharedKnowledgeError("transition writer generation is stale")
+            current = self._remote_ref("refs/heads/main")
+            if current != transition.canonical_commit or transition.source_id != self.remote.as_uri() or transition.source_digest != self._digest(current):
+                raise SharedKnowledgeError("transition source or canonical head is stale")
+            backup = KnowledgeBackupReceipt(**stored["backup"])
+            bundle = Path(backup.bundle_path)
+            if bundle.is_symlink() or not bundle.is_file() or "sha256:" + sha256(bundle.read_bytes()).hexdigest() != backup.bundle_digest:
+                raise SharedKnowledgeError("transition backup bundle is missing or corrupt")
+            self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
+            heads = self._run("git", "bundle", "list-heads", str(bundle)).splitlines()
+            if not any(line.split()[0] == current for line in heads):
+                raise SharedKnowledgeError("transition backup does not contain canonical head")
+            self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
+            return stored
+
     def _authorize(self, action: str, ref: ResourceRef, user_id: str) -> None:
         # Never cache authority. The adapter verifies live signature/grant state.
         self.action_authorizer.authorize(action, ref, subject_id=user_id)

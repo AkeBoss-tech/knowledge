@@ -139,6 +139,14 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     with pytest.raises(Exception, match="already exists"):
         restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id=remote.resolve().as_uri(), source_digest=source_digest)
     assert preview.to_mode == "local-canonical-git"
+    assert restarted._validated_transition(preview, owner_id="owner")["owner_id"] == "owner"
+    forged = preview.__class__(**{**preview.__dict__, "source_digest": "sha256:" + "0" * 64})
+    with pytest.raises(Exception, match="forged"):
+        restarted._validated_transition(forged, owner_id="owner")
+    grants.remove("owner")
+    with pytest.raises(PermissionError, match="revoked"):
+        restarted._validated_transition(preview, owner_id="owner")
+    grants.add("owner")
     receipt = restarted.create_backup(owner_id="owner", backup_id="main-snapshot")
     assert receipt.bundle_digest.startswith("sha256:")
     restored = tmp_path / "restored.git"
