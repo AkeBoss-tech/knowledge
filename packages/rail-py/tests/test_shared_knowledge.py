@@ -215,6 +215,21 @@ def test_activation_switches_mode_and_fences_stale_connected_writers(tmp_path):
     with pytest.raises(SharedKnowledgeError, match="connected-git canonical writer is disabled"):
         restarted.review_and_promote("late-edit", reviewer_id="reviewer")
 
+    reverse_digest = workspace._digest(workspace._remote_ref("refs/heads/main"))
+    reverse = workspace.preview_mode_transition(
+        owner_id="owner", transition_id="back-connected", to_mode=workspace.mode,
+        source_id=remote.resolve().as_uri(), source_digest=reverse_digest,
+    )
+    workspace.commit_mode_transition(reverse, owner_id="owner")
+    with workspace._locked_state() as persisted:
+        assert persisted["mode"] == workspace.mode
+        assert persisted["active_writer"] == "connected-git"
+        assert persisted["writer_generation"] == 2
+    with pytest.raises(SharedKnowledgeError, match="local-git canonical writer is disabled"):
+        workspace.write_local(user_id="alice", checkout=alice, write_id="stale-local", path="knowledge.md", content="no\n", expected_head=workspace._remote_ref("refs/heads/main"), expected_generation=1)
+    fresh = checkout(remote, tmp_path / "fresh-connected", "alice")
+    assert workspace.propose(user_id="alice", checkout=fresh, proposal_id="connected-again", path="knowledge.md", content="back\n").status == "proposed"
+
 
 def test_activation_rejects_stale_head_and_corrupt_backup(tmp_path):
     remote = _bootstrap_remote(tmp_path)

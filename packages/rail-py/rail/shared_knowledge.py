@@ -215,13 +215,15 @@ class SharedKnowledgeWorkspace:
             if transition_id in state.setdefault("transitions", {}):
                 raise SharedKnowledgeError("transition id already exists")
             current = self._remote_ref("refs/heads/main")
-            if current != backup.canonical_commit or state["mode"] != self.mode:
+            if current != backup.canonical_commit or state["mode"] not in {self.mode, self.local_mode}:
                 raise SharedKnowledgeError("transition source changed while backup was created")
+            if to_mode == state["mode"]:
+                raise SharedKnowledgeError("workspace is already in requested authority mode")
             if source_id != self.remote.as_uri() or source_digest != self._digest(current):
                 raise SharedKnowledgeError("transition source identity or digest does not match canonical head")
             self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
             next_revision = state["revision"] + 1
-            transition = KnowledgeModeTransition(transition_id, self.mode, to_mode, current, next_revision, source_id, source_digest, backup.bundle_digest)
+            transition = KnowledgeModeTransition(transition_id, state["mode"], to_mode, current, next_revision, source_id, source_digest, backup.bundle_digest)
             state["transitions"][transition_id] = {"owner_id": owner_id, "generation": state["writer_generation"], "backup": asdict(backup), "transition": asdict(transition)}
         self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
         return transition
@@ -240,15 +242,20 @@ class SharedKnowledgeWorkspace:
         """
         if transition.to_mode == self.hosted_mode:
             raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
-        if transition.to_mode != self.local_mode:
+        if transition.to_mode not in {self.local_mode, self.mode}:
             raise SharedKnowledgeError("unknown canonical mode activation target")
         with self._locked_state() as state:
             existing = state.setdefault("transitions", {}).get(transition.transition_id)
             if existing and existing.get("activated"):
                 raise SharedKnowledgeError("transition was already activated")
             stored = self._validate_transition_locked(state, transition, owner_id=owner_id)
+            if transition.to_mode == self.mode and (
+                any(item.get("status") == "pending" for item in state.setdefault("local_commits", {}).values())
+                or any(item.get("status") == "review-pending" for item in state.setdefault("proposals", {}).values())
+            ):
+                raise SharedKnowledgeError("cannot activate connected mode with unresolved canonical effects")
             state["mode"] = transition.to_mode
-            state["active_writer"] = "local-git"
+            state["active_writer"] = "local-git" if transition.to_mode == self.local_mode else "connected-git"
             state["writer_generation"] = int(state["writer_generation"]) + 1
             stored["activated"] = True
             stored["activated_generation"] = state["writer_generation"]
