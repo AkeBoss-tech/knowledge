@@ -108,11 +108,28 @@ def test_hosted_world_memory_binds_signed_read_write_and_invalidation_at_live_cl
         memory.location(world_id="other", object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=reader)
     assert memory.invalidate_map_revision(evidence("estimate"), reason="camera revoked", at=invalidated_at, event_id=event.event_id, world_id=WORLD) == (TemporalProjectionService.record_ref(estimate),)
     assert memory.location(world_id=WORLD, object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=reader).status == "stale"
+
+
+def test_hosted_similarity_reader_revocation_denies_all_results(tmp_path):
+    draft = TabletopWorldMemory(clock=lambda: NOW)
+    obj = WorldObject(world_id=WORLD, object_id="cup", class_label="cup")
+    observation = draft.record(obj, pose(.1, "obs"), kind="observation", evidence=(evidence("sensor"),))
+    appearance = draft.record_appearance(obj, observation, asset_ref=evidence("asset"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="a", descriptor=(1., 0.))
+    record = draft._appearance_records[0]
+    refs = tuple(dict.fromkeys((*observation.source_refs, *record.source_refs, draft.record_ref(observation), draft.record_ref(record), appearance.appearance_ref, TemporalProjectionService.record_ref(observation), TemporalProjectionService.record_ref(record))))
+    event = create_projection_tombstone(event_id="unused", target_ref=evidence("asset"), reason="unused", effective_at=NOW, recorded_at=NOW)
+    revocations = MemoryRevocationRegistry(); authority = AccessContextAuthority({"key": b"robotics-key"}, issuer="https://control.example.test", revocations=revocations)
+    reader_context = authority.issue(claims(actions=("context.read",), refs=refs, nonce="similarity-reader"), key_id="key")
+    writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, nonce="similarity-writer"), key_id="key")
+    invalidation_context = authority.issue(claims(actions=("procedure.invalidate",), refs=refs, nonce="similarity-invalidate"), key_id="key")
+    reader, writer, invalidator = adapters(authority, reader_context=reader_context, writer_context=writer_context, invalidation_context=invalidation_context, refs=refs, records=(observation, record), event_digest=event.tombstone_digest)
+    memory = TabletopWorldMemory(str(tmp_path / "similarity.json"), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=writer, projection_invalidation_authorizer=invalidator)
+    hosted_observation = memory.record(obj, pose(.1, "obs"), kind="observation", evidence=(evidence("sensor"),))
+    memory.record_appearance(obj, hosted_observation, asset_ref=evidence("asset"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="a", descriptor=(1., 0.))
+    assert len(memory.similar_appearances(world_id=WORLD, descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=reader)) == 1
     revocations.revoke_context(reader_context.context_digest, revoked_at=NOW)
     with pytest.raises(PermissionError, match="world-memory access denied"):
-        memory.location(world_id=WORLD, object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=reader)
-
-
+        memory.similar_appearances(world_id=WORLD, descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=reader)
 def test_hosted_world_memory_rejects_wrong_scope_read_only_write_and_expired_invalidation(tmp_path):
     observation, estimate, refs = drafts()
     event = create_projection_tombstone(event_id="expired", target_ref=evidence("estimate"), reason="expired", effective_at=NOW, recorded_at=NOW)
