@@ -324,7 +324,16 @@ class TemporalProjectionService:
             return entry
         existing = ProjectionDirtyEntry.model_validate(current.payload["entry"])
         if existing.cleared_at is None:
-            return existing
+            if existing.cause_ref == cause_ref:
+                return existing
+            # A later exact invalidation supersedes an ingest-only dirty hint;
+            # keep the actionable cause that must survive recomputation.
+            self.store.put(SemanticRow(
+                tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty",
+                record_id=entry_id, revision=current.revision + 1, payload={"entry": entry.model_dump(mode="json")},
+                created_at=current.created_at, updated_at=at,
+            ), expected_revision=current.revision)
+            return entry
         self.store.put(SemanticRow(
             tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty",
             record_id=entry_id, revision=current.revision + 1, payload={"entry": entry.model_dump(mode="json")},
@@ -375,11 +384,19 @@ class TemporalProjectionService:
                 parent = next((item for item in records if item.record_digest == record.supersedes_digest), None)
                 if parent is not None:
                     input_refs += (_record_ref(parent),)
+            lineage_parent_keys = {
+                _record_ref(item).exact_key for item in records
+                if record.supersedes_digest == item.record_digest
+            }
             for input_ref in input_refs:
                 if input_ref.exact_key in stale_keys:
                     status = "stale"
                 elif input_ref.exact_key in dirty_keys:
                     status = "dirty"
+                elif input_ref.exact_key in lineage_parent_keys:
+                    # Supersession is immutable temporal lineage. It becomes
+                    # stale only through an explicit invalidation cause.
+                    status = "current"
                 elif input_ref.exact_key in by_ref:
                     status = "current" if input_ref.exact_key in current_keys else "stale"
                 else:

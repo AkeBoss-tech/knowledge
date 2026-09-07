@@ -440,8 +440,9 @@ class CoreProvenanceRepository:
                     authorizer.authorize_invalidation(event_id, changed_ref, event.event_digest, at=final_at)
                 except PermissionError as exc:
                     raise PermissionError("procedure invalidation access denied") from exc
-                return existing
-            self.store.put(
+                event = existing
+            else:
+                self.store.put(
                 SemanticRow(
                     tenant_id=self.tenant_id,
                     project_id=self.project_id,
@@ -453,7 +454,7 @@ class CoreProvenanceRepository:
                     updated_at=at,
                 ),
                 expected_revision=0,
-            )
+                )
         try:
             authorizer.authorize_invalidation(event_id, changed_ref, event.event_digest, at=at)
         except PermissionError as exc:
@@ -916,6 +917,7 @@ class CoreProvenanceService:
                 raise PermissionError("Core provenance access denied") from exc
             if self._projection is not None and self._projection_writer is not None:
                 self._projection.ingest(existing.temporal_record, at=replay_now, writer=self._projection_writer)
+                self._projection.rebuild(projection_id=self._projection_id, valid_at=replay_now, known_at=replay_now, at=replay_now)
             return existing
 
         receipt_ref = ResourceRef(

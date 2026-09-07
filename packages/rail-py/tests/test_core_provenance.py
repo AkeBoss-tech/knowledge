@@ -286,11 +286,23 @@ def test_core_review_and_explanation_share_persisted_temporal_projection(tmp_pat
     assert reviewed.promoted_record is not None
     base_temporal, reviewed_temporal = procedure_temporal_history([ingested.record, reviewed.promoted_record])
     assert tuple(item.digest for item in projection.affected_region(projection.record_ref(base_temporal))) == (reviewed_temporal.record_digest,)
+    before = ProcedureExplanationService(repository=repository, clock=lambda: NOW, projection=projection).explain(
+        ProcedureExplanationRequest(candidate_digest=ingested.record.record_digest), authorizer=Allow()
+    )
+    assert (before.review_status, before.support_status) == ("accepted", "current")
+    repository.record_invalidation(
+        event_id="invalidation:temporal-parent", changed_ref=projection.record_ref(base_temporal),
+        reason="parent temporal revision invalidated", at=NOW, authorizer=AllowInvalidation(),
+    )
+    # Simulate interruption after canonical event publication; idempotent replay
+    # must repair the disposable projection rather than return silently.
     repository.record_invalidation(
         event_id="invalidation:temporal-parent", changed_ref=projection.record_ref(base_temporal),
         reason="parent temporal revision invalidated", at=NOW, authorizer=AllowInvalidation(),
         projection=projection,
     )
+    projected = {state.entity_id: state for state in projection.current_state("core-provenance")}
+    assert any(item.status == "stale" for item in projected[ingested.record.procedure_id].dependency_states)
     explained = ProcedureExplanationService(
         repository=repository, clock=lambda: NOW, projection=projection,
     ).explain(ProcedureExplanationRequest(candidate_digest=ingested.record.record_digest), authorizer=Allow())
@@ -301,6 +313,21 @@ def test_core_review_and_explanation_share_persisted_temporal_projection(tmp_pat
         ProcedureExplanationRequest(candidate_digest=ingested.record.record_digest), authorizer=Allow()
     )
     assert replayed.support_status == "stale"
+
+
+def test_core_receipt_replay_repairs_interrupted_projection_publish(tmp_path) -> None:
+    path = tmp_path / ".krail" / "semantic.json"
+    repository = CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a")
+    receipt = _receipt(receipt_id="receipt:projection-replay")
+    first = CoreProvenanceService(repository=repository, clock=lambda: NOW).ingest(
+        receipt, authorizer=Allow(), trust=AllowTrust()
+    )
+    projection = TemporalProjectionService(str(path), tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW)
+    replayed = CoreProvenanceService(
+        repository=repository, clock=lambda: NOW, projection=projection, projection_writer=AllowProjectionWriter(),
+    ).ingest(receipt, authorizer=Allow(), trust=AllowTrust())
+    assert replayed == first
+    assert projection.current_state("core-provenance")[0].record_digests == (first.temporal_record.record_digest,)
 
 def test_procedure_review_requires_authenticated_review_action(tmp_path) -> None:
     path = tmp_path / ".krail" / "semantic.json"

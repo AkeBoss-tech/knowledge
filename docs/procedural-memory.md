@@ -71,6 +71,10 @@ mark and recompute that derived region. `ProcedureExplanationService` reads
 the persisted derived state under its existing exact read checks and reports
 stale support when an authorized candidate/review chain has stale or dirty
 temporal dependencies. A read grant never becomes projection-write authority.
+Supersession itself is lineage, not staleness: a reviewed successor is current
+until an explicit exact invalidation reaches that lineage. Replaying a durable
+Core receipt or invalidation repairs an interrupted disposable projection
+publish before returning idempotently.
 
 The minimum typed temporal-record envelope from #16 now exists and this record
 composes into it. `procedure_temporal_history` converts a complete procedure

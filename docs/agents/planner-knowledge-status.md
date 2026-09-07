@@ -98,8 +98,10 @@
   expired context are rejected. The action is only typed availability in
   `AccessClaims`, never a default grant.
 - Focused integration proves Core ingest, review, exact parent invalidation,
-  stale explanation, and reopen replay use one persisted temporal projection.
-  Current bounded verification is `127 passed` across projection, Core,
+  current-before/stale-after explanation, interrupted invalidation replay, and
+  interrupted receipt projection publish use one persisted temporal projection.
+  Supersession lineage by itself remains current; only an explicit exact cause
+  makes its dependency state stale. Current bounded verification is `128 passed` across projection, Core,
   authorization, hosted, procedural, temporal, capability, and extension
   tests; compileall and `git diff --check` pass.
 - Exact current command (isolated Python 3.13.12):
