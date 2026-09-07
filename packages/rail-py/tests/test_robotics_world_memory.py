@@ -650,6 +650,8 @@ def test_similarity_persisted_known_time_external_refresh_and_rebuild(tmp_path):
     reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
     reopened.prepare_appearance_similarity_snapshot(valid_at=NOW, known_at=NOW + timedelta(minutes=1))
     assert reopened.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW + timedelta(minutes=1), reader=Allow()) == expected
+    writer.invalidate_map_revision(evidence("asset-sim"), reason="asset revoked", at=NOW + timedelta(minutes=2))
+    assert writer.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()) == ()
 
 
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
