@@ -2,7 +2,7 @@
   {
     "name": "negotiated-read-only-capability",
     "value": {
-      "contract": "krail.rich-domain-read.v1", "operation": "negotiate", "consumer_version": "1.0.0",
+      "contract": "krail.rich-domain-read.v1", "operation": "negotiate", "consumer_version": "1.0.0", "expected_descriptor_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
       "requested_operations": ["asset_metadata", "temporal_query", "spatial_query"],
       "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/operator-1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
     }
@@ -49,7 +49,42 @@
     "value": {
       "contract": "krail.rich-domain-read.v1", "operation": "temporal_query",
       "authorization": {"authorization_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "authorized_at": "2026-09-11T09:00:00Z"},
-      "records": [{"record_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "valid_from": "2026-09-08T09:00:00Z", "recorded_at": "2026-09-11T09:00:00Z", "lineage": {"derived_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "source_refs": [{"authority": "https://company.example.test", "resource_type": "ownership-source", "resource_id": "payments-transfer", "version": "2026-09-11", "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}]}}]
+      "records": [{"record_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "valid_from": "2026-09-08T09:00:00Z", "recorded_at": "2026-09-11T09:00:00Z", "lineage": {"derived_ref": {"authority": "company://service/payments", "resource_type": "ownership-record", "resource_id": "payments/team-b", "version": "9", "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"}, "source_refs": [{"authority": "https://company.example.test", "resource_type": "ownership-source", "resource_id": "payments-transfer", "version": "2026-09-11", "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"}]} }],
+      "page": {"limit": 10, "has_more": false, "binding": {"query_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "snapshot_ref": {"authority": "company://service/payments", "resource_type": "query-snapshot", "resource_id": "ownership-2026-09-11", "version": "1", "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"}, "authorization_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}}
+    }
+  },
+  {
+    "name": "spatial-abstention-is-explicit-and-page-bound",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "spatial_query",
+      "authorization": {"authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "authorized_at": "2026-09-07T12:04:00Z"},
+      "status": "abstained", "object_refs": [],
+      "bounds": {"frame_id": "table", "map_revision": "table-map-2", "units": "metres", "min_metres": [0.0, 0.0, -0.1], "max_metres": [0.5, 0.4, 0.1]},
+      "lineage": {"derived_ref": {"authority": "robotics://world-memory", "resource_type": "spatial-query", "resource_id": "table-a/12:03", "version": "1", "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"}, "source_refs": [{"authority": "robotics://world/table-a", "resource_type": "map-revision", "resource_id": "table-map-2", "version": "1", "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"}]},
+      "abstention": {"reason": "map_revision_mismatch"},
+      "page": {"limit": 20, "has_more": false, "binding": {"query_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999", "snapshot_ref": {"authority": "robotics://world/table-a", "resource_type": "query-snapshot", "resource_id": "table-a/12:03", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+    }
+  },
+  {
+    "name": "incompatible-negotiation-has-deterministic-shape",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "negotiate",
+      "authorization": {"authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "authorized_at": "2026-09-07T12:04:00Z"},
+      "compatible": false, "descriptor_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "operations": [], "diagnostic": "expected descriptor digest does not match published descriptor"
+    }
+  },
+  {
+    "name": "unavailable-error-is-bounded",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "asset_metadata",
+      "error": {"code": "unavailable", "message": "asset authority is temporarily unavailable", "retryable": true}
+    }
+  },
+  {
+    "name": "unauthorized-error-hides-auth-snapshot-and-lineage",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "spatial_query",
+      "error": {"code": "unauthorized", "message": "request is not authorized", "retryable": false}
     }
   }
 ]

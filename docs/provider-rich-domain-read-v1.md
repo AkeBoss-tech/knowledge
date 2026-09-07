@@ -25,7 +25,7 @@ The proposed operations are deliberately narrow:
 
 | Operation | Reads | Bounded result | Excluded |
 | --- | --- | --- | --- |
-| `negotiate` | descriptor compatibility | at most three advertised read operations | implicit version fallback |
+| `negotiate` | descriptor compatibility and optional expected descriptor digest | at most three advertised read operations | implicit version fallback |
 | `asset_metadata` | immutable asset identity and availability | one metadata record, no content field | bytes, paths, presigned URLs, object-store handles |
 | `temporal_query` | records for one entity at valid-time and known-time | page limit 1..100 | mutation, subscriptions, unbounded history |
 | `spatial_query` | objects in one explicit world/frame/revision/bounds/time scope | page limit 1..100 | transform calculation, implicit frame conversion, live planning state |
@@ -69,8 +69,9 @@ two times.
 
 Spatial reads require an exact world ref, `frame_id`, `map_revision`, the
 constant unit `metres`, and three-dimensional minimum/maximum bounds. The
-contract does not define transformations; a missing or mismatched frame/revision
-must fail validation or produce an explicit domain-level abstention. Bounds are
+contract does not define transformations; a missing field fails validation,
+while an unavailable frame, mismatched map revision, or stale source returns an
+explicit bounded abstention with no candidates. Bounds are
 query constraints, not an assertion that all geometry bytes were fetched.
 
 ## Authorization and lineage
@@ -99,10 +100,27 @@ Canonical authority stays outside this read contract:
 ## Negotiation and compatibility
 
 Providers publish an immutable descriptor with the existing descriptor digest
-mechanism. A rich-domain consumer requests `krail.rich-domain-read.v1` and a
-supported semantic version plus the operation set it needs. The provider returns
-an exact descriptor digest and the intersected operation list. Mismatched major
-versions, unknown operation IDs, or a digest-pin mismatch are incompatible.
+mechanism. A rich-domain consumer requests `krail.rich-domain-read.v1`, a
+supported semantic version, the operation set it needs, and optionally
+`expected_descriptor_digest`. The provider returns its exact descriptor digest,
+the intersected operation list, and a bounded diagnostic. Mismatched major
+versions, unknown operation IDs, or an expected-digest mismatch are
+incompatible. This is normative design behavior only: no provider runtime or
+production negotiation implementation is introduced by this proposal.
+
+Temporal and spatial result pages include a `PageBinding` containing the digest
+of the canonical query (without cursor), an exact snapshot ref, and the current
+authorization digest. A cursor is opaque and must be accepted only when its
+server-side binding matches those three values and the requested operation/page
+limit. Reusing a cursor across a query, snapshot, principal/scope, or
+authorization revision fails with the bounded `cursor_invalid` error. The schema
+defines this response shape; token signing and validation remain runtime work.
+
+All errors use one bounded `ErrorResponse`. `unauthorized` intentionally does
+not carry an authorization snapshot, lineage, candidate list, or omission count.
+`unavailable` is the truthful asset/source availability response; it is distinct
+from an `asset_metadata` retention state because no metadata is disclosed when
+the source itself cannot be read.
 
 | Surface | Compatibility decision |
 | --- | --- |
@@ -125,12 +143,16 @@ The valid fixtures include:
 - a robotics immutable image asset reference;
 - a robotics spatial request whose frame, map revision, unit, bounds, valid
   time, and known time are all explicit; and
-- a company temporal request querying a service ownership record effective on
-  Tuesday with knowledge cutoff Thursday.
+- a company temporal request and result querying a service ownership record
+  effective on Tuesday and recorded Thursday; and
+- an explicit robotics spatial abstention with an empty candidate list and
+  page binding.
 
 Invalid fixtures prove that a spatial request cannot omit frame/revision/units,
-an asset metadata request cannot embed content, and a `krail.provider.v1`
-message cannot be treated as a rich-domain request.
+an asset metadata request cannot embed content or a storage path, exact refs
+reject extra fields, temporal timestamps/page limits are validated, an abstained
+spatial response cannot disclose candidates, and a `krail.provider.v1` message
+cannot be treated as a rich-domain request.
 
 ## Deferred implementation work
 

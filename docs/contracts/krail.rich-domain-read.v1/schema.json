@@ -46,6 +46,15 @@
       "type": "object", "additionalProperties": false, "required": ["limit"],
       "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}
     },
+    "PageBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["query_digest", "snapshot_ref", "authorization_digest"],
+      "properties": {"query_digest": {"$ref": "#/$defs/Digest"}, "snapshot_ref": {"$ref": "#/$defs/ExactRef"}, "authorization_digest": {"$ref": "#/$defs/Digest"}}
+    },
+    "PageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["limit", "has_more", "binding"],
+      "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "has_more": {"type": "boolean"}, "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}, "binding": {"$ref": "#/$defs/PageBinding"}}
+    },
     "TimeQuery": {
       "type": "object", "additionalProperties": false, "required": ["valid_at", "known_at"],
       "properties": {"valid_at": {"$ref": "#/$defs/Timestamp"}, "known_at": {"$ref": "#/$defs/Timestamp"}}
@@ -77,7 +86,7 @@
     "NegotiateRequest": {
       "allOf": [
         {"$ref": "#/$defs/BaseRequest"},
-        {"properties": {"operation": {"const": "negotiate"}, "consumer_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "requested_operations": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}}, "required": ["consumer_version", "requested_operations"]}
+        {"properties": {"operation": {"const": "negotiate"}, "consumer_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"}, "expected_descriptor_digest": {"$ref": "#/$defs/Digest"}, "requested_operations": {"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}}, "required": ["consumer_version", "requested_operations"]}
       ], "unevaluatedProperties": false
     },
     "AssetMetadataRequest": {
@@ -89,12 +98,15 @@
     "SpatialQueryRequest": {
       "allOf": [{"$ref": "#/$defs/BaseRequest"}, {"properties": {"operation": {"const": "spatial_query"}, "world_ref": {"$ref": "#/$defs/ExactRef"}, "bounds": {"$ref": "#/$defs/Bounds"}, "time": {"$ref": "#/$defs/TimeQuery"}, "page": {"$ref": "#/$defs/Page"}}, "required": ["world_ref", "bounds", "time", "page"]}], "unevaluatedProperties": false
     },
-    "Response": {"oneOf": [{"$ref": "#/$defs/NegotiateResponse"}, {"$ref": "#/$defs/AssetMetadataResponse"}, {"$ref": "#/$defs/TemporalQueryResponse"}, {"$ref": "#/$defs/SpatialQueryResponse"}]},
+    "Response": {"oneOf": [{"$ref": "#/$defs/NegotiateResponse"}, {"$ref": "#/$defs/AssetMetadataResponse"}, {"$ref": "#/$defs/TemporalQueryResponse"}, {"$ref": "#/$defs/SpatialQueryResponse"}, {"$ref": "#/$defs/ErrorResponse"}]},
     "BaseResponse": {"type": "object", "required": ["contract", "operation", "authorization"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"type": "string"}, "authorization": {"$ref": "#/$defs/AuthorizationSnapshot"}}},
-    "NegotiateResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "negotiate"}, "compatible": {"type": "boolean"}, "descriptor_digest": {"$ref": "#/$defs/Digest"}, "operations": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}}, "required": ["compatible", "descriptor_digest", "operations"]}], "unevaluatedProperties": false},
+    "NegotiateResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "negotiate"}, "compatible": {"type": "boolean"}, "descriptor_digest": {"$ref": "#/$defs/Digest"}, "operations": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["asset_metadata", "temporal_query", "spatial_query"]}}, "diagnostic": {"type": "string", "minLength": 1, "maxLength": 1024}}, "required": ["compatible", "descriptor_digest", "operations", "diagnostic"]}], "unevaluatedProperties": false},
     "AssetMetadataResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "asset_metadata"}, "asset_ref": {"$ref": "#/$defs/ExactRef"}, "media_type": {"type": "string", "minLength": 1, "maxLength": 128}, "byte_length": {"type": "integer", "minimum": 0}, "retention": {"enum": ["available", "rebuildable", "missing"]}, "lineage": {"$ref": "#/$defs/Lineage"}}, "required": ["asset_ref", "media_type", "byte_length", "retention", "lineage"]}], "unevaluatedProperties": false},
     "TemporalRecord": {"type": "object", "additionalProperties": false, "required": ["record_ref", "valid_from", "recorded_at", "lineage"], "properties": {"record_ref": {"$ref": "#/$defs/ExactRef"}, "valid_from": {"$ref": "#/$defs/Timestamp"}, "valid_to": {"$ref": "#/$defs/Timestamp"}, "recorded_at": {"$ref": "#/$defs/Timestamp"}, "lineage": {"$ref": "#/$defs/Lineage"}}},
-    "TemporalQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "temporal_query"}, "records": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/TemporalRecord"}}, "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["records"]}], "unevaluatedProperties": false},
-    "SpatialQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "spatial_query"}, "object_refs": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/ExactRef"}}, "bounds": {"$ref": "#/$defs/Bounds"}, "lineage": {"$ref": "#/$defs/Lineage"}, "next_cursor": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["object_refs", "bounds", "lineage"]}], "unevaluatedProperties": false}
+    "TemporalQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"properties": {"operation": {"const": "temporal_query"}, "records": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/TemporalRecord"}}, "page": {"$ref": "#/$defs/PageResponse"}}, "required": ["records", "page"]}], "unevaluatedProperties": false},
+    "SpatialAbstention": {"type": "object", "additionalProperties": false, "required": ["reason"], "properties": {"reason": {"enum": ["frame_unavailable", "map_revision_mismatch", "source_stale"]}}},
+    "SpatialQueryResponse": {"allOf": [{"$ref": "#/$defs/BaseResponse"}, {"oneOf": [{"properties": {"operation": {"const": "spatial_query"}, "status": {"const": "ok"}, "object_refs": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/ExactRef"}}, "bounds": {"$ref": "#/$defs/Bounds"}, "lineage": {"$ref": "#/$defs/Lineage"}, "page": {"$ref": "#/$defs/PageResponse"}}, "required": ["status", "object_refs", "bounds", "lineage", "page"]}, {"properties": {"operation": {"const": "spatial_query"}, "status": {"const": "abstained"}, "object_refs": {"type": "array", "maxItems": 0}, "bounds": {"$ref": "#/$defs/Bounds"}, "lineage": {"$ref": "#/$defs/Lineage"}, "abstention": {"$ref": "#/$defs/SpatialAbstention"}, "page": {"$ref": "#/$defs/PageResponse"}}, "required": ["status", "object_refs", "bounds", "lineage", "abstention", "page"]}]}], "unevaluatedProperties": false},
+    "Error": {"type": "object", "additionalProperties": false, "required": ["code", "message", "retryable"], "properties": {"code": {"enum": ["unsupported_contract", "unsupported_operation", "incompatible_capability", "unauthorized", "not_found", "unavailable", "invalid_request", "cursor_invalid"]}, "message": {"type": "string", "minLength": 1, "maxLength": 1024}, "retryable": {"type": "boolean"}}},
+    "ErrorResponse": {"type": "object", "additionalProperties": false, "required": ["contract", "operation", "error"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"type": "string", "maxLength": 128}, "error": {"$ref": "#/$defs/Error"}}}
   }
 }

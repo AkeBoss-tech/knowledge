@@ -21,5 +21,34 @@
   {
     "name": "v1-request-is-not-a-rich-domain-request",
     "value": {"contract": "krail.provider.v1", "operation": "spatial_query"}
+  },
+  {
+    "name": "exact-ref-rejects-storage-handle-field",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "asset_metadata",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "asset_ref": {"authority": "mcap+https://robot.example.test", "resource_type": "image", "resource_id": "runs/17/camera/front/42", "version": "capture-42", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "path": "/private/store/image.jpg"}
+    }
+  },
+  {
+    "name": "temporal-query-rejects-invalid-time-and-page-limit",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "temporal_query",
+      "authorization": {"signed_context_ref": {"authority": "https://control.example.test", "resource_type": "signed-context", "resource_id": "ctx/1", "version": "1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "entity_ref": {"authority": "company://service/payments", "resource_type": "service", "resource_id": "payments", "version": "9", "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+      "time": {"valid_at": "Tuesday", "known_at": "Thursday"}, "page": {"limit": 101}
+    }
+  },
+  {
+    "name": "spatial-abstention-cannot-return-candidates",
+    "value": {
+      "contract": "krail.rich-domain-read.v1", "operation": "spatial_query",
+      "authorization": {"authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "authorized_at": "2026-09-07T12:04:00Z"},
+      "status": "abstained", "object_refs": [{"authority": "robotics://world/table-a", "resource_type": "object", "resource_id": "cup-left", "version": "1", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}],
+      "bounds": {"frame_id": "table", "map_revision": "table-map-2", "units": "metres", "min_metres": [0, 0, 0], "max_metres": [1, 1, 1]},
+      "lineage": {"derived_ref": {"authority": "robotics://world-memory", "resource_type": "spatial-query", "resource_id": "x", "version": "1", "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "source_refs": [{"authority": "robotics://world/table-a", "resource_type": "map-revision", "resource_id": "table-map-2", "version": "1", "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}]},
+      "abstention": {"reason": "map_revision_mismatch"},
+      "page": {"limit": 20, "has_more": false, "binding": {"query_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "snapshot_ref": {"authority": "robotics://world/table-a", "resource_type": "query-snapshot", "resource_id": "x", "version": "1", "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"}, "authorization_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+    }
   }
 ]

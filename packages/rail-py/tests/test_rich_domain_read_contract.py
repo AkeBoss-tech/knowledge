@@ -20,6 +20,7 @@ def _cases(name: str) -> list[dict[str, object]]:
 
 def test_rich_domain_read_contract_validates_robotics_and_company_examples() -> None:
     schema = json.loads((CONTRACT / "schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
 
     cases = _cases("valid.json")
@@ -30,6 +31,10 @@ def test_rich_domain_read_contract_validates_robotics_and_company_examples() -> 
         "company-effective-tuesday-learned-thursday",
         "robotics-asset-response-has-auth-snapshot-and-lineage",
         "company-temporal-response-keeps-effective-and-recorded-times",
+        "spatial-abstention-is-explicit-and-page-bound",
+        "incompatible-negotiation-has-deterministic-shape",
+        "unavailable-error-is-bounded",
+        "unauthorized-error-hides-auth-snapshot-and-lineage",
     }
     for case in cases:
         assert list(validator.iter_errors(case["value"])) == [], case["name"]
