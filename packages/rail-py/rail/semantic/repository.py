@@ -57,6 +57,7 @@ SemanticKind = Literal[
     "procedure_projection_tombstone",
     "procedure_projection_current",
     "procedure_projection_dirty",
+    "procedure_projection_dirty_event",
     "procedure_projection_recompute_run",
     "robotics_world_record",
     "robotics_scene_snapshot",

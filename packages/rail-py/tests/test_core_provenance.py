@@ -196,12 +196,12 @@ def test_procedure_review_rechecks_current_authorization_before_exposure(tmp_pat
 def test_procedure_review_promotes_or_rejects_durably_and_is_idempotent(tmp_path) -> None:
     path = tmp_path / ".krail" / "semantic.json"
     repository = CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a")
-    ingested = CoreProvenanceService(repository=repository).ingest(
+    ingested = CoreProvenanceService(repository=repository, clock=lambda: NOW).ingest(
         _receipt(), authorizer=Allow(), trust=AllowTrust()
     )
     reviewer = _ref("reviewer", "reviewer/1", "1", "reviewer")
     evidence = _ref("evidence", "test/review", "1", "evidence")
-    service = ProcedureReviewService(repository=repository)
+    service = ProcedureReviewService(repository=repository, clock=lambda: NOW)
     accepted = service.review(
         ingested.record.record_digest,
         decision_id="review:accepted",
@@ -251,7 +251,8 @@ def test_procedure_review_promotes_or_rejects_durably_and_is_idempotent(tmp_path
     )
     assert rejected.promoted_record is None
     restarted = ProcedureReviewService(
-        repository=CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a")
+        repository=CoreProvenanceRepository(path, tenant_id="tenant-a", project_id="project-a"),
+        clock=lambda: NOW,
     )
     assert restarted.review(
         ingested.record.record_digest,

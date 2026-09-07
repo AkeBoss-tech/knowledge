@@ -60,7 +60,13 @@ def pose(x, revision, at=NOW):
 def test_registry_fixture_identity_and_structural_scene_refs():
     registry = DomainExtensionRegistry()
     descriptor = robotics_world_extension()
-    registry.register(descriptor, {"robotics.world-memory.location": lambda inputs, config: dict(inputs[0])})
+    registry.register(
+        descriptor,
+        {
+            operator.operator_id: lambda inputs, config: dict(inputs[0])
+            for operator in descriptor.operators
+        },
+    )
     memory, scene = tabletop_fixture(NOW)
     assert len(scene.object_refs) == 2 and scene.object_refs[0].authority == "robotics://world-memory"
     assert memory.locate_class(world_id="table-a", class_label="red-cup", at=NOW, known_at=NOW, reader=Allow()).status == "ambiguous"

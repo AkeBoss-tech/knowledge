@@ -157,6 +157,14 @@ def test_dispatch_requires_exact_operator_and_authorization_before_handler() -> 
     assert calls == []
     with pytest.raises(LookupError, match="unknown operator"):
         registry.dispatch(operator.operator_id, "2.0.0", ((_ref("source"), {}),), config={}, authorizer=Allow())
+    with pytest.raises(ValueError, match="at least one exact input ref"):
+        registry.dispatch(
+            operator.operator_id,
+            operator.version,
+            (),
+            config={},
+            authorizer=Allow(),
+        )
 
 
 def test_registry_does_not_accept_untrusted_install_or_handler_shape() -> None:

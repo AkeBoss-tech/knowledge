@@ -112,6 +112,19 @@ class ProjectionDirtyEntry(BaseModel):
     dirty_digest: Digest
 
 
+class ProjectionDirtyEvent(BaseModel):
+    """Append-only recorded-time transition for one dirty queue output."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    event_id: Digest
+    projection_id: str
+    output_ref: ResourceRef
+    transition: str = Field(pattern=r"^(enqueue|clear)$")
+    event_at: datetime
+    queue_revision: int = Field(ge=1)
+    entry: ProjectionDirtyEntry
+
+
 class ProjectionRecomputeRun(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     projection_id: str
@@ -252,6 +265,75 @@ class TemporalProjectionService:
     @staticmethod
     def _dirty_id(projection_id: str, output_ref: ResourceRef) -> str:
         return _digest({"projection_id": projection_id, "output_ref": output_ref.model_dump(mode="json")})
+
+    def _put_dirty_event_locked(
+        self,
+        *,
+        entry: ProjectionDirtyEntry,
+        transition: str,
+        event_at: datetime,
+        queue_revision: int,
+    ) -> None:
+        body = {
+            "projection_id": entry.projection_id,
+            "output_ref": entry.output_ref.model_dump(mode="json"),
+            "transition": transition,
+            "event_at": event_at.isoformat(),
+            "queue_revision": queue_revision,
+            "entry": entry.model_dump(mode="json"),
+        }
+        event = ProjectionDirtyEvent(event_id=_digest(body), **body)
+        self.store.put(
+            SemanticRow(
+                tenant_id=self.tenant_id,
+                project_id=self.project_id,
+                record_kind="procedure_projection_dirty_event",
+                record_id=event.event_id,
+                revision=1,
+                payload={"event": event.model_dump(mode="json")},
+                created_at=event_at,
+                updated_at=event_at,
+            ),
+            expected_revision=0,
+        )
+
+    def _ensure_dirty_history_locked(
+        self, *, entry: ProjectionDirtyEntry, queue_revision: int
+    ) -> None:
+        """Seed the exact interval still available in a pre-ledger queue row."""
+
+        events = (
+            ProjectionDirtyEvent.model_validate(row.payload["event"])
+            for row in self.store.list(
+                self.tenant_id,
+                self.project_id,
+                kind="procedure_projection_dirty_event",
+            )
+        )
+        if any(
+            event.output_ref.exact_key == entry.output_ref.exact_key
+            and event.projection_id == entry.projection_id
+            for event in events
+        ):
+            return
+        body = entry.model_dump(mode="json")
+        body["cleared_at"] = None
+        body.pop("dirty_digest")
+        enqueued = ProjectionDirtyEntry(**body, dirty_digest=_digest(body))
+        enqueue_revision = max(1, queue_revision - (entry.cleared_at is not None))
+        self._put_dirty_event_locked(
+            entry=enqueued,
+            transition="enqueue",
+            event_at=entry.enqueued_at,
+            queue_revision=enqueue_revision,
+        )
+        if entry.cleared_at is not None:
+            self._put_dirty_event_locked(
+                entry=entry,
+                transition="clear",
+                event_at=entry.cleared_at,
+                queue_revision=queue_revision,
+            )
 
     def _known_projection_ids_locked(self) -> tuple[str, ...]:
         """Existing checkpoints name all materializations that need an update."""
@@ -460,8 +542,14 @@ class TemporalProjectionService:
                 tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty",
                 record_id=entry_id, revision=1, payload={"entry": entry.model_dump(mode="json")}, created_at=at, updated_at=at,
             ), expected_revision=0)
+            self._put_dirty_event_locked(
+                entry=entry, transition="enqueue", event_at=at, queue_revision=1
+            )
             return entry
         existing = ProjectionDirtyEntry.model_validate(current.payload["entry"])
+        self._ensure_dirty_history_locked(
+            entry=existing, queue_revision=current.revision
+        )
         if existing.cleared_at is None:
             if existing.cause_ref == cause_ref and existing.reason == reason:
                 return existing
@@ -473,12 +561,24 @@ class TemporalProjectionService:
                 record_id=entry_id, revision=current.revision + 1, payload={"entry": entry.model_dump(mode="json")},
                 created_at=current.created_at, updated_at=at,
             ), expected_revision=current.revision)
+            self._put_dirty_event_locked(
+                entry=entry,
+                transition="enqueue",
+                event_at=at,
+                queue_revision=current.revision + 1,
+            )
             return entry
         self.store.put(SemanticRow(
             tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty",
             record_id=entry_id, revision=current.revision + 1, payload={"entry": entry.model_dump(mode="json")},
             created_at=current.created_at, updated_at=at,
         ), expected_revision=current.revision)
+        self._put_dirty_event_locked(
+            entry=entry,
+            transition="enqueue",
+            event_at=at,
+            queue_revision=current.revision + 1,
+        )
         return entry
 
     def mark_dirty(self, changed_ref: ResourceRef, *, projection_id: str, reason: str, at: datetime) -> tuple[ResourceRef, ...]:
@@ -492,8 +592,73 @@ class TemporalProjectionService:
         values = [ProjectionDirtyEntry.model_validate(row.payload["entry"]) for row in self._rows("procedure_projection_dirty")]
         return tuple(sorted((item.output_ref for item in values if item.projection_id == projection_id and item.cleared_at is None), key=lambda ref: ref.exact_key))
 
+    def dirty_entries_at(
+        self, projection_id: str, *, known_at: datetime
+    ) -> tuple[ProjectionDirtyEntry, ...]:
+        """Return dirty work visible at one recorded-time cutoff.
+
+        A later correction must not contaminate an earlier knowledge query, and
+        clearing rebuild work must not erase the interval during which callers
+        were required to abstain.
+        """
+
+        if known_at.tzinfo is None or known_at.utcoffset() is None:
+            raise ValueError("known_at must include a timezone")
+        events = [
+            ProjectionDirtyEvent.model_validate(row.payload["event"])
+            for row in self._rows("procedure_projection_dirty_event")
+        ]
+        latest: dict[tuple[str, str, str, str, str], ProjectionDirtyEvent] = {}
+        for event in events:
+            if event.projection_id != projection_id or event.event_at > known_at:
+                continue
+            key = event.output_ref.exact_key
+            prior = latest.get(key)
+            if prior is None or (event.event_at, event.queue_revision) > (
+                prior.event_at,
+                prior.queue_revision,
+            ):
+                latest[key] = event
+
+        # Stores created before the event ledger retain their best available
+        # mutable queue state until that output receives its first transition.
+        event_keys = {
+            event.output_ref.exact_key
+            for event in events
+            if event.projection_id == projection_id
+        }
+        legacy = [
+            ProjectionDirtyEntry.model_validate(row.payload["entry"])
+            for row in self._rows("procedure_projection_dirty")
+        ]
+        values = [
+            event.entry for event in latest.values() if event.transition == "enqueue"
+        ]
+        values.extend(
+            item
+            for item in legacy
+            if item.projection_id == projection_id
+            and item.output_ref.exact_key not in event_keys
+            and item.enqueued_at <= known_at
+            and (item.cleared_at is None or known_at < item.cleared_at)
+        )
+        return tuple(
+            sorted(
+                values,
+                key=lambda item: item.output_ref.exact_key,
+            )
+        )
+
     def _records(self) -> tuple[TemporalRecord, ...]:
         return tuple(TemporalRecord.model_validate(row.payload["record"]) for row in self._rows("temporal_record"))
+
+    def temporal_records(self) -> tuple[TemporalRecord, ...]:
+        """Return integrity-checked canonical temporal rows to typed adapters."""
+
+        records = self._records()
+        for record in records:
+            verify_temporal_record_integrity(record)
+        return records
 
     def _tombstones(self) -> tuple[ProjectionTombstone, ...]:
         return tuple(ProjectionTombstone.model_validate(row.payload["tombstone"]) for row in self._rows("procedure_projection_tombstone"))
@@ -519,11 +684,24 @@ class TemporalProjectionService:
             item.target_ref.exact_key for item in self._tombstones()
             if item.effective_at <= valid_at and item.recorded_at <= known_at
         }
-        by_entity: dict[tuple[str, str], list[TemporalRecord]] = {}
+        # One entity may carry independent assertions from several declared
+        # authorities/writer families. Replay supersession within each exact
+        # history identity, then retain the live competitors for the projection
+        # to represent as conflict rather than mixing their revision chains.
+        by_history: dict[tuple[str, str, str, str, str, str], list[TemporalRecord]] = {}
         for record in records:
-            by_entity.setdefault((record.entity_authority, record.entity_id), []).append(record)
+            key = (
+                record.entity_authority,
+                record.entity_id,
+                record.payload_schema,
+                record.payload_schema_version,
+                record.authority,
+                record.writer_family,
+            )
+            by_history.setdefault(key, []).append(record)
         return tuple(
-            item for group in by_entity.values()
+            item for key in sorted(by_history)
+            for group in (by_history[key],)
             for item in query_temporal_records(group, valid_at=valid_at, known_at=known_at)
             if _record_ref(item).exact_key not in tombstoned
         )
@@ -715,11 +893,20 @@ class TemporalProjectionService:
                 entry = ProjectionDirtyEntry.model_validate(row.payload["entry"])
                 if entry.cleared_at is not None:
                     continue
+                self._ensure_dirty_history_locked(
+                    entry=entry, queue_revision=row.revision
+                )
                 body = entry.model_dump(mode="json")
                 body["cleared_at"] = at.isoformat()
                 body.pop("dirty_digest")
                 cleared = ProjectionDirtyEntry(**body, dirty_digest=_digest(body))
                 self.store.put(SemanticRow(tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty", record_id=entry_id, revision=row.revision + 1, payload={"entry": cleared.model_dump(mode="json")}, created_at=row.created_at, updated_at=at), expected_revision=row.revision)
+                self._put_dirty_event_locked(
+                    entry=cleared,
+                    transition="clear",
+                    event_at=at,
+                    queue_revision=row.revision + 1,
+                )
             run_body = {"projection_id": projection_id, "affected_outputs": [item.model_dump(mode="json") for item in pending], "changed_entities": sorted(changed), "recomputed_at": at.isoformat()}
             run = ProjectionRecomputeRun(**run_body, run_digest=_digest(run_body))
             existing_run = self.store.get(self.tenant_id, self.project_id, "procedure_projection_recompute_run", run.run_digest)
@@ -865,7 +1052,7 @@ class TemporalProjectionService:
 
 
 __all__ = [
-    "ProjectionAlias", "ProjectionCheckpoint", "ProjectionCurrentState", "ProjectionDependencyState", "ProjectionDirtyEntry", "ProjectionEdge",
+    "ProjectionAlias", "ProjectionCheckpoint", "ProjectionCurrentState", "ProjectionDependencyState", "ProjectionDirtyEntry", "ProjectionDirtyEvent", "ProjectionEdge",
     "ProjectionInvalidationAuthorizer", "ProjectionRecomputeRun", "ProjectionTombstone",
     "TemporalProjectionService", "create_projection_tombstone",
 ]

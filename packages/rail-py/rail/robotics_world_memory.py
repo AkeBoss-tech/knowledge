@@ -213,6 +213,37 @@ class ActionFreshness(Strict):
     evidence: tuple[ResourceRef, ...] = ()
 
 
+class ObjectStateQuery(Strict):
+    world_id: str = Field(min_length=1, max_length=200)
+    object_id: str = Field(min_length=1, max_length=200)
+    valid_at: datetime
+    known_at: datetime
+    include_estimates: bool
+
+    @model_validator(mode="after")
+    def _timestamps_are_aware(self):
+        for value in (self.valid_at, self.known_at):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("robotics query timestamps must include a timezone")
+        return self
+
+
+class ActionFreshnessQuery(Strict):
+    world_id: str = Field(min_length=1, max_length=200)
+    object_id: str = Field(min_length=1, max_length=200)
+    valid_at: datetime
+    known_at: datetime
+    required_frame_id: str | None = None
+    required_map_revision: str | None = None
+
+    @model_validator(mode="after")
+    def _timestamps_are_aware(self):
+        for value in (self.valid_at, self.known_at):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("robotics query timestamps must include a timezone")
+        return self
+
+
 class WorldReader(Protocol):
     def authorize(self, ref: ResourceRef) -> None: ...
 
@@ -237,9 +268,46 @@ class _LocalProjectionInvalidationAuthorizer:
 
 
 def robotics_world_extension() -> ExtensionDescriptor:
-    schema = "robotics.world-memory.v1"
-    operator = describe_operator(operator_id="robotics.world-memory.location", version="1.0.0", input_schema=schema, output_schema=schema, deterministic=False)
-    return describe_extension(extension_id="robotics.world-memory", version="1.0.0", payload_schemas=(schema,), operators=(operator,))
+    legacy_schema = "robotics.world-memory.v1"
+    object_query_schema = "robotics.object-state-query.v1"
+    object_answer_schema = "robotics.object-state-answer.v1"
+    freshness_query_schema = "robotics.action-freshness-query.v1"
+    freshness_answer_schema = "robotics.action-freshness-answer.v1"
+    operators = (
+        describe_operator(
+            operator_id="robotics.world-memory.location",
+            version="1.0.0",
+            input_schema=legacy_schema,
+            output_schema=legacy_schema,
+            deterministic=False,
+        ),
+        describe_operator(
+            operator_id="robotics.object-state.query",
+            version="1.0.0",
+            input_schema=object_query_schema,
+            output_schema=object_answer_schema,
+            deterministic=False,
+        ),
+        describe_operator(
+            operator_id="robotics.object-state.validate-freshness",
+            version="1.0.0",
+            input_schema=freshness_query_schema,
+            output_schema=freshness_answer_schema,
+            deterministic=False,
+        ),
+    )
+    return describe_extension(
+        extension_id="robotics.world-memory",
+        version="1.1.0",
+        payload_schemas=(
+            legacy_schema,
+            object_query_schema,
+            object_answer_schema,
+            freshness_query_schema,
+            freshness_answer_schema,
+        ),
+        operators=operators,
+    )
 
 
 def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "TabletopWorldMemory", reader: WorldReader) -> ExtensionDescriptor:
@@ -252,7 +320,50 @@ def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "
         # This lookup is intentionally nondeterministic because its canonical
         # snapshot can change between invocations.
         return {**answer.model_dump(mode="json"), "derivation": "canonical-store lookup", HANDLER_LINEAGE_REFS: answer.evidence}
-    registry.register(descriptor, {"robotics.world-memory.location": location})
+
+    def object_state(inputs, config):
+        if len(inputs) != 1 or config:
+            raise ValueError("object-state query requires one input and empty config")
+        query = ObjectStateQuery.model_validate(inputs[0])
+        answer = memory.location(
+            world_id=query.world_id,
+            object_id=query.object_id,
+            at=query.valid_at,
+            known_at=query.known_at,
+            estimated=query.include_estimates,
+            reader=reader,
+        )
+        return {
+            **answer.model_dump(mode="json"),
+            HANDLER_LINEAGE_REFS: answer.evidence,
+        }
+
+    def action_freshness(inputs, config):
+        if len(inputs) != 1 or config:
+            raise ValueError("freshness query requires one input and empty config")
+        query = ActionFreshnessQuery.model_validate(inputs[0])
+        answer = memory.action_freshness(
+            world_id=query.world_id,
+            object_id=query.object_id,
+            at=query.valid_at,
+            known_at=query.known_at,
+            reader=reader,
+            required_frame_id=query.required_frame_id,
+            required_map_revision=query.required_map_revision,
+        )
+        return {
+            **answer.model_dump(mode="json"),
+            HANDLER_LINEAGE_REFS: answer.evidence,
+        }
+
+    registry.register(
+        descriptor,
+        {
+            "robotics.world-memory.location": location,
+            "robotics.object-state.query": object_state,
+            "robotics.object-state.validate-freshness": action_freshness,
+        },
+    )
     return descriptor
 
 
@@ -1577,6 +1688,11 @@ class TabletopWorldMemory:
         record = current[-1]
         state = record.payload["state"]
         evidence = self._authorized_evidence(record, reader)
+        if record.freshness != "current" or self._projection_marks_record_stale(
+            record, valid_at=at, known_at=known_at
+        ):
+            self._authorized_evidence(record, reader)
+            return LocationAnswer(status="stale", evidence=evidence)
         if state == "estimate" and not estimated:
             self._authorized_evidence(record, reader)
             return LocationAnswer(status="unknown", evidence=evidence)
@@ -1674,4 +1790,4 @@ def tabletop_episode_fixture(at: datetime, path: str | None = None, *, tenant_id
     return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved, "identity_resolution": identity_resolution, "opening_scene": opening, "occluded_scene": occluded, "final_scene": final, "episode": episode, "table_region": table_region, "left_support": left_support, "initial_appearance": initial_appearance, "ambiguous_identity": ambiguous_identity}
 
 
-__all__ = ["ActionFreshness", "AppearanceObservation", "IdentityCandidate", "IdentityResolution", "LocationAnswer", "ObjectHistory", "PlaceRegion", "Pose", "RegionObjectsAnswer", "SceneEpisode", "SceneSnapshot", "SpatialRelation", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
+__all__ = ["ActionFreshness", "ActionFreshnessQuery", "AppearanceObservation", "IdentityCandidate", "IdentityResolution", "LocationAnswer", "ObjectHistory", "ObjectStateQuery", "PlaceRegion", "Pose", "RegionObjectsAnswer", "SceneEpisode", "SceneSnapshot", "SpatialRelation", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
