@@ -190,7 +190,10 @@ class SharedKnowledgeWorkspace:
             self._run("git", "push", "origin", f"HEAD:{proposal.branch}", cwd=checkout_path)
             self._authorize("shared_knowledge.propose", proposal_ref, user_id)
             state["proposals"][proposal_id] = asdict(proposal)
-            return proposal
+        # State persistence is an effect too; fail closed if authority changed
+        # while releasing the durable state lock.
+        self._authorize("shared_knowledge.propose", proposal_ref, user_id)
+        return proposal
 
     def _recover(self, state: dict, proposal: KnowledgeProposal) -> KnowledgeProposal:
         current = self._remote_ref("refs/heads/main")
@@ -203,35 +206,37 @@ class SharedKnowledgeWorkspace:
         return proposal
 
     def review_and_promote(self, proposal_id: str, *, reviewer_id: str) -> KnowledgeProposal:
+        result: KnowledgeProposal
         with self._locked_state() as state:
             try:
                 proposal = KnowledgeProposal(**state.setdefault("proposals", {})[proposal_id])
             except KeyError as exc:
                 raise SharedKnowledgeError("unknown proposal") from exc
-            proposal = self._recover(state, proposal)
-            if proposal.status != "proposed":
-                return proposal
             if not reviewer_id:
                 raise ValueError("reviewer identity is required")
-            proposal_ref = self._proposal_ref(proposal)
-            self._authorize("shared_knowledge.review", proposal_ref, reviewer_id)
-            current = self._remote_ref("refs/heads/main")
-            candidate = self._remote_ref(proposal.branch)
-            if candidate != proposal.candidate_commit or current != proposal.base_commit:
-                conflict = KnowledgeProposal(**{**asdict(proposal), "status": "conflict"})
-                state["proposals"][proposal_id] = asdict(conflict)
-                return conflict
-            self._run("git", "--git-dir", str(self.remote), "update-ref", "refs/heads/main", candidate, current)
-            receipt = self._digest(f"{reviewer_id}:{proposal_id}:{candidate}")
-            promoted = KnowledgeProposal(**{**asdict(proposal), "status": "promoted", "reviewer_receipt": receipt})
-            state["proposals"][proposal_id] = asdict(promoted)
-            for key, value in tuple(state["proposals"].items()):
-                other = KnowledgeProposal(**value)
-                if key != proposal_id and other.status == "proposed" and other.base_commit == current:
-                    state["proposals"][key] = asdict(KnowledgeProposal(**{**value, "status": "conflict"}))
-            self._cache.clear()
-            self._authorize("shared_knowledge.review", self._proposal_ref(promoted), reviewer_id)
-            return promoted
+            self._authorize("shared_knowledge.review", self._proposal_ref(proposal), reviewer_id)
+            proposal = self._recover(state, proposal)
+            if proposal.status != "proposed":
+                result = proposal
+            else:
+                proposal_ref = self._proposal_ref(proposal)
+                current = self._remote_ref("refs/heads/main")
+                candidate = self._remote_ref(proposal.branch)
+                if candidate != proposal.candidate_commit or current != proposal.base_commit:
+                    result = KnowledgeProposal(**{**asdict(proposal), "status": "conflict"})
+                    state["proposals"][proposal_id] = asdict(result)
+                else:
+                    self._run("git", "--git-dir", str(self.remote), "update-ref", "refs/heads/main", candidate, current)
+                    receipt = self._digest(f"{reviewer_id}:{proposal_id}:{candidate}")
+                    result = KnowledgeProposal(**{**asdict(proposal), "status": "promoted", "reviewer_receipt": receipt})
+                    state["proposals"][proposal_id] = asdict(result)
+                    for key, value in tuple(state["proposals"].items()):
+                        other = KnowledgeProposal(**value)
+                        if key != proposal_id and other.status == "proposed" and other.base_commit == current:
+                            state["proposals"][key] = asdict(KnowledgeProposal(**{**value, "status": "conflict"}))
+                    self._cache.clear()
+        self._authorize("shared_knowledge.review", self._proposal_ref(result), reviewer_id)
+        return result
 
     def authorized_context(self, user_id: str) -> AuthorizedKnowledgeContext:
         commit = self._remote_ref("refs/heads/main")
