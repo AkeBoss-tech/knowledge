@@ -6,6 +6,7 @@ import pytest
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import DomainExtensionRegistry
 from rail.robotics_world_memory import Pose, TabletopWorldMemory, WorldObject, register_world_memory_extension, robotics_world_extension, tabletop_episode_fixture, tabletop_fixture
+from rail.semantic.repository import JsonSemanticStore, SemanticRow
 
 NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 
@@ -64,12 +65,12 @@ def test_observed_estimated_occlusion_and_world_isolation():
     unseen = memory.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow())
     assert unseen.status == "unknown" and unseen.evidence
     assert memory.location(world_id="one", object_id="missing", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
-    estimated = memory.recalibrate(observed, pose(0.4, "map-2", NOW + timedelta(minutes=1)), evidence=(evidence("map-2"),))
+    estimated = memory.recalibrate(observed, pose(0.4, "map-2", NOW + timedelta(minutes=1)), evidence=(evidence("map-2"),), estimate_expires_at=NOW + timedelta(minutes=2))
     assert observed.payload["pose"]["metres"][0] == 0.1
     answer = memory.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow())
     assert (answer.status, answer.pose.metres[0]) == ("estimated", 0.4)
     assert memory.location(world_id="two", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
-    assert estimated.source_refs[-1].digest == observed.record_digest
+    assert observed.record_digest in {ref.digest for ref in estimated.source_refs}
     assert memory.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=False, reader=Allow()).pose.metres[0] == 0.1
 
 
@@ -78,6 +79,16 @@ def test_location_rechecks_exact_evidence_access():
     memory.record(WorldObject(world_id="one", object_id="cube", class_label="cube"), pose(0.0, "1"), kind="observation", evidence=(evidence("cube"),))
     with pytest.raises(PermissionError, match="world-memory access denied"):
         memory.location(world_id="one", object_id="cube", at=NOW, known_at=NOW, estimated=False, reader=Deny())
+
+
+def test_estimates_require_a_future_expiry():
+    memory = TabletopWorldMemory(clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cube", class_label="cube")
+    estimate_pose = pose(0.1, "estimate")
+    with pytest.raises(ValueError, match="require an expiry"):
+        memory.record(obj, estimate_pose, kind="estimate", evidence=(evidence("estimate"),))
+    with pytest.raises(ValueError, match="must follow"):
+        memory.record(obj, estimate_pose, kind="estimate", evidence=(evidence("estimate"),), estimate_expires_at=NOW)
 
 
 def test_class_lookup_omits_unauthorized_and_future_objects_from_ambiguity():
@@ -123,6 +134,82 @@ def test_already_open_reader_refreshes_committed_writer_records(tmp_path):
     writer = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
     writer.record(WorldObject(world_id="one", object_id="cup", class_label="cup"), pose(0.1, "1"), kind="observation", evidence=(evidence("writer"),))
     assert reader.location(world_id="one", object_id="cup", at=NOW, known_at=NOW, estimated=False, reader=Allow()).status == "observed"
+
+
+def test_pre_projection_world_rows_migrate_idempotently_without_rewriting_history(tmp_path):
+    path = tmp_path / "semantic.json"
+    original = TabletopWorldMemory(clock=lambda: NOW).record(
+        WorldObject(world_id="one", object_id="cup", class_label="cup"),
+        pose(0.1, "legacy"),
+        kind="observation",
+        evidence=(evidence("legacy"),),
+    )
+    legacy_store = JsonSemanticStore(path)
+    with legacy_store.transaction():
+        legacy_store.put(
+            SemanticRow(
+                tenant_id="t", project_id="p", record_kind="robotics_world_record",
+                record_id=original.record_digest, revision=1,
+                payload={"record": original.model_dump(mode="json")},
+                created_at=original.recorded_at, updated_at=original.recorded_at,
+            ),
+            expected_revision=0,
+        )
+    migrated = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert migrated.location(world_id="one", object_id="cup", at=NOW, known_at=NOW, estimated=False, reader=Allow()).status == "observed"
+    projection_rows = migrated._projection.store.list("t", "p", kind="temporal_record")
+    assert [row.payload["record"]["record_digest"] for row in projection_rows] == [original.record_digest]
+    assert TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)._projection.store.list("t", "p", kind="temporal_record") == projection_rows
+
+    conflicting_path = tmp_path / "conflicting-semantic.json"
+    conflict_store = JsonSemanticStore(conflicting_path)
+    conflicting = TabletopWorldMemory(clock=lambda: NOW).record(
+        WorldObject(world_id="one", object_id="different", class_label="cup"),
+        pose(0.2, "conflict"), kind="observation", evidence=(evidence("conflict"),),
+    )
+    with conflict_store.transaction():
+        conflict_store.put(SemanticRow(tenant_id="t", project_id="p", record_kind="robotics_world_record", record_id=original.record_digest, revision=1, payload={"record": original.model_dump(mode="json")}, created_at=original.recorded_at, updated_at=original.recorded_at), expected_revision=0)
+        conflict_store.put(SemanticRow(tenant_id="t", project_id="p", record_kind="temporal_record", record_id=original.record_digest, revision=1, payload={"record": conflicting.model_dump(mode="json")}, created_at=conflicting.recorded_at, updated_at=conflicting.recorded_at), expected_revision=0)
+    with pytest.raises(ValueError, match="conflicting temporal record replay"):
+        TabletopWorldMemory(str(conflicting_path), tenant_id="t", project_id="p", clock=lambda: NOW)
+
+
+def test_projection_stales_exact_source_and_map_dependencies_through_registry_after_reopen(tmp_path):
+    path = tmp_path / "semantic.json"
+    at = NOW + timedelta(minutes=1)
+    memory = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    first = WorldObject(world_id="one", object_id="cup-a", class_label="cup")
+    second = WorldObject(world_id="two", object_id="cup-b", class_label="cup")
+    unaffected = WorldObject(world_id="three", object_id="cup-c", class_label="cup")
+    memory.record(first, pose(0.1, "obs-a"), kind="observation", evidence=(evidence("obs-a"),))
+    estimate_a = memory.record(first, pose(0.2, "estimate-a", at), kind="estimate", evidence=(evidence("estimate-a"),), estimate_expires_at=at + timedelta(minutes=10), recorded_at=at)
+    memory.record(second, pose(0.3, "obs-b"), kind="observation", evidence=(evidence("obs-b"),))
+    estimate_b = memory.record(second, pose(0.4, "estimate-b", at), kind="estimate", evidence=(evidence("estimate-b"),), estimate_expires_at=at + timedelta(minutes=10), recorded_at=at)
+    memory.record(unaffected, pose(0.5, "obs-c"), kind="observation", evidence=(evidence("obs-c"),))
+    memory.record(unaffected, pose(0.6, "estimate-c", at), kind="estimate", evidence=(evidence("estimate-c"),), estimate_expires_at=at + timedelta(minutes=10), recorded_at=at)
+    memory.rebuild_projection(valid_at=at, known_at=at, at=at)
+    before = {state.entity_id: state.revision for state in memory._projection.current_state("robotics-world-memory")}
+    source_a = evidence("estimate-a")
+    map_b = memory.map_revision_ref("two", "map-1")
+    assert {ref.digest for ref in memory.invalidate_map_revision(source_a, reason="camera calibration withdrawn", at=at)} == {estimate_a.record_digest}
+    assert {ref.digest for ref in memory.invalidate_map_revision(map_b, reason="map revision withdrawn", at=at)} == {estimate_b.record_digest}
+    registry = DomainExtensionRegistry()
+    register_world_memory_extension(registry, memory, Allow())
+    stale_dispatch = registry.dispatch(
+        "robotics.world-memory.location", "1.0.0", ((memory.record_ref(estimate_a), estimate_a.payload),),
+        config={"world_id": "one", "object_id": "cup-a", "at": at.isoformat(), "known_at": at.isoformat(), "estimated": True}, authorizer=Allow(),
+    )
+    assert stale_dispatch.output["status"] == "stale"
+    memory.recompute_projection(valid_at=at, known_at=at, at=at)
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    later = at + timedelta(minutes=1)
+    assert reopened.location(world_id="one", object_id="cup-a", at=later, known_at=later, estimated=True, reader=Allow()).status == "stale"
+    assert reopened.location(world_id="two", object_id="cup-b", at=later, known_at=later, estimated=True, reader=Allow()).status == "stale"
+    after = {state.entity_id: state.revision for state in reopened._projection.current_state("robotics-world-memory")}
+    assert after["cup-a"] == before["cup-a"] + 1
+    assert after["cup-b"] == before["cup-b"] + 1
+    assert after["cup-c"] == before["cup-c"]
+    assert reopened.location(world_id="three", object_id="cup-c", at=later, known_at=later, estimated=True, reader=Allow()).status == "estimated"
 
 
 def test_tabletop_episode_registry_dispatch_and_no_identity_merge():

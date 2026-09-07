@@ -2,12 +2,15 @@
 
 ## #19 feature branch: temporal tabletop world-memory hardening (2026-09-07)
 
-- `TabletopWorldMemory` persists immutable observation and estimate envelopes
-  in the existing canonical `JsonSemanticStore`, refreshes a second open
-  reader before each query, and keeps physical observation time (`valid_from`)
-  separate from the trusted ingestion clock (`recorded_at`). A late physical
-  observation is therefore absent from a historical `known_at` query until it
-  arrives, while its original effective time remains intact.
+- `TabletopWorldMemory` ingests immutable observation and estimate envelopes
+  through the existing `TemporalProjectionService` canonical history and
+  refreshes a second open reader before each query. Pre-projection
+  `robotics_world_record` rows migrate idempotently by their original digest,
+  timestamps, and exact refs; a conflicting existing temporal row fails
+  closed. Physical observation time (`valid_from`) stays separate from the
+  trusted ingestion clock (`recorded_at`), so a late observation is absent from
+  a historical `known_at` query until it arrives without changing its original
+  effective time.
 - Location answers distinguish last observed, current estimated, expired
   estimate (`stale`), and unknown current location. Authorized stale and
   last-seen answers retain exact source and canonical-record evidence;
@@ -19,6 +22,12 @@
   revision, and an hour-boundary-safe timeline. Class lookup filters both
   future and unauthorized objects before deciding ambiguity, and scene records
   must belong to one exact world.
+- Estimates require an explicit future expiry and include their exact map
+  revision ref. The existing projection materializes their current state:
+  invalidating either an exact source or map ref durably dirties only its
+  dependent estimate; registry lookup reports it stale before recompute and
+  the rebuilt/reopened state remains stale at later query times. Immutable
+  observations and an unrelated world's projected row remain unchanged.
 - The real trusted-local registry dispatch registers the world-memory lookup as
   explicitly nondeterministic because it reads a mutable canonical snapshot.
   Handlers may return the reserved `HANDLER_LINEAGE_REFS` channel; dispatch
@@ -28,10 +37,10 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `140 passed`; compileall and `git diff --check` pass.
-- Remaining #19 boundary: no signed hosted robotics writer/reader adapter or
-  `TemporalProjectionService` materialization exists yet; registry authorization
-  is the caller-supplied local seam plus `WorldReader`. No ROS transport,
+  reports `143 passed`; compileall and `git diff --check` pass.
+- Remaining #19 boundary: no signed hosted robotics writer/reader adapter
+  exists yet; the local projection writer and registry authorization are the
+  caller-supplied local seam plus `WorldReader`. No ROS transport,
   perception pipeline, binary asset store, live robot control, identity merge,
   or general world-model engine is claimed.
 
