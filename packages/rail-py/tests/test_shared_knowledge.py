@@ -32,7 +32,7 @@ def checkout(remote: Path, destination: Path, user: str) -> Path:
     return destination
 
 
-def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path):
+def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path, monkeypatch):
     remote = tmp_path / "canonical.git"
     git("init", "--bare", str(remote))
     owner = tmp_path / "owner"
@@ -51,7 +51,10 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path)
     authorizer = LiveActionAuthorizer(grants)
     workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
     first = workspace.propose(user_id="alice", checkout=alice, proposal_id="alice-edit", path="knowledge.md", content="alice reviewed change\n")
-    second = workspace.propose(user_id="bob", checkout=bob, proposal_id="bob-edit", path="knowledge.md", content="bob competing change\n")
+    # A second process reloads under the same lock rather than overwriting the
+    # first process's metadata.
+    second_workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    second = second_workspace.propose(user_id="bob", checkout=bob, proposal_id="bob-edit", path="knowledge.md", content="bob competing change\n")
     assert first.base_commit == second.base_commit
 
     grants.remove("reviewer")
@@ -59,7 +62,21 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path)
         workspace.review_and_promote("alice-edit", reviewer_id="reviewer")
     assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first.base_commit
     grants.add("reviewer")
-    promoted = workspace.review_and_promote("alice-edit", reviewer_id="reviewer")
+    persist = workspace._persist_locked
+
+    def fail_after_git_cas(state):
+        if state["proposals"]["alice-edit"]["status"] == "promoted":
+            raise OSError("injected state write failure after Git CAS")
+        persist(state)
+
+    monkeypatch.setattr(workspace, "_persist_locked", fail_after_git_cas)
+    with pytest.raises(OSError, match="injected"):
+        workspace.review_and_promote("alice-edit", reviewer_id="reviewer")
+    assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") != first.base_commit
+    monkeypatch.setattr(workspace, "_persist_locked", persist)
+    # The receipt was flushed as review-pending before CAS, so reopen recovery
+    # promotes only that exact candidate under the same reviewer identity.
+    promoted = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer).review_and_promote("alice-edit", reviewer_id="reviewer")
     conflicted = workspace.review_and_promote("bob-edit", reviewer_id="reviewer")
     assert promoted.status == "promoted"
     assert conflicted.status == "conflict"
