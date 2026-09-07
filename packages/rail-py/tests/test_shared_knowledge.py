@@ -133,6 +133,14 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     assert tombstone.deleted is True
     assert restarted.review_and_promote("remove-knowledge", reviewer_id="reviewer").status == "promoted"
     assert restarted.authorized_context("alice").files == ()
+    # A second cached reader and a restarted reader both key derived results to
+    # canonical head, so the content-free tombstone exposes no deleted bytes
+    # through context, search, export, or lineage.
+    second_reader = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    assert second_reader.authorized_context("alice").files == ()
+    assert second_reader.search("alice", "alice") == ()
+    assert second_reader.export("alice")["files"] == {}
+    assert SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer).export("alice")["files"] == {}
     source_digest = restarted._digest(restarted._remote_ref("refs/heads/main"))
     preview = restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id=remote.resolve().as_uri(), source_digest=source_digest)
     assert Path(restarted.state_path.with_name(restarted.state_path.name + ".backups") / "transition-to-local.bundle").exists()
