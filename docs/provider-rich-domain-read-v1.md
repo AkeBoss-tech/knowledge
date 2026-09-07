@@ -136,7 +136,11 @@ The normative proposed schema is
 [valid.json](contracts/krail.rich-domain-read.v1/fixtures/valid.json) and
 [invalid.json](contracts/krail.rich-domain-read.v1/fixtures/invalid.json).
 `packages/rail-py/tests/test_rich_domain_read_contract.py` validates them with
-Draft 2020-12 JSON Schema.
+Draft 2020-12 JSON Schema and evaluates the deterministic design-time
+[negotiation decision table](contracts/krail.rich-domain-read.v1/fixtures/negotiation-decision-table.json).
+Binary delivery is defined separately in the bounded
+[asset-read capability](provider-asset-read-v1.md), never through provider v1
+or this metadata/query capability.
 
 The valid fixtures include:
 

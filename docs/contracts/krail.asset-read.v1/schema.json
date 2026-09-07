@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://krail.dev/contracts/krail.asset-read.v1/schema.json",
+  "title": "KRAIL bounded asset read capability v1",
+  "oneOf": [{"$ref": "#/$defs/ReadRequest"}, {"$ref": "#/$defs/ReadResponse"}, {"$ref": "#/$defs/ErrorResponse"}],
+  "$defs": {
+    "Contract": {"const": "krail.asset-read.v1"},
+    "Digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "Timestamp": {"type": "string", "format": "date-time"},
+    "ExactRef": {"type": "object", "additionalProperties": false, "required": ["authority", "resource_type", "resource_id", "version", "digest"], "properties": {"authority": {"type": "string", "pattern": "^[a-z][a-z0-9+.-]*:[^\\s?#]+$", "maxLength": 512}, "resource_type": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$", "maxLength": 128}, "resource_id": {"type": "string", "minLength": 1, "maxLength": 2048}, "version": {"type": "string", "pattern": "^(?!latest$|current$|head$|working-tree$).+$", "maxLength": 512}, "digest": {"$ref": "#/$defs/Digest"}}},
+    "Authorization": {"type": "object", "additionalProperties": false, "required": ["signed_context_ref", "authorization_digest"], "properties": {"signed_context_ref": {"$ref": "#/$defs/ExactRef"}, "authorization_digest": {"$ref": "#/$defs/Digest"}}},
+    "AuthorizationSnapshot": {"type": "object", "additionalProperties": false, "required": ["authorization_digest", "authorized_at"], "properties": {"authorization_digest": {"$ref": "#/$defs/Digest"}, "authorized_at": {"$ref": "#/$defs/Timestamp"}}},
+    "ByteRange": {"type": "object", "additionalProperties": false, "required": ["start", "length"], "properties": {"start": {"type": "integer", "minimum": 0}, "length": {"type": "integer", "minimum": 1, "maximum": 65536}}},
+    "ReadRequest": {"type": "object", "additionalProperties": false, "required": ["contract", "operation", "authorization", "asset_ref", "range"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"const": "read_asset"}, "authorization": {"$ref": "#/$defs/Authorization"}, "asset_ref": {"$ref": "#/$defs/ExactRef"}, "range": {"$ref": "#/$defs/ByteRange"}}},
+    "ReadResponse": {"type": "object", "additionalProperties": false, "required": ["contract", "operation", "authorization", "asset_ref", "range", "returned_bytes", "content_base64", "chunk_digest", "complete"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"const": "read_asset"}, "authorization": {"$ref": "#/$defs/AuthorizationSnapshot"}, "asset_ref": {"$ref": "#/$defs/ExactRef"}, "range": {"$ref": "#/$defs/ByteRange"}, "returned_bytes": {"type": "integer", "minimum": 0, "maximum": 65536}, "content_base64": {"type": "string", "minLength": 0, "maxLength": 87384, "contentEncoding": "base64"}, "chunk_digest": {"$ref": "#/$defs/Digest"}, "complete": {"type": "boolean"}, "total_bytes": {"type": "integer", "minimum": 0}}},
+    "Error": {"type": "object", "additionalProperties": false, "required": ["code", "message", "retryable"], "properties": {"code": {"enum": ["unauthorized", "not_found", "unavailable", "range_not_satisfiable", "integrity_mismatch", "invalid_request"]}, "message": {"type": "string", "minLength": 1, "maxLength": 1024}, "retryable": {"type": "boolean"}}},
+    "ErrorResponse": {"type": "object", "additionalProperties": false, "required": ["contract", "operation", "error"], "properties": {"contract": {"$ref": "#/$defs/Contract"}, "operation": {"const": "read_asset"}, "error": {"$ref": "#/$defs/Error"}}}
+  }
+}
