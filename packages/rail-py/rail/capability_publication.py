@@ -30,7 +30,11 @@ from rail.context_brief import (
     ContextBriefRequest,
 )
 from rail.core_provenance import (
+    PROCEDURE_EXPLANATION_CAPABILITY_ID,
+    PROCEDURE_EXPLANATION_CAPABILITY_VERSION,
     PROCEDURE_EXPLANATION_VERSION,
+    ProcedureActionableGuidanceRequest,
+    ProcedureActionableGuidanceResult,
     ProcedureExplanation,
     ProcedureExplanationRequest,
 )
@@ -83,7 +87,6 @@ CAPABILITY_VERSION = "1.0.0"
 VERIFICATION_CAPABILITY_ID = "krail.verification-evidence"
 OUTCOME_CAPABILITY_ID = "krail.outcome-evidence"
 SEMANTIC_CAPABILITY_ID = "krail.semantic-operations"
-PROCEDURE_EXPLANATION_CAPABILITY_ID = "krail.procedure-explanation"
 
 
 def context_brief_descriptor() -> CapabilityDescriptor:
@@ -185,12 +188,17 @@ def procedure_explanation_descriptor() -> CapabilityDescriptor:
     return CapabilityDescriptor.issue(
         provider="krail.local",
         capability_id=PROCEDURE_EXPLANATION_CAPABILITY_ID,
-        semantic_version=CAPABILITY_VERSION,
+        semantic_version=PROCEDURE_EXPLANATION_CAPABILITY_VERSION,
         operations=(
             CapabilityOperation(
                 operation_id="explain_procedure",
                 input_schema=ProcedureExplanationRequest.model_json_schema(),
                 output_schema=ProcedureExplanation.model_json_schema(),
+            ),
+            CapabilityOperation(
+                operation_id="actionable_guidance",
+                input_schema=ProcedureActionableGuidanceRequest.model_json_schema(),
+                output_schema=ProcedureActionableGuidanceResult.model_json_schema(),
             ),
         ),
         effects=EffectDeclaration(),
@@ -279,6 +287,7 @@ __all__ = [
     "VERIFICATION_CAPABILITY_ID",
     "SEMANTIC_CAPABILITY_ID",
     "PROCEDURE_EXPLANATION_CAPABILITY_ID",
+    "PROCEDURE_EXPLANATION_CAPABILITY_VERSION",
     "LocalCapabilityPublication",
     "capability_descriptors",
     "context_brief_descriptor",

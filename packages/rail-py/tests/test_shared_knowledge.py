@@ -14,11 +14,16 @@ class LiveActionAuthorizer:
     def __init__(self, granted: set[str]):
         self.granted = granted
         self.denied_resource_ids: set[str] = set()
+        self.denied_actions: set[tuple[str, str]] = set()
         self.calls: list[tuple[str, str, tuple[str, str, str, str, str]]] = []
 
     def authorize(self, action, ref, *, subject_id):
         self.calls.append((action, subject_id, ref.exact_key))
-        if subject_id not in self.granted or ref.resource_id in self.denied_resource_ids:
+        if (
+            subject_id not in self.granted
+            or ref.resource_id in self.denied_resource_ids
+            or (action, ref.resource_id) in self.denied_actions
+        ):
             raise PermissionError("source grant is revoked or absent")
 
 
@@ -179,6 +184,103 @@ def _bootstrap_remote(tmp_path: Path) -> Path:
     git("push", "origin", "HEAD:main", cwd=owner)
     git("branch", "-M", "main", cwd=owner)
     return remote
+
+
+def test_export_requires_exact_promoted_proposal_lineage_authority_for_cached_and_reopened_readers(
+    tmp_path,
+):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "shared-state.json"
+    authorizer = LiveActionAuthorizer({"alice", "reviewer"})
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    alice = checkout(remote, tmp_path / "alice", "alice")
+    proposal = workspace.propose(
+        user_id="alice",
+        checkout=alice,
+        proposal_id="export-lineage",
+        path="knowledge.md",
+        content="reviewed\n",
+    )
+    promoted = workspace.review_and_promote(
+        proposal.proposal_id, reviewer_id="reviewer"
+    )
+    assert workspace.authorized_context("alice").lineage == (
+        promoted.candidate_commit,
+    )
+
+    authorizer.denied_actions.add(
+        ("shared_knowledge.export", "proposal/" + proposal.proposal_id)
+    )
+    # Read remains independently authorized, but both the cached reader and a
+    # newly opened reader must check export on the exact proposal identity.
+    assert workspace.authorized_context("alice").files == (
+        ("knowledge.md", "reviewed\n"),
+    )
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.export("alice")
+    reopened = SharedKnowledgeWorkspace(
+        remote, state, action_authorizer=authorizer
+    )
+    assert reopened.authorized_context("alice").files == (
+        ("knowledge.md", "reviewed\n"),
+    )
+    with pytest.raises(PermissionError, match="revoked"):
+        reopened.export("alice")
+
+    authorizer.denied_actions.clear()
+    workspace.authorized_context("alice")
+    with workspace._locked_state() as persisted:
+        persisted["proposals"].pop(proposal.proposal_id)
+    with pytest.raises(SharedKnowledgeError, match="lineage metadata"):
+        workspace.export("alice")
+    reopened_without_lineage = SharedKnowledgeWorkspace(
+        remote, state, action_authorizer=authorizer
+    )
+    assert reopened_without_lineage.authorized_context("alice").files == (
+        ("knowledge.md", "reviewed\n"),
+    )
+    with pytest.raises(SharedKnowledgeError, match="lineage metadata"):
+        reopened_without_lineage.export("alice")
+
+
+def test_export_requires_exact_local_write_lineage_authority_for_cached_and_reopened_readers(
+    tmp_path,
+):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "shared-state.json"
+    authorizer = LiveActionAuthorizer({"owner", "alice"})
+    workspace = _activate_local(remote, state, authorizer)
+    alice = checkout(remote, tmp_path / "alice", "alice")
+    head = workspace._remote_ref("refs/heads/main")
+    record = workspace.write_local(
+        user_id="alice",
+        checkout=alice,
+        write_id="export-local-lineage",
+        path="knowledge.md",
+        content="local\n",
+        expected_head=head,
+        expected_generation=1,
+    )
+    assert workspace.authorized_context("alice").lineage == (
+        record.candidate_commit,
+    )
+
+    authorizer.denied_actions.add(
+        ("shared_knowledge.export", "local/" + record.write_id)
+    )
+    assert workspace.authorized_context("alice").files == (
+        ("knowledge.md", "local\n"),
+    )
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.export("alice")
+    reopened = SharedKnowledgeWorkspace(
+        remote, state, action_authorizer=authorizer
+    )
+    assert reopened.authorized_context("alice").files == (
+        ("knowledge.md", "local\n"),
+    )
+    with pytest.raises(PermissionError, match="revoked"):
+        reopened.export("alice")
 
 
 def test_activation_switches_mode_and_fences_stale_connected_writers(tmp_path):

@@ -115,6 +115,9 @@ class SharedKnowledgeWorkspace:
             state.setdefault("backups", {})
             state.setdefault("transitions", {})
             state.setdefault("local_commits", {})
+            state.setdefault(
+                "canonical_base_commit", self._remote_ref("refs/heads/main")
+            )
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
@@ -648,10 +651,16 @@ class SharedKnowledgeWorkspace:
                 if item["status"] == "landed" and item["candidate_commit"] in context.lineage
             }
         for candidate in context.lineage:
+            matches = []
             if candidate in promoted:
-                self._authorize("shared_knowledge.read", self._proposal_ref(promoted[candidate]), user_id)
-            else:
-                self._authorize("shared_knowledge.read", self._local_write_ref(landed_local[candidate]), user_id)
+                matches.append(self._proposal_ref(promoted[candidate]))
+            if candidate in landed_local:
+                matches.append(self._local_write_ref(landed_local[candidate]))
+            if len(matches) != 1:
+                raise SharedKnowledgeError(
+                    "canonical lineage metadata is missing or ambiguous"
+                )
+            self._authorize("shared_knowledge.read", matches[0], user_id)
         return context
 
     def export(self, user_id: str) -> dict:
@@ -659,6 +668,44 @@ class SharedKnowledgeWorkspace:
         self._authorize("shared_knowledge.export", self._repository_ref(context.canonical_commit), user_id)
         for path, content in context.files:
             self._authorize("shared_knowledge.export", self._ref("file/" + path, context.canonical_commit, self._digest(content)), user_id)
+        # Read authorization used to be sufficient for the lineage returned
+        # below. Resolve every cached lineage commit back to exactly one
+        # durable writer record and authorize that exact identity for export.
+        # Missing or ambiguous metadata is not safe to omit or guess.
+        with self._locked_state() as state:
+            canonical_base_commit = state.get("canonical_base_commit")
+            if not isinstance(canonical_base_commit, str):
+                raise SharedKnowledgeError("canonical lineage metadata is missing")
+            proposals = tuple(
+                KnowledgeProposal(**item)
+                for item in state.setdefault("proposals", {}).values()
+                if item["status"] == "promoted"
+            )
+            local_commits = tuple(
+                LocalKnowledgeCommit(**item)
+                for item in state.setdefault("local_commits", {}).values()
+                if item["status"] == "landed"
+            )
+        if context.canonical_commit != canonical_base_commit and not context.lineage:
+            raise SharedKnowledgeError("canonical lineage metadata is missing")
+        lineage_refs: list[ResourceRef] = []
+        for candidate in context.lineage:
+            matches = [
+                self._proposal_ref(item)
+                for item in proposals
+                if item.candidate_commit == candidate
+            ] + [
+                self._local_write_ref(item)
+                for item in local_commits
+                if item.candidate_commit == candidate
+            ]
+            if len(matches) != 1:
+                raise SharedKnowledgeError(
+                    "canonical lineage metadata is missing or ambiguous"
+                )
+            lineage_refs.append(matches[0])
+        for ref in lineage_refs:
+            self._authorize("shared_knowledge.export", ref, user_id)
         return {"canonical_commit": context.canonical_commit, "files": dict(context.files), "lineage": context.lineage}
 
     def search(self, user_id: str, query: str) -> tuple[tuple[str, str], ...]:

@@ -22,6 +22,7 @@ from rail.core_provenance import (
     ProcedureExplanationService,
     ProcedureReviewService,
     create_core_provenance_receipt,
+    procedure_record_ref,
 )
 from rail.hosted.access import AccessClaims, AccessContextAuthority
 from rail.procedural_memory import (
@@ -257,6 +258,11 @@ def test_company_incident_reviewed_procedure_abstains_after_new_evidence(tmp_pat
     assert reviewed_v1.promoted_record is not None
 
     def read_authorizer(record, decision, evidence, nonce, *, restricted=False):
+        candidate = (
+            candidate_v1.record
+            if decision.candidate_digest == candidate_v1.record.record_digest
+            else candidate_v2.record
+        )
         decision_ref = ResourceRef(
             authority="krail://procedural-memory",
             resource_type="procedure-review",
@@ -265,8 +271,10 @@ def test_company_incident_reviewed_procedure_abstains_after_new_evidence(tmp_pat
             digest=decision.decision_digest,
         )
         refs = tuple(dict.fromkeys((
-            *candidate_v1.record.command_refs,
-            *candidate_v1.record.environment_refs,
+            procedure_record_ref(candidate),
+            procedure_record_ref(record),
+            *candidate.command_refs,
+            *candidate.environment_refs,
             *record.command_refs,
             *record.environment_refs,
             *evidence,
@@ -462,7 +470,7 @@ def test_company_incident_reviewed_procedure_abstains_after_new_evidence(tmp_pat
     ]
     assert guidance_v2.evidence_refs == review_evidence_v2
     assert incident_v1_source not in guidance_v2.evidence_refs
-    with pytest.raises(PermissionError, match="procedure explanation access denied"):
+    with pytest.raises(PermissionError, match="procedure guidance access denied"):
         explanation_v2.actionable_guidance(
             request_v2,
             authorizer=read_authorizer(
@@ -526,6 +534,11 @@ def test_actionable_guidance_without_projection_rejects_invalid_time_ranges(
         return explanation
 
     monkeypatch.setattr(service, "explain", explain)
+    monkeypatch.setattr(
+        service,
+        "_authorize_actionable_identities",
+        lambda request, *, authorizer, at: None,
+    )
     assert service.actionable_guidance(
         ProcedureExplanationRequest(candidate_digest=explanation.candidate.record_digest),
         authorizer=_Authorizer(),

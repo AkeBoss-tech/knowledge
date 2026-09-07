@@ -16,6 +16,7 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationInfo, field_validator, model_validator
 
 from krail.provider.v1 import ResourceRef
+from rail.hosted.access import SignedAccessContext
 from rail.procedural_memory import (
     ProcedureRecord,
     ProcedureReviewDecision,
@@ -155,6 +156,8 @@ class ProcedureReviewResult(StrictModel):
 
 PROCEDURE_EXPLANATION_VERSION = "krail.procedure-explanation.v1"
 PROCEDURE_INVALIDATION_VERSION = "krail.procedure-invalidation.v1"
+PROCEDURE_EXPLANATION_CAPABILITY_ID = "krail.procedure-explanation"
+PROCEDURE_EXPLANATION_CAPABILITY_VERSION = "1.1.0"
 
 
 class ProcedureExplanationRequest(StrictModel):
@@ -256,11 +259,64 @@ class ProcedureActionableGuidance(StrictModel):
     )
     candidate_digest: Digest
     reviewed_digest: Digest
+    candidate_ref: ResourceRef
+    reviewed_ref: ResourceRef
     procedure_id: Identifier
     procedure_version: Identifier
     guidance: Annotated[str, StringConstraints(min_length=1, max_length=4096)]
     evidence_refs: tuple[ResourceRef, ...] = Field(min_length=1, max_length=64)
     projection_state_digest: Digest | None = None
+
+
+class ProcedureActionableGuidanceRequest(StrictModel):
+    """Wire request carrying caller-owned signed read authority and exact scope."""
+
+    schema_version: Literal["krail.procedure-actionable-guidance-request.v1"] = (
+        "krail.procedure-actionable-guidance-request.v1"
+    )
+    procedure: ProcedureExplanationRequest
+    access_context: SignedAccessContext
+    exact_refs: tuple[ResourceRef, ...] = Field(min_length=1, max_length=512)
+
+    @model_validator(mode="after")
+    def _unique_exact_refs(self) -> "ProcedureActionableGuidanceRequest":
+        if len({ref.exact_key for ref in self.exact_refs}) != len(self.exact_refs):
+            raise ValueError("actionable guidance exact refs must be unique")
+        return self
+
+
+class ProcedureActionableGuidanceResult(StrictModel):
+    """Explicit operational result; denial remains an authorization error."""
+
+    schema_version: Literal["krail.procedure-actionable-guidance-result.v1"] = (
+        "krail.procedure-actionable-guidance-result.v1"
+    )
+    status: Literal["guidance", "abstained", "unavailable"]
+    guidance: ProcedureActionableGuidance | None = None
+    abstention_reason: Literal["not-current"] | None = None
+    unavailable_reason: Literal["not-configured"] | None = None
+
+    @model_validator(mode="after")
+    def _status_matches_payload(self) -> "ProcedureActionableGuidanceResult":
+        if self.status == "guidance" and (
+            self.guidance is None
+            or self.abstention_reason is not None
+            or self.unavailable_reason is not None
+        ):
+            raise ValueError("guidance status requires guidance only")
+        if self.status == "abstained" and (
+            self.guidance is not None
+            or self.abstention_reason != "not-current"
+            or self.unavailable_reason is not None
+        ):
+            raise ValueError("abstained status requires a reason and no guidance")
+        if self.status == "unavailable" and (
+            self.guidance is not None
+            or self.abstention_reason is not None
+            or self.unavailable_reason != "not-configured"
+        ):
+            raise ValueError("unavailable status requires a reason and no guidance")
+        return self
 
 
 def _procedure_refs(record: ProcedureRecord) -> tuple[ResourceRef, ...]:
@@ -271,6 +327,18 @@ def _procedure_refs(record: ProcedureRecord) -> tuple[ResourceRef, ...]:
     if record.review_ref is not None:
         refs += (record.review_ref,)
     return refs
+
+
+def procedure_record_ref(record: ProcedureRecord) -> ResourceRef:
+    """Exact immutable reference for a procedure candidate or reviewed record."""
+
+    return ResourceRef(
+        authority="krail://procedural-memory",
+        resource_type="procedure-record",
+        resource_id=record.procedure_id,
+        version=record.procedure_version,
+        digest=record.record_digest,
+    )
 
 
 def _decision_ref(decision: ProcedureReviewDecision) -> ResourceRef:
@@ -881,6 +949,32 @@ class ProcedureExplanationService:
             raise PermissionError("procedure explanation access denied") from exc
         return result
 
+    def _authorize_actionable_identities(
+        self,
+        request: ProcedureExplanationRequest,
+        *,
+        authorizer: CoreProvenanceAuthorizer,
+        at: datetime,
+    ) -> None:
+        """Authorize exact record identities without exposing lookup status."""
+
+        candidate = self._repository.find_procedure(request.candidate_digest)
+        if candidate is None:
+            raise PermissionError("procedure guidance access denied")
+        reviews = self._repository.list_reviews_for_candidate(
+            request.candidate_digest, max_reviews=request.max_reviews
+        )
+        records = (candidate,) + tuple(
+            item.promoted_record
+            for item in reviews
+            if item.promoted_record is not None
+        )
+        try:
+            for record in records:
+                authorizer.authorize(procedure_record_ref(record), at=at)
+        except PermissionError as exc:
+            raise PermissionError("procedure guidance access denied") from exc
+
     def actionable_guidance(
         self,
         request: ProcedureExplanationRequest,
@@ -895,12 +989,18 @@ class ProcedureExplanationService:
         so private procedure existence and lineage are not exposed.
         """
 
+        self._authorize_actionable_identities(
+            request, authorizer=authorizer, at=self._clock()
+        )
         explanation = self.explain(request, authorizer=authorizer)
         if (
             explanation.review_status != "accepted"
             or explanation.support_status != "current"
             or explanation.reviewed is None
         ):
+            self._authorize_actionable_identities(
+                request, authorizer=authorizer, at=self._clock()
+            )
             return None
         reviewed = explanation.reviewed
         now = self._clock()
@@ -909,6 +1009,9 @@ class ProcedureExplanationService:
             or reviewed.valid_from > now
             or (reviewed.valid_to is not None and now >= reviewed.valid_to)
         ):
+            self._authorize_actionable_identities(
+                request, authorizer=authorizer, at=self._clock()
+            )
             return None
         projection_state_digest: str | None = None
         if self._projection is not None:
@@ -916,6 +1019,9 @@ class ProcedureExplanationService:
             if not self._projection.actionable_record(
                 temporal, projection_id=self._projection_id
             ):
+                self._authorize_actionable_identities(
+                    request, authorizer=authorizer, at=self._clock()
+                )
                 return None
             projection_state_digest = next(
                 (
@@ -931,8 +1037,13 @@ class ProcedureExplanationService:
             or reviewed.valid_from > final_now
             or (reviewed.valid_to is not None and final_now >= reviewed.valid_to)
         ):
+            self._authorize_actionable_identities(
+                request, authorizer=authorizer, at=self._clock()
+            )
             return None
         final_refs = tuple(dict.fromkeys((
+            procedure_record_ref(explanation.candidate),
+            procedure_record_ref(reviewed),
             *_procedure_refs(explanation.candidate),
             *_procedure_refs(reviewed),
             *(ref for decision in explanation.decisions for ref in _decision_refs(decision)),
@@ -946,6 +1057,8 @@ class ProcedureExplanationService:
         return ProcedureActionableGuidance(
             candidate_digest=explanation.candidate.record_digest,
             reviewed_digest=reviewed.record_digest,
+            candidate_ref=procedure_record_ref(explanation.candidate),
+            reviewed_ref=procedure_record_ref(reviewed),
             procedure_id=reviewed.procedure_id,
             procedure_version=reviewed.procedure_version,
             guidance=reviewed.rationale,
@@ -1083,12 +1196,17 @@ __all__ = [
     "ProcedureReviewService",
     "ProcedureExplanation",
     "ProcedureActionableGuidance",
+    "ProcedureActionableGuidanceRequest",
+    "ProcedureActionableGuidanceResult",
     "ProcedureExplanationRequest",
     "ProcedureExplanationService",
     "PROCEDURE_EXPLANATION_VERSION",
+    "PROCEDURE_EXPLANATION_CAPABILITY_ID",
+    "PROCEDURE_EXPLANATION_CAPABILITY_VERSION",
     "ProcedureInvalidationEvent",
     "ProcedureFreshnessProjection",
     "PROCEDURE_INVALIDATION_VERSION",
     "create_invalidation_event",
     "create_core_provenance_receipt",
+    "procedure_record_ref",
 ]
