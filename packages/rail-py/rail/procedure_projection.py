@@ -166,6 +166,31 @@ class TemporalProjectionService:
         return self.store.list(self.tenant_id, self.project_id, kind=kind)  # type: ignore[arg-type]
 
     @staticmethod
+    def _scope_cursor_id() -> str:
+        return "temporal-records"
+
+    def scope_cursor(self) -> int:
+        """Canonical tenant/project change cursor for temporal readers."""
+        row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_cursor", self._scope_cursor_id())
+        return row.revision if row is not None else 0
+
+    def _advance_scope_cursor_locked(self, *, at: datetime) -> int:
+        row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_cursor", self._scope_cursor_id())
+        revision = (row.revision if row else 0) + 1
+        self.store.put(SemanticRow(
+            tenant_id=self.tenant_id, project_id=self.project_id,
+            record_kind="temporal_scope_cursor", record_id=self._scope_cursor_id(),
+            revision=revision, payload={"revision": revision},
+            created_at=row.created_at if row else at, updated_at=at,
+        ), expected_revision=row.revision if row else 0)
+        return revision
+
+    def touch_scope_cursor(self, *, at: datetime) -> int:
+        """Publish any cached world-memory mutation to scoped readers."""
+        with self.store.transaction():
+            return self._advance_scope_cursor_locked(at=at)
+
+    @staticmethod
     def _entity_key(record: TemporalRecord) -> str:
         return _digest({"authority": record.entity_authority, "entity_id": record.entity_id})
 
@@ -228,6 +253,7 @@ class TemporalProjectionService:
                     revision=1, payload={"alias": alias.model_dump(mode="json")},
                     created_at=at, updated_at=at,
                 ), expected_revision=0)
+                self._advance_scope_cursor_locked(at=at)
             for row in self.store.list(self.tenant_id, self.project_id, kind="temporal_record"):
                 output = TemporalRecord.model_validate(row.payload["record"])
                 if any(ref.exact_key == alias_ref.exact_key for ref in output.source_refs + output.provenance_refs):
@@ -251,6 +277,7 @@ class TemporalProjectionService:
                     revision=1, payload=payload, created_at=at, updated_at=at,
                 ), expected_revision=0,
             )
+            self._advance_scope_cursor_locked(at=at)
             output_ref = _record_ref(record)
             input_refs = record.source_refs + record.provenance_refs
             if record.supersedes_digest is not None:
@@ -331,6 +358,7 @@ class TemporalProjectionService:
                     created_at=recorded_at, updated_at=recorded_at,
                 ), expected_revision=0,
             )
+            self._advance_scope_cursor_locked(at=recorded_at)
             for projection_id in self._known_projection_ids_locked():
                 self._enqueue_locked(
                     projection_id=projection_id, output_ref=target_ref, cause_ref=target_ref,

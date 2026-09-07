@@ -58,13 +58,17 @@ observation's expected `unknown`/`stale` abstention is reported separately from
 an incorrect obsolete result.
 
 [Two-scale read profiling](knowledge-20-read-profile.json) shows the remaining
-owner-path boundary clearly: 16 and 32 objects require canonical refresh of 48
-and 96 temporal rows respectively, while the prepared spatial query selects 4
-and 7 exact candidate histories. The current optimization rebuilds
+owner-path boundary clearly: forced refresh of 16 and 32 objects parses 48 and
+96 temporal rows respectively, while the prepared spatial query selects 4 and
+7 exact candidate histories. A canonical tenant/project scope cursor is
+advanced atomically with temporal ingest, aliases, tombstones, scenes, and
+episodes; unchanged-cursor reads avoid reparsing those rows, while an
+interleaved-writer regression proves a local write cannot fast-forward past an
+unseen external row. The current optimization rebuilds
 authority-qualified exact-ref and entity-history maps after every refresh, so
 each selected candidate no longer linearly scans all refreshed records. It does
-not bypass refresh, current reader authorization, or invalidation checks; a
-store-level selective temporal read remains future work.
+not bypass current reader authorization or invalidation checks; a store-level
+selective temporal read remains future work.
 
 The fixture uses 0.1 m cells and deterministic 2026-09-07 timestamps. Its
 assertions record work counts rather than machine-specific latency claims:

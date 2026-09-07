@@ -548,6 +548,31 @@ def test_prepared_spatial_snapshot_receives_same_cutoff_and_retroactive_object_r
         assert reopened.objects_in_region(world_id="one", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(cup), reopened.record_ref(retro))
 
 
+def test_canonical_scope_cursor_refreshes_cross_process_current_and_known_time_reads(tmp_path):
+    path = str(tmp_path / "cursor.json")
+    first = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    second = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    assert second.location(world_id="one", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
+    first.record(obj, pose(.1, "late"), kind="observation", evidence=(evidence("late"),), recorded_at=NOW + timedelta(minutes=1))
+    # The exact canonical cursor makes the other process reload rather than
+    # relying on JSON mtime, while known-time still excludes the late row.
+    assert second.location(world_id="one", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
+    assert second.location(world_id="one", object_id="cup", at=NOW, known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow()).status == "observed"
+
+
+def test_scope_cursor_does_not_hide_interleaved_cross_process_writes(tmp_path):
+    path = str(tmp_path / "cursor-race.json")
+    first = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    second = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    second.record(WorldObject(world_id="one", object_id="from-second", class_label="cup"), pose(.1, "second"), kind="observation", evidence=(evidence("second"),), recorded_at=NOW)
+    # First never refreshed after construction, then writes its own row. A
+    # local cursor fast-forward here would permanently hide second's row.
+    first.record(WorldObject(world_id="one", object_id="from-first", class_label="cup"), pose(.2, "first"), kind="observation", evidence=(evidence("first"),), recorded_at=NOW)
+    assert first.location(world_id="one", object_id="from-second", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "observed"
+    assert first.location(world_id="one", object_id="from-first", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "observed"
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")

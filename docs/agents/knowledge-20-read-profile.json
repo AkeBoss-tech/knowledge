@@ -14,15 +14,19 @@
       "incremental_move": {
         "history_rows_read": 4,
         "index_rows_touched": 2,
-        "ms": 39.1777
+        "ms": 33.5367
       },
       "public_authorized_region_query": {
-        "p50_ms": 14.6542,
-        "p95_ms": 14.8863
+        "p50_ms": 8.7061,
+        "p95_ms": 9.0675
+      },
+      "public_authorized_region_query_forced_refresh": {
+        "p50_ms": 14.8172,
+        "p95_ms": 14.8257
       },
       "raw_grid_candidate_query": {
         "p50_ms": 0.01,
-        "p95_ms": 0.0199
+        "p95_ms": 0.0152
       },
       "reads": {
         "canonical_rows_refreshed": 48,
@@ -35,7 +39,7 @@
       "rebuild": {
         "history_rows_read": 48,
         "index_rows_touched": 16,
-        "ms": 7.773
+        "ms": 8.0863
       },
       "runtime": {
         "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
@@ -54,15 +58,19 @@
       "incremental_move": {
         "history_rows_read": 4,
         "index_rows_touched": 2,
-        "ms": 75.8583
+        "ms": 66.0859
       },
       "public_authorized_region_query": {
-        "p50_ms": 36.0138,
-        "p95_ms": 36.0676
+        "p50_ms": 25.4142,
+        "p95_ms": 25.6462
+      },
+      "public_authorized_region_query_forced_refresh": {
+        "p50_ms": 36.8181,
+        "p95_ms": 43.2417
       },
       "raw_grid_candidate_query": {
-        "p50_ms": 0.0124,
-        "p95_ms": 0.0202
+        "p50_ms": 0.0109,
+        "p95_ms": 0.0192
       },
       "reads": {
         "canonical_rows_refreshed": 96,
@@ -75,7 +83,7 @@
       "rebuild": {
         "history_rows_read": 96,
         "index_rows_touched": 32,
-        "ms": 21.3262
+        "ms": 22.4129
       },
       "runtime": {
         "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",

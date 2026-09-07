@@ -83,6 +83,11 @@ def main() -> None:
         public_answer = public()
         public_work = dict(memory.last_region_read_work)
         raw_answer = raw()
+        def public_forced_refresh():
+            # Same owner API and fixture; benchmark the pre-cursor behavior.
+            memory._temporal_scope_cursor = None
+            return public()
+        forced_refresh_timing = elapsed_ms(public_forced_refresh, args.repeats)
         public_timing = elapsed_ms(public, args.repeats)
         raw_timing = elapsed_ms(raw, args.repeats)
         update_start = time.perf_counter_ns()
@@ -107,6 +112,7 @@ def main() -> None:
             "runtime": {"python": sys.version.split()[0], "platform": platform.platform()},
             "fixture": {"objects": args.objects, "observations_per_object": args.observations, "appearance_records": len(memory._appearance_records), "scene_snapshots": len(memory._scenes), "external_asset_refs": len(assets), "embedded_asset_bytes": 0},
             "public_authorized_region_query": public_timing,
+            "public_authorized_region_query_forced_refresh": forced_refresh_timing,
             "raw_grid_candidate_query": raw_timing,
             "rebuild": {"ms": round(rebuild_ms, 4), **rebuild_work.__dict__},
             "incremental_move": {"ms": round(update_ms, 4), **update_work.__dict__},

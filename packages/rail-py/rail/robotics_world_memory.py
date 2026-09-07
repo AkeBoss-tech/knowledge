@@ -238,6 +238,7 @@ class TabletopWorldMemory:
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
         self._spatial_current: SpatialCurrentProjection | None = None
+        self._temporal_scope_cursor: int | None = None
         self.last_spatial_update_work: ProjectionWork | None = None
         self.last_region_read_work: dict[str, int] = {}
         self._tenant_id, self._project_id = tenant_id, project_id
@@ -330,6 +331,9 @@ class TabletopWorldMemory:
 
     def _refresh(self) -> None:
         if self._projection is not None:
+            cursor = self._projection.scope_cursor()
+            if self._temporal_scope_cursor == cursor:
+                return
             previous = tuple(record.record_digest for record in self._records)
             all_records = self._projection._records()
             self._records = [record for record in all_records if record.payload_schema == "robotics.world-memory"]
@@ -338,6 +342,7 @@ class TabletopWorldMemory:
                 # serve a RAM projection whose declared inputs no longer match.
                 self._spatial_current = None
             self._reindex_world_records()
+            self._temporal_scope_cursor = cursor
             self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
             self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._region_records = [record for record in all_records if record.payload_schema == "robotics.place-region"]
@@ -384,6 +389,11 @@ class TabletopWorldMemory:
             self._records.append(record)
             self._records_by_ref[self.record_ref(record).exact_key] = record
             self._records_by_entity.setdefault((record.entity_authority, record.entity_id), []).append(record)
+            if self._projection is not None:
+                # Another process may have committed between our last refresh
+                # and this write. Do not fast-forward to a global cursor with
+                # only our local row set; force the next read to reconcile.
+                self._temporal_scope_cursor = None
             # A prepared RAM snapshot names canonical records as its declared
             # input.  Keep that exact snapshot complete for same-process
             # publication instead of leaving a newly admitted record invisible
@@ -1104,6 +1114,7 @@ class TabletopWorldMemory:
                         raise ValueError("conflicting scene snapshot replay")
                 else:
                     self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_scene_snapshot", record_id=scene.scene_ref.digest, revision=1, payload=payload, created_at=scene.recorded_at, updated_at=scene.recorded_at), expected_revision=0)
+                    self._projection._advance_scope_cursor_locked(at=scene.recorded_at)
                 self._authorize_publication(scene.scene_ref)
                 self._authorize_scene(scene, reader)
         else:
@@ -1129,6 +1140,7 @@ class TabletopWorldMemory:
                         raise ValueError("conflicting episode replay")
                 else:
                     self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_episode", record_id=episode.episode_ref.digest, revision=1, payload=payload, created_at=episode.recorded_at, updated_at=episode.recorded_at), expected_revision=0)
+                    self._projection._advance_scope_cursor_locked(at=episode.recorded_at)
                 self._authorize_publication(episode.episode_ref)
                 self._authorize_episode(episode, reader)
         else:
