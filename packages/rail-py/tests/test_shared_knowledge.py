@@ -138,6 +138,15 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
         restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
     with pytest.raises(Exception, match="provisioned target adapter"):
         restarted.preview_mode_transition(owner_id="owner", transition_id="hosted", to_mode="hosted-canonical-service", source_id="canonical.git", source_digest=source_digest)
+    receipt = restarted.create_backup(owner_id="owner", backup_id="main-snapshot")
+    assert receipt.bundle_digest.startswith("sha256:")
+    restored = tmp_path / "restored.git"
+    git("init", "--bare", str(restored))
+    git("--git-dir", str(restored), "fetch", receipt.bundle_path, "refs/heads/main:refs/heads/main")
+    assert git("--git-dir", str(restored), "rev-parse", "refs/heads/main") == receipt.canonical_commit
+    Path(receipt.bundle_path).write_bytes(b"corrupt")
+    with pytest.raises(Exception):
+        restarted._run("git", "--git-dir", str(remote), "bundle", "verify", receipt.bundle_path)
 
 
 def test_rejects_untrusted_checkout_and_authorizes_before_return(tmp_path):

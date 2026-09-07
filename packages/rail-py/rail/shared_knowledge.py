@@ -66,6 +66,14 @@ class KnowledgeModeTransition:
     backup_receipt: str
 
 
+@dataclass(frozen=True)
+class KnowledgeBackupReceipt:
+    backup_id: str
+    canonical_commit: str
+    bundle_path: str
+    bundle_digest: str
+
+
 class SharedKnowledgeWorkspace:
     """A locked, restartable boundary around one configured bare Git remote."""
 
@@ -90,6 +98,7 @@ class SharedKnowledgeWorkspace:
             state.setdefault("active_writer", "connected-git" if state["mode"] == self.mode else "local-git")
             state.setdefault("revision", 0)
             state.setdefault("proposals", {})
+            state.setdefault("backups", {})
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
@@ -153,6 +162,32 @@ class SharedKnowledgeWorkspace:
 
     def _proposal_ref(self, proposal: KnowledgeProposal) -> ResourceRef:
         return self._ref("proposal/" + proposal.proposal_id, proposal.candidate_commit, proposal.content_digest)
+
+    def create_backup(self, *, owner_id: str, backup_id: str) -> KnowledgeBackupReceipt:
+        """Create and verify an immutable, service-owned bundle of canonical main."""
+        if not self._PROPOSAL_ID.fullmatch(backup_id):
+            raise ValueError("backup id must be a bounded safe identifier")
+        with self._locked_state() as state:
+            backups = state.setdefault("backups", {})
+            if backup_id in backups:
+                raise SharedKnowledgeError("backup id already exists")
+            commit = self._remote_ref("refs/heads/main")
+            ref = self._repository_ref(commit)
+            self._authorize("shared_knowledge.backup", ref, owner_id)
+            directory = self.state_path.with_name(self.state_path.name + ".backups")
+            if directory.is_symlink():
+                raise SharedKnowledgeError("backup directory may not be a symlink")
+            directory.mkdir(mode=0o700, exist_ok=True)
+            bundle = directory / (backup_id + ".bundle")
+            if bundle.exists() or bundle.is_symlink():
+                raise SharedKnowledgeError("backup bundle path already exists or is unsafe")
+            self._run("git", "--git-dir", str(self.remote), "bundle", "create", str(bundle), "refs/heads/main")
+            self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
+            digest = "sha256:" + sha256(bundle.read_bytes()).hexdigest()
+            receipt = KnowledgeBackupReceipt(backup_id, commit, str(bundle), digest)
+            backups[backup_id] = asdict(receipt)
+        self._authorize("shared_knowledge.backup", ref, owner_id)
+        return receipt
 
     def preview_mode_transition(self, *, owner_id: str, transition_id: str, to_mode: str, source_id: str, source_digest: str) -> KnowledgeModeTransition:
         if not self._PROPOSAL_ID.fullmatch(transition_id) or not source_id or not re.fullmatch(r"sha256:[0-9a-f]{64}", source_digest):
