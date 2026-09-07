@@ -15,6 +15,10 @@ NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 class Allow:
     def authorize(self, ref): pass
 
+class StrictReader:
+    def authorize(self, ref):
+        assert isinstance(ref, ResourceRef)
+
 
 class AllowProjection:
     def authorize(self, record, *, at):
@@ -303,6 +307,9 @@ def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
     assert memory.identity_candidates(world_id="table-a", appearance_ref=episode["initial_appearance"].appearance_ref, at=NOW, known_at=NOW, reader=Allow()) == (episode["ambiguous_identity"],)
     assert memory.resolved_identity(world_id="table-a", candidate_ref=episode["ambiguous_identity"].candidate_ref, at=NOW, known_at=NOW, reader=Allow()) is None
     assert memory.resolved_identity(world_id="table-a", candidate_ref=episode["ambiguous_identity"].candidate_ref, at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()) == episode["identity_resolution"]
+    assert memory.resolved_identity(world_id="table-a", candidate_ref=episode["ambiguous_identity"].candidate_ref, at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=StrictReader()) == episode["identity_resolution"]
+    with pytest.raises(ValueError, match="exact candidate"):
+        memory.resolve_identity(episode["ambiguous_identity"].model_copy(update={"candidate_object_refs": (memory.record_ref(initial),)}), resolved_object_ref=memory.record_ref(initial), reviewer_id="forged", evidence_refs=(evidence("forged"),), valid_from=NOW + timedelta(minutes=3))
     region_answer = memory.objects_in_region(world_id="table-a", region_ref=episode["table_region"].region_ref, at=NOW, known_at=NOW, reader=Allow())
     assert region_answer.status == "current" and region_answer.object_refs == (memory.record_ref(initial),)
     assert memory.spatial_relations(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()) == (episode["left_support"],)
