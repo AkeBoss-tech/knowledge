@@ -127,3 +127,8 @@ def test_rejects_untrusted_checkout_and_authorizes_before_return(tmp_path):
     (symlink_checkout / "nested" / "link").symlink_to(tmp_path)
     with pytest.raises(Exception, match="symlink"):
         workspace.propose(user_id="alice", checkout=symlink_checkout, proposal_id="symlink", path="nested/link/knowledge.md", content="no\n")
+
+    controlled = checkout(remote, tmp_path / "controlled-alice", "alice")
+    git("config", "filter.untrusted.clean", "false", cwd=controlled)
+    with pytest.raises(Exception, match="service-controlled"):
+        workspace.propose(user_id="alice", checkout=controlled, proposal_id="unsafe-config", path="knowledge.md", content="no\n")

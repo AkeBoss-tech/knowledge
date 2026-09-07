@@ -77,7 +77,7 @@ class SharedKnowledgeWorkspace:
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
-        environment = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1"}
+        environment = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_ATTR_NOSYSTEM": "1"}
         result = subprocess.run(args, cwd=cwd, env=environment, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode:
             raise SharedKnowledgeError(result.stderr.strip() or "git command failed")
@@ -166,6 +166,15 @@ class SharedKnowledgeWorkspace:
             raise SharedKnowledgeError("checkout origin is not the configured canonical remote")
         if self._run("git", "rev-parse", "HEAD", cwd=checkout) != base:
             raise SharedKnowledgeError("checkout is not at the expected canonical revision")
+        configured = subprocess.run(
+            ("git", "config", "--local", "--name-only", "--get-regexp", r"^(filter\.|url\.|remote\.origin\.pushurl|core\.(hooksPath|fsmonitor))"),
+            cwd=checkout, env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if configured.returncode not in {0, 1}:
+            raise SharedKnowledgeError("could not inspect checkout Git configuration")
+        unsafe = configured.stdout.strip()
+        if unsafe or (checkout / ".gitattributes").exists():
+            raise SharedKnowledgeError("checkout Git configuration is not service-controlled")
         return checkout
 
     def propose(self, *, user_id: str, checkout: str | Path, proposal_id: str, path: str, content: str) -> KnowledgeProposal:
