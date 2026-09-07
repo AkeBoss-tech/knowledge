@@ -300,13 +300,14 @@ class HostedRoboticsWorldReader(_HostedRoboticsAdapter):
 
 
 class HostedRoboticsProjectionWriter(_HostedRoboticsAdapter):
-    """Signed world-scoped projection writer; a read context cannot ingest."""
+    """Signed world-scoped projection writer; a read context cannot ingest or publish."""
 
-    def __init__(self, *args, allowed_record_digests: tuple[str, ...], **kwargs) -> None:
+    def __init__(self, *args, allowed_record_digests: tuple[str, ...], allowed_publication_refs: tuple[ResourceRef, ...] = (), **kwargs) -> None:
         if not allowed_record_digests:
             raise ValueError("exact robotics record digests are required")
         super().__init__(*args, **kwargs)
         self.allowed_record_digests = frozenset(allowed_record_digests)
+        self.allowed_publication_refs = frozenset(ref.exact_key for ref in allowed_publication_refs)
 
     def authorize(self, record: TemporalRecord, *, at: datetime) -> None:
         del at
@@ -319,6 +320,19 @@ class HostedRoboticsProjectionWriter(_HostedRoboticsAdapter):
         for ref in record.source_refs + record.provenance_refs:
             if ref.exact_key not in self.exact_refs or ref.resource_id not in claims.source_ids:
                 raise PermissionError("robotics world-memory write denied")
+
+    def authorize_publication(self, ref: ResourceRef, *, content_digest: str, at: datetime) -> None:
+        """Authorize one non-temporal canonical row whose exact ref commits its content."""
+
+        del at
+        claims = self._claims("projection.write")
+        if (
+            content_digest != ref.digest
+            or ref.exact_key not in self.allowed_publication_refs
+            or ref.exact_key not in self.exact_refs
+            or ref.resource_id not in claims.source_ids
+        ):
+            raise PermissionError("robotics world-memory write denied")
 
 
 class HostedRoboticsInvalidationAuthorizer(_HostedRoboticsAdapter):

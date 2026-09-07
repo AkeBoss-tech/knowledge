@@ -31,10 +31,23 @@
   cutoffs plus source authorization before returning a record or reference.
   Writes authorize caller-supplied evidence and transitive refs before the
   transaction, then recheck inside it before commit; a failed final local
-  authorization check aborts that store transaction before a scene or episode row is published. RFC8785 digests include complete exact refs and
+  authorization check aborts that store transaction before a scene or episode
+  row is published. Hosted publication also requires the signed
+  `projection.write` grant for that exact content-bound output ref. Appearance
+  and candidate envelopes use the same signed temporal projection writer. RFC8785
+  digests include complete exact refs and
   object/scene membership. A scene cannot predate a constituent record; an
   incomplete episode appears only with constituents visible at the query time,
   while a completed aggregate requires explicit `completed_at`.
+- Immutable appearance observations now use typed temporal envelopes in the same
+  canonical projection store. They retain exact original asset, optional crop
+  and mask, source observation, viewpoint/context, descriptor model/version,
+  quality and occlusion metadata without storing image bytes. An object query
+  returns a deterministic bounded gallery of at most eight authorized records.
+  Expiring identity-candidate envelopes name one appearance and two or more
+  exact object-record refs plus their evidence; candidates are never an object
+  merge. Gallery and candidate reads survive reopen/rebuild and filter both
+  effective and known time before authorizing every returned dependency.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
   invalidating either an exact source or map ref writes the projection's
@@ -66,13 +79,12 @@
   closed. This does not make a mutable lookup replayable without the matching
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
-  `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `155 passed`; compileall and `git diff --check` pass.
+  `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_robotics_hosted_authorization.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
+  reports `158 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: the signed hosted adapters are local-contract proof,
-  not a deployed control-plane integration. Appearance observations/gallery
-  metadata (asset/crop/mask/descriptors and identity candidates), explicit
-  support/containment/attachment and region queries, prediction/action-outcome
-  records, camera/perception ingestion, ROS transport, binary asset store,
+  not a deployed control-plane integration. Explicit support, containment,
+  attachment, and region queries; prediction/action-outcome records;
+  camera/perception ingestion; ROS transport; binary asset store;
   live robot control, identity merge, spatial indexes, and a general
   world-model engine remain outside this bounded #19 slice.
 

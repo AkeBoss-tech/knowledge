@@ -417,6 +417,43 @@ def test_scene_and_episode_historical_queries_hide_future_constituents():
     assert incomplete.episode_ref != completed.episode_ref
 
 
+def test_persisted_appearance_gallery_and_identity_candidates_are_bitemporal_and_never_merge(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory, _ = tabletop_fixture(NOW, str(path), tenant_id="t", project_id="p")
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    right = next(record for record in memory._records if record.entity_id == "cup-right")
+    left_object = WorldObject.model_validate(left.payload["object"])
+    appearance = memory.record_appearance(
+        left_object, left, asset_ref=evidence("left-image"), crop_ref=evidence("left-crop"),
+        mask_ref=evidence("left-mask"), viewpoint="overhead", context="tabletop",
+        descriptor_model="fixture-descriptor", descriptor_version="1", quality=0.9,
+        occluded=False, revision="appearance-1", recorded_at=NOW + timedelta(minutes=1),
+    )
+    candidate = memory.propose_identity_candidates(
+        appearance, session_id="session-1", candidate_id="red-cup-association",
+        candidate_object_refs=(memory.record_ref(left), memory.record_ref(right)),
+        evidence_refs=(evidence("association"),), association_basis="same class and bounded visual features",
+        expires_at=NOW + timedelta(minutes=3), recorded_at=NOW + timedelta(minutes=2),
+    )
+    assert memory.appearance_gallery(world_id="table-a", object_id="cup-left", at=NOW, known_at=NOW, reader=Allow()) == ()
+    assert memory.identity_candidates(world_id="table-a", appearance_ref=appearance.appearance_ref, at=NOW, known_at=NOW, reader=Allow()) == ()
+    memory.rebuild_projection(valid_at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), at=NOW + timedelta(minutes=2))
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    gallery = reopened.appearance_gallery(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow())
+    assert gallery == (appearance,) and gallery[0].asset_ref == evidence("left-image") and gallery[0].crop_ref == evidence("left-crop") and gallery[0].mask_ref == evidence("left-mask")
+    assert reopened.identity_candidates(world_id="table-a", appearance_ref=appearance.appearance_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()) == (candidate,)
+    assert reopened.identity_candidates(world_id="table-a", appearance_ref=appearance.appearance_ref, at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()) == ()
+    assert reopened.appearance_gallery(world_id="other", object_id="cup-left", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()) == ()
+    assert reopened.identity_candidates(world_id="other", appearance_ref=appearance.appearance_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()) == ()
+    with pytest.raises(ValueError, match="gallery limit"):
+        reopened.appearance_gallery(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow(), limit=9)
+    assert reopened.locate_class(world_id="table-a", class_label="red-cup", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()).status == "ambiguous"
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reopened.appearance_gallery(world_id="table-a", object_id="cup-left", at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Deny())
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reopened.identity_candidates(world_id="table-a", appearance_ref=appearance.appearance_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Deny())
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")

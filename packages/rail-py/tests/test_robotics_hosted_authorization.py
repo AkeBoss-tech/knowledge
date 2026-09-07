@@ -70,11 +70,11 @@ def claims(*, actions, refs, tenant="tenant", project="project", world=WORLD, ex
     )
 
 
-def adapters(authority, *, reader_context, writer_context, invalidation_context, refs, records, event_digest):
+def adapters(authority, *, reader_context, writer_context, invalidation_context, refs, records, event_digest, publication_refs=()):
     common = dict(tenant_id="tenant", project_id="project", world_id=WORLD, exact_refs=refs, capability_digest=robotics_world_memory_scope_digest(tenant_id="tenant", project_id="project", world_id=WORLD, exact_refs=refs), clock=lambda: NOW)
     return (
         HostedRoboticsWorldReader(authority, reader_context, **common),
-        HostedRoboticsProjectionWriter(authority, writer_context, **common, allowed_record_digests=tuple(item.record_digest for item in records)),
+        HostedRoboticsProjectionWriter(authority, writer_context, **common, allowed_record_digests=tuple(item.record_digest for item in records), allowed_publication_refs=publication_refs),
         HostedRoboticsInvalidationAuthorizer(authority, invalidation_context, **common, allowed_event_digests=(event_digest,)),
     )
 
@@ -171,3 +171,94 @@ def test_hosted_adapters_use_live_clock_and_reject_rebinding_or_local_fakes(tmp_
 
     with pytest.raises(ValueError, match="supported signed robotics adapters"):
         TabletopWorldMemory(str(tmp_path / "fake.json"), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=Fake(), projection_writer=Fake(), projection_invalidation_authorizer=Fake())
+
+
+def test_hosted_scene_and_episode_publication_require_live_exact_writer_grants(tmp_path):
+    observation, estimate, base_refs = drafts()
+    draft = TabletopWorldMemory(clock=lambda: NOW)
+    draft_observation = draft.record(WorldObject(world_id=WORLD, object_id="cup", class_label="cup"), pose(0.1, "obs"), kind="observation", evidence=(evidence("sensor"),))
+    assert draft_observation == observation
+    scene = draft.scene(world_id=WORLD, scene_id="signed-scene", records=(draft_observation,), reader=Allow(), valid_at=NOW, recorded_at=NOW)
+    episode = draft.episode(world_id=WORLD, session_id="default", episode_id="signed-episode", scene_refs=(scene.scene_ref,), reader=Allow(), valid_from=NOW, recorded_at=NOW)
+    refs = tuple(dict.fromkeys((*base_refs, scene.scene_ref, episode.episode_ref)))
+    event = create_projection_tombstone(event_id="scene-write", target_ref=evidence("estimate"), reason="unused", effective_at=NOW, recorded_at=NOW)
+    authority = AccessContextAuthority({"key": b"robotics-key"}, issuer="https://control.example.test")
+
+    def signed_adapters(writer_context):
+        reader_context = authority.issue(claims(actions=("context.read",), refs=refs, nonce=f"reader-{writer_context.context_digest}"), key_id="key")
+        invalidation_context = authority.issue(claims(actions=("procedure.invalidate",), refs=refs, nonce=f"invalidate-{writer_context.context_digest}"), key_id="key")
+        return adapters(authority, reader_context=reader_context, writer_context=writer_context, invalidation_context=invalidation_context, refs=refs, records=(observation, estimate), event_digest=event.tombstone_digest, publication_refs=(scene.scene_ref, episode.episode_ref))
+
+    valid_writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, nonce="valid-writer"), key_id="key")
+    reader, valid_writer, invalidator = signed_adapters(valid_writer_context)
+    revoked_path = tmp_path / "revoked.json"
+    memory = TabletopWorldMemory(str(revoked_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=valid_writer, projection_invalidation_authorizer=invalidator)
+    memory.record(WorldObject(world_id=WORLD, object_id="cup", class_label="cup"), pose(0.1, "obs"), kind="observation", evidence=(evidence("sensor"),))
+    authority.revocations.revoke_context(valid_writer_context.context_digest, revoked_at=NOW)
+    with pytest.raises(PermissionError, match="publication denied"):
+        memory.scene(world_id=WORLD, scene_id="signed-scene", records=(observation,), reader=reader, valid_at=NOW, recorded_at=NOW)
+    assert memory._projection.store.list("tenant", "project", kind="robotics_scene_snapshot") == []
+
+    read_only_context = authority.issue(claims(actions=("context.read",), refs=refs, nonce="read-only-writer"), key_id="key")
+    reader, valid_writer, invalidator = signed_adapters(authority.issue(claims(actions=("projection.write",), refs=refs, nonce="episode-bootstrap"), key_id="key"))
+    read_only_path = tmp_path / "read-only.json"
+    bootstrap = TabletopWorldMemory(str(read_only_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=valid_writer, projection_invalidation_authorizer=invalidator)
+    bootstrap.record(WorldObject(world_id=WORLD, object_id="cup", class_label="cup"), pose(0.1, "obs"), kind="observation", evidence=(evidence("sensor"),))
+    persisted_scene = bootstrap.scene(world_id=WORLD, scene_id="signed-scene", records=(observation,), reader=reader, valid_at=NOW, recorded_at=NOW)
+    reader, read_only_writer, invalidator = signed_adapters(read_only_context)
+    denied = TabletopWorldMemory(str(read_only_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=read_only_writer, projection_invalidation_authorizer=invalidator)
+    with pytest.raises(PermissionError, match="publication denied"):
+        denied.episode(world_id=WORLD, session_id="default", episode_id="signed-episode", scene_refs=(persisted_scene.scene_ref,), reader=reader, valid_from=NOW, recorded_at=NOW)
+    assert denied._projection.store.list("tenant", "project", kind="robotics_episode") == []
+
+    expired_context = authority.issue(claims(actions=("projection.write",), refs=refs, expires_at=NOW - timedelta(seconds=1), nonce="expired-writer"), key_id="key")
+    reader, expired_writer, invalidator = signed_adapters(expired_context)
+    expired = TabletopWorldMemory(str(read_only_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=expired_writer, projection_invalidation_authorizer=invalidator)
+    with pytest.raises(PermissionError, match="publication denied"):
+        expired.episode(world_id=WORLD, session_id="default", episode_id="signed-episode", scene_refs=(persisted_scene.scene_ref,), reader=reader, valid_from=NOW, recorded_at=NOW)
+
+
+def test_hosted_appearance_and_identity_candidate_writes_use_projection_writer(tmp_path):
+    draft = TabletopWorldMemory(clock=lambda: NOW)
+    left_object = WorldObject(world_id=WORLD, object_id="left", class_label="cup")
+    right_object = WorldObject(world_id=WORLD, object_id="right", class_label="cup")
+    left = draft.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    right = draft.record(right_object, pose(0.2, "right"), kind="observation", evidence=(evidence("right-sensor"),))
+    appearance = draft.record_appearance(left_object, left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+    candidate = draft.propose_identity_candidates(appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(draft.record_ref(left), draft.record_ref(right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))
+    appearance_record = draft._appearance_records[0]
+    candidate_record = draft._identity_candidate_records[0]
+    refs = tuple(dict.fromkeys((
+        *left.source_refs, *right.source_refs, *appearance_record.source_refs,
+        *candidate_record.source_refs, draft.record_ref(left), draft.record_ref(right),
+        appearance.appearance_ref, candidate.candidate_ref,
+    )))
+    event = create_projection_tombstone(event_id="appearance-write", target_ref=evidence("left-asset"), reason="unused", effective_at=NOW, recorded_at=NOW)
+    authority = AccessContextAuthority({"key": b"robotics-key"}, issuer="https://control.example.test")
+
+    def adapters_for(writer_context):
+        reader_context = authority.issue(claims(actions=("context.read",), refs=refs, nonce=f"reader-{writer_context.context_digest}"), key_id="key")
+        invalidation_context = authority.issue(claims(actions=("procedure.invalidate",), refs=refs, nonce=f"invalidate-{writer_context.context_digest}"), key_id="key")
+        return adapters(authority, reader_context=reader_context, writer_context=writer_context, invalidation_context=invalidation_context, refs=refs, records=(left, right, appearance_record, candidate_record), event_digest=event.tombstone_digest)
+
+    writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, nonce="appearance-writer"), key_id="key")
+    reader, writer, invalidator = adapters_for(writer_context)
+    revoked_path = tmp_path / "appearance-revoked.json"
+    memory = TabletopWorldMemory(str(revoked_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=writer, projection_invalidation_authorizer=invalidator)
+    memory.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    authority.revocations.revoke_context(writer_context.context_digest, revoked_at=NOW)
+    with pytest.raises(PermissionError, match="denied"):
+        memory.record_appearance(left_object, left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+
+    bootstrap_writer_context = authority.issue(claims(actions=("projection.write",), refs=refs, nonce="candidate-bootstrap"), key_id="key")
+    reader, bootstrap_writer, invalidator = adapters_for(bootstrap_writer_context)
+    candidate_path = tmp_path / "candidate-read-only.json"
+    bootstrap = TabletopWorldMemory(str(candidate_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=bootstrap_writer, projection_invalidation_authorizer=invalidator)
+    bootstrap.record(left_object, pose(0.1, "left"), kind="observation", evidence=(evidence("left-sensor"),))
+    bootstrap.record(right_object, pose(0.2, "right"), kind="observation", evidence=(evidence("right-sensor"),))
+    persisted_appearance = bootstrap.record_appearance(left_object, left, asset_ref=evidence("left-asset"), viewpoint="overhead", context="table", descriptor_model="fixture", descriptor_version="1", quality=0.9, occluded=False, revision="appearance")
+    read_only_context = authority.issue(claims(actions=("context.read",), refs=refs, nonce="candidate-read-only"), key_id="key")
+    reader, read_only_writer, invalidator = adapters_for(read_only_context)
+    denied = TabletopWorldMemory(str(candidate_path), tenant_id="tenant", project_id="project", clock=lambda: NOW, hosted_world_id=WORLD, hosted_reader=reader, projection_writer=read_only_writer, projection_invalidation_authorizer=invalidator)
+    with pytest.raises(PermissionError, match="denied"):
+        denied.propose_identity_candidates(persisted_appearance, session_id="s", candidate_id="ambiguous", candidate_object_refs=(denied.record_ref(left), denied.record_ref(right)), evidence_refs=(evidence("association"),), association_basis="visual candidate", expires_at=NOW + timedelta(minutes=5))

@@ -85,6 +85,41 @@ class ObjectHistory(Strict):
     evidence: tuple[ResourceRef, ...]
 
 
+class AppearanceObservation(Strict):
+    """Immutable, asset-referenced visual evidence for one exact object revision."""
+
+    world_id: str
+    object_id: str
+    appearance_ref: ResourceRef
+    source_observation_ref: ResourceRef
+    asset_ref: ResourceRef
+    crop_ref: ResourceRef | None = None
+    mask_ref: ResourceRef | None = None
+    viewpoint: str
+    context: str
+    descriptor_model: str
+    descriptor_version: str
+    quality: float = Field(ge=0, le=1)
+    occluded: bool
+    valid_at: datetime
+    recorded_at: datetime
+
+
+class IdentityCandidate(Strict):
+    """A tentative, expiring association; it never merges object identities."""
+
+    world_id: str
+    session_id: str
+    candidate_ref: ResourceRef
+    appearance_ref: ResourceRef
+    candidate_object_refs: tuple[ResourceRef, ...] = Field(min_length=2, max_length=16)
+    evidence_refs: tuple[ResourceRef, ...]
+    association_basis: str
+    valid_from: datetime
+    expires_at: datetime
+    recorded_at: datetime
+
+
 class WorldReader(Protocol):
     def authorize(self, ref: ResourceRef) -> None: ...
 
@@ -132,6 +167,8 @@ class TabletopWorldMemory:
     """Small deterministic temporal adapter; worlds never share object IDs."""
     def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None, projection_invalidation_authorizer: ProjectionInvalidationAuthorizer | None = None, hosted_world_id: str | None = None, hosted_reader: WorldReader | None = None) -> None:
         self._records: list[TemporalRecord] = []
+        self._appearance_records: list[TemporalRecord] = []
+        self._identity_candidate_records: list[TemporalRecord] = []
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
         self._tenant_id, self._project_id = tenant_id, project_id
@@ -160,6 +197,15 @@ class TabletopWorldMemory:
     def _require_reader(self, reader: WorldReader) -> None:
         if self._hosted_reader is not None and reader is not self._hosted_reader:
             raise PermissionError("world-memory access denied")
+
+    def _authorize_publication(self, ref: ResourceRef) -> None:
+        """Require the hosted write grant for a direct canonical metadata row."""
+        if self._hosted_world_id is None:
+            return
+        try:
+            self._projection_writer.authorize_publication(ref, content_digest=ref.digest, at=self._clock())
+        except PermissionError as exc:
+            raise PermissionError("world-memory publication denied") from exc
 
     def _migrate_legacy_records(self) -> None:
         """Move pre-projection rows into canonical temporal history exactly once."""
@@ -198,10 +244,19 @@ class TabletopWorldMemory:
             if self._hosted_world_id is not None and record.entity_authority != f"robotics://world/{self._hosted_world_id}":
                 continue
             self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+        for record in self._appearance_records:
+            self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+            self._projection.register_alias(self.appearance_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+        for record in self._identity_candidate_records:
+            self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+            self._projection.register_alias(self.identity_candidate_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
 
     def _refresh(self) -> None:
         if self._projection is not None:
-            self._records = [record for record in self._projection._records() if record.payload_schema == "robotics.world-memory"]
+            all_records = self._projection._records()
+            self._records = [record for record in all_records if record.payload_schema == "robotics.world-memory"]
+            self._appearance_records = [record for record in all_records if record.payload_schema == "robotics.appearance-observation"]
+            self._identity_candidate_records = [record for record in all_records if record.payload_schema == "robotics.identity-candidate"]
             self._scenes = [SceneSnapshot.model_validate(row.payload["scene"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_scene_snapshot")]
             self._episodes = [SceneEpisode.model_validate(row.payload["episode"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_episode")]
 
@@ -231,12 +286,25 @@ class TabletopWorldMemory:
         if record not in self._records:
             if self._projection is not None:
                 self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
+                self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._records.append(record)
         return record
 
     @staticmethod
     def record_ref(record: TemporalRecord) -> ResourceRef:
         return ResourceRef(authority="robotics://world-memory", resource_type="world-record", resource_id=record.record_id, version=record.revision, digest=record.record_digest)
+
+    @staticmethod
+    def appearance_ref(record: TemporalRecord) -> ResourceRef:
+        if record.payload_schema != "robotics.appearance-observation":
+            raise ValueError("appearance reference requires an appearance observation")
+        return ResourceRef(authority="robotics://world-memory", resource_type="appearance-observation", resource_id=record.record_id, version=record.revision, digest=record.record_digest)
+
+    @staticmethod
+    def identity_candidate_ref(record: TemporalRecord) -> ResourceRef:
+        if record.payload_schema != "robotics.identity-candidate":
+            raise ValueError("identity candidate reference requires an identity candidate")
+        return ResourceRef(authority="robotics://world-memory", resource_type="identity-candidate", resource_id=record.record_id, version=record.revision, digest=record.record_digest)
 
     @staticmethod
     def map_revision_ref(world_id: str, map_revision: str) -> ResourceRef:
@@ -288,6 +356,227 @@ class TabletopWorldMemory:
             raise PermissionError("world-memory access denied") from exc
         return refs
 
+    @staticmethod
+    def _record_known_at(record: TemporalRecord, known_at: datetime) -> bool:
+        return (record.ingested_at or record.recorded_at) <= known_at
+
+    def _appearance_from_record(self, record: TemporalRecord) -> AppearanceObservation:
+        if record.payload_schema != "robotics.appearance-observation":
+            raise ValueError("not an appearance observation")
+        payload = record.payload
+        return AppearanceObservation(
+            world_id=str(payload["world_id"]), object_id=str(payload["object_id"]),
+            appearance_ref=self.appearance_ref(record),
+            source_observation_ref=ResourceRef.model_validate(payload["source_observation_ref"]),
+            asset_ref=ResourceRef.model_validate(payload["asset_ref"]),
+            crop_ref=ResourceRef.model_validate(payload["crop_ref"]) if payload.get("crop_ref") else None,
+            mask_ref=ResourceRef.model_validate(payload["mask_ref"]) if payload.get("mask_ref") else None,
+            viewpoint=str(payload["viewpoint"]), context=str(payload["context"]),
+            descriptor_model=str(payload["descriptor_model"]), descriptor_version=str(payload["descriptor_version"]),
+            quality=float(payload["quality"]), occluded=bool(payload["occluded"]),
+            valid_at=record.valid_from, recorded_at=record.recorded_at,
+        )
+
+    def _candidate_from_record(self, record: TemporalRecord) -> IdentityCandidate:
+        if record.payload_schema != "robotics.identity-candidate":
+            raise ValueError("not an identity candidate")
+        payload = record.payload
+        return IdentityCandidate(
+            world_id=str(payload["world_id"]), session_id=str(payload["session_id"]),
+            candidate_ref=self.identity_candidate_ref(record),
+            appearance_ref=ResourceRef.model_validate(payload["appearance_ref"]),
+            candidate_object_refs=tuple(ResourceRef.model_validate(ref) for ref in payload["candidate_object_refs"]),
+            evidence_refs=tuple(ResourceRef.model_validate(ref) for ref in payload["evidence_refs"]),
+            association_basis=str(payload["association_basis"]), valid_from=record.valid_from,
+            expires_at=datetime.fromisoformat(str(payload["expires_at"])), recorded_at=record.recorded_at,
+        )
+
+    def _appearance_record_for_ref(self, ref: ResourceRef) -> TemporalRecord | None:
+        return next((record for record in self._appearance_records if self.appearance_ref(record).exact_key == ref.exact_key), None)
+
+    def _candidate_record_for_ref(self, ref: ResourceRef) -> TemporalRecord | None:
+        return next((record for record in self._identity_candidate_records if self.identity_candidate_ref(record).exact_key == ref.exact_key), None)
+
+    def _appearance_visible_at(self, record: TemporalRecord, at: datetime, known_at: datetime) -> bool:
+        appearance = self._appearance_from_record(record)
+        source = self._record_for_ref(appearance.source_observation_ref)
+        return (
+            appearance.valid_at <= at
+            and self._record_known_at(record, known_at)
+            and source is not None
+            and source.valid_from <= at
+            and (source.valid_to is None or at < source.valid_to)
+            and self._record_known_at(source, known_at)
+        )
+
+    def _candidate_visible_at(self, record: TemporalRecord, at: datetime, known_at: datetime) -> bool:
+        candidate = self._candidate_from_record(record)
+        appearance = self._appearance_record_for_ref(candidate.appearance_ref)
+        objects = tuple(self._record_for_ref(ref) for ref in candidate.candidate_object_refs)
+        return (
+            record.valid_to is not None
+            and record.valid_from <= at < record.valid_to
+            and self._record_known_at(record, known_at)
+            and appearance is not None
+            and self._appearance_visible_at(appearance, at, known_at)
+            and all(item is not None and item.valid_from <= at and (item.valid_to is None or at < item.valid_to) and self._record_known_at(item, known_at) for item in objects)
+        )
+
+    def _authorized_appearance(self, record: TemporalRecord, reader: WorldReader) -> tuple[ResourceRef, ...]:
+        appearance = self._appearance_from_record(record)
+        source = self._record_for_ref(appearance.source_observation_ref)
+        if source is None:
+            raise PermissionError("world-memory access denied")
+        items = [appearance.appearance_ref, self.record_ref(record), *record.source_refs]
+        if self._projection is not None:
+            items.append(self._projection.record_ref(record))
+        refs = tuple(dict.fromkeys(items))
+        try:
+            for ref in refs:
+                reader.authorize(ref)
+            self._authorized_evidence(source, reader)
+        except PermissionError as exc:
+            raise PermissionError("world-memory access denied") from exc
+        return tuple(dict.fromkeys((*refs, *self._authorized_evidence(source, reader))))
+
+    def _authorized_identity_candidate(self, record: TemporalRecord, reader: WorldReader) -> tuple[ResourceRef, ...]:
+        candidate = self._candidate_from_record(record)
+        appearance_record = self._appearance_record_for_ref(candidate.appearance_ref)
+        objects = tuple(self._record_for_ref(ref) for ref in candidate.candidate_object_refs)
+        if appearance_record is None or any(item is None for item in objects):
+            raise PermissionError("world-memory access denied")
+        items = [candidate.candidate_ref, self.record_ref(record), *record.source_refs]
+        if self._projection is not None:
+            items.append(self._projection.record_ref(record))
+        refs = tuple(dict.fromkeys(items))
+        try:
+            for ref in refs:
+                reader.authorize(ref)
+            appearance_evidence = self._authorized_appearance(appearance_record, reader)
+            object_evidence = tuple(ref for item in objects for ref in self._authorized_evidence(item, reader) if item is not None)
+        except PermissionError as exc:
+            raise PermissionError("world-memory access denied") from exc
+        return tuple(dict.fromkeys((*refs, *appearance_evidence, *object_evidence)))
+
+    def record_appearance(
+        self, obj: WorldObject, source_observation: TemporalRecord, *, asset_ref: ResourceRef,
+        crop_ref: ResourceRef | None = None, mask_ref: ResourceRef | None = None,
+        viewpoint: str, context: str, descriptor_model: str, descriptor_version: str,
+        quality: float, occluded: bool, revision: str, valid_at: datetime | None = None,
+        recorded_at: datetime | None = None,
+    ) -> AppearanceObservation:
+        """Persist asset metadata; bytes remain at their referenced authority."""
+
+        self._require_world(obj.world_id)
+        if source_observation not in self._records or source_observation.entity_authority != f"robotics://world/{obj.world_id}" or source_observation.entity_id != obj.object_id or source_observation.kind != "observation":
+            raise ValueError("appearance requires an exact observation for the same world object")
+        if not all(value.strip() for value in (viewpoint, context, descriptor_model, descriptor_version, revision)):
+            raise ValueError("appearance metadata must be non-empty")
+        valid_at = valid_at or source_observation.valid_from
+        if valid_at < source_observation.valid_from:
+            raise ValueError("appearance cannot predate its source observation")
+        recorded_at = recorded_at or self._clock()
+        if recorded_at < (source_observation.ingested_at or source_observation.recorded_at):
+            raise ValueError("appearance cannot be recorded before its source observation is known")
+        if not isfinite(quality) or not 0 <= quality <= 1:
+            raise ValueError("appearance quality must be finite and between zero and one")
+        source_ref = self.record_ref(source_observation)
+        refs = tuple(dict.fromkeys((source_ref, asset_ref, *(item for item in (crop_ref, mask_ref) if item is not None))))
+        record = create_temporal_record(
+            record_id=f"{obj.world_id}:{obj.object_id}:appearance:{revision}", entity_id=f"{obj.object_id}:appearance:{revision}",
+            entity_authority=f"robotics://world/{obj.world_id}", payload_schema="robotics.appearance-observation",
+            payload_schema_version="1.0.0", kind="observation", authority="robotics://world-memory",
+            writer_family="robotics-world-memory", valid_from=valid_at, recorded_at=recorded_at,
+            source_refs=refs, revision=revision,
+            payload={
+                "world_id": obj.world_id, "object_id": obj.object_id,
+                "source_observation_ref": source_ref.model_dump(mode="json"),
+                "asset_ref": asset_ref.model_dump(mode="json"),
+                "crop_ref": crop_ref.model_dump(mode="json") if crop_ref else None,
+                "mask_ref": mask_ref.model_dump(mode="json") if mask_ref else None,
+                "viewpoint": viewpoint, "context": context, "descriptor_model": descriptor_model,
+                "descriptor_version": descriptor_version, "quality": quality, "occluded": occluded,
+            },
+        )
+        if record not in self._appearance_records:
+            if self._projection is not None:
+                self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
+                self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
+                self._projection.register_alias(self.appearance_ref(record), self._projection.record_ref(record), at=recorded_at)
+            self._appearance_records.append(record)
+        return self._appearance_from_record(record)
+
+    def appearance_gallery(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, reader: WorldReader, limit: int = 8) -> tuple[AppearanceObservation, ...]:
+        self._require_world(world_id)
+        self._require_reader(reader)
+        if not 1 <= limit <= 8:
+            raise ValueError("appearance gallery limit must be between 1 and 8")
+        self._refresh()
+        records = [record for record in self._appearance_records if self._appearance_from_record(record).world_id == world_id and self._appearance_from_record(record).object_id == object_id and self._appearance_visible_at(record, at, known_at)]
+        records.sort(key=lambda record: (-self._appearance_from_record(record).quality, self._appearance_from_record(record).occluded, -record.valid_from.timestamp(), -record.recorded_at.timestamp(), record.record_digest))
+        selected = tuple(records[:limit])
+        for record in selected:
+            self._authorized_appearance(record, reader)
+        for record in selected:
+            self._authorized_appearance(record, reader)
+        return tuple(self._appearance_from_record(record) for record in selected)
+
+    def propose_identity_candidates(
+        self, appearance: AppearanceObservation, *, session_id: str, candidate_id: str,
+        candidate_object_refs: tuple[ResourceRef, ...], evidence_refs: tuple[ResourceRef, ...],
+        association_basis: str, expires_at: datetime, recorded_at: datetime | None = None,
+    ) -> IdentityCandidate:
+        self._require_world(appearance.world_id)
+        self._refresh()
+        appearance_record = self._appearance_record_for_ref(appearance.appearance_ref)
+        candidate_records = tuple(self._record_for_ref(ref) for ref in candidate_object_refs)
+        if appearance_record is None or len(candidate_object_refs) < 2 or len({ref.exact_key for ref in candidate_object_refs}) != len(candidate_object_refs) or any(record is None or record.entity_authority != f"robotics://world/{appearance.world_id}" for record in candidate_records):
+            raise ValueError("identity candidates require two or more exact records from one world")
+        if not all(value.strip() for value in (session_id, candidate_id, association_basis)):
+            raise ValueError("identity candidate metadata must be non-empty")
+        if expires_at <= appearance.valid_at:
+            raise ValueError("identity candidate expiry must follow appearance time")
+        recorded_at = recorded_at or self._clock()
+        if recorded_at < max((appearance_record.ingested_at or appearance_record.recorded_at), *(record.ingested_at or record.recorded_at for record in candidate_records if record is not None)):
+            raise ValueError("identity candidate cannot be recorded before its inputs are known")
+        if any(record is not None and record.valid_from > appearance.valid_at for record in candidate_records):
+            raise ValueError("identity candidate cannot reference a future object record")
+        lineage = tuple(dict.fromkeys((appearance.appearance_ref, *candidate_object_refs, *evidence_refs)))
+        record = create_temporal_record(
+            record_id=f"{appearance.world_id}:{appearance.object_id}:identity-candidate:{candidate_id}",
+            entity_id=f"{appearance.object_id}:identity-candidate:{candidate_id}", entity_authority=f"robotics://world/{appearance.world_id}",
+            payload_schema="robotics.identity-candidate", payload_schema_version="1.0.0", kind="hypothesis",
+            authority="robotics://world-memory", writer_family="robotics-world-memory",
+            valid_from=appearance.valid_at, valid_to=expires_at, recorded_at=recorded_at,
+            source_refs=lineage, revision=candidate_id,
+            payload={
+                "world_id": appearance.world_id, "session_id": session_id,
+                "appearance_ref": appearance.appearance_ref.model_dump(mode="json"),
+                "candidate_object_refs": [ref.model_dump(mode="json") for ref in candidate_object_refs],
+                "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+                "association_basis": association_basis, "expires_at": expires_at.isoformat(),
+            },
+        )
+        if record not in self._identity_candidate_records:
+            if self._projection is not None:
+                self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
+                self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
+                self._projection.register_alias(self.identity_candidate_ref(record), self._projection.record_ref(record), at=recorded_at)
+            self._identity_candidate_records.append(record)
+        return self._candidate_from_record(record)
+
+    def identity_candidates(self, *, world_id: str, appearance_ref: ResourceRef, at: datetime, known_at: datetime, reader: WorldReader) -> tuple[IdentityCandidate, ...]:
+        self._require_world(world_id)
+        self._require_reader(reader)
+        self._refresh()
+        records = [record for record in self._identity_candidate_records if self._candidate_from_record(record).world_id == world_id and self._candidate_from_record(record).appearance_ref.exact_key == appearance_ref.exact_key and self._candidate_visible_at(record, at, known_at)]
+        records.sort(key=lambda record: (record.valid_from, record.recorded_at, record.record_digest))
+        for record in records:
+            self._authorized_identity_candidate(record, reader)
+        for record in records:
+            self._authorized_identity_candidate(record, reader)
+        return tuple(self._candidate_from_record(record) for record in records)
+
     def recalibrate(self, observation: TemporalRecord, pose: Pose, *, evidence: tuple[ResourceRef, ...], estimate_expires_at: datetime) -> TemporalRecord:
         """Adds an estimate; it never rewrites the sensor observation."""
         obj = WorldObject.model_validate(observation.payload["object"])
@@ -325,6 +614,7 @@ class TabletopWorldMemory:
             with self._projection.store.transaction():
                 # Both checks run while this transaction is open. A live
                 # revocation during the final check aborts the insert.
+                self._authorize_publication(scene.scene_ref)
                 self._authorize_scene(scene, reader)
                 current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_scene_snapshot", scene.scene_ref.digest)
                 payload = {"scene": scene.model_dump(mode="json")}
@@ -333,9 +623,12 @@ class TabletopWorldMemory:
                         raise ValueError("conflicting scene snapshot replay")
                 else:
                     self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_scene_snapshot", record_id=scene.scene_ref.digest, revision=1, payload=payload, created_at=scene.recorded_at, updated_at=scene.recorded_at), expected_revision=0)
+                self._authorize_publication(scene.scene_ref)
                 self._authorize_scene(scene, reader)
         else:
+            self._authorize_publication(scene.scene_ref)
             self._authorize_scene(scene, reader)
+            self._authorize_publication(scene.scene_ref)
             self._authorize_scene(scene, reader)
         self._scenes.append(scene)
         return scene
@@ -346,6 +639,7 @@ class TabletopWorldMemory:
             return episode
         if self._projection is not None:
             with self._projection.store.transaction():
+                self._authorize_publication(episode.episode_ref)
                 self._authorize_episode(episode, reader)
                 payload = {"episode": episode.model_dump(mode="json")}
                 current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_episode", episode.episode_ref.digest)
@@ -354,9 +648,12 @@ class TabletopWorldMemory:
                         raise ValueError("conflicting episode replay")
                 else:
                     self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_episode", record_id=episode.episode_ref.digest, revision=1, payload=payload, created_at=episode.recorded_at, updated_at=episode.recorded_at), expected_revision=0)
+                self._authorize_publication(episode.episode_ref)
                 self._authorize_episode(episode, reader)
         else:
+            self._authorize_publication(episode.episode_ref)
             self._authorize_episode(episode, reader)
+            self._authorize_publication(episode.episode_ref)
             self._authorize_episode(episode, reader)
         self._episodes.append(episode)
         return episode
@@ -597,4 +894,4 @@ def tabletop_episode_fixture(at: datetime, path: str | None = None, *, tenant_id
     return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved, "opening_scene": opening, "occluded_scene": occluded, "final_scene": final, "episode": episode}
 
 
-__all__ = ["LocationAnswer", "ObjectHistory", "Pose", "SceneEpisode", "SceneSnapshot", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
+__all__ = ["AppearanceObservation", "IdentityCandidate", "LocationAnswer", "ObjectHistory", "Pose", "SceneEpisode", "SceneSnapshot", "TabletopWorldMemory", "WorldObject", "WorldReader", "register_world_memory_extension", "robotics_world_extension", "tabletop_fixture", "tabletop_episode_fixture"]
