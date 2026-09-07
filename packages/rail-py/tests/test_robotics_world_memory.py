@@ -57,3 +57,15 @@ def test_location_rechecks_exact_evidence_access():
     memory.record(WorldObject(world_id="one", object_id="cube", class_label="cube"), pose(0.0, "1"), kind="observation", evidence=(evidence("cube"),))
     with pytest.raises(PermissionError, match="world-memory access denied"):
         memory.location(world_id="one", object_id="cube", at=NOW, known_at=NOW, estimated=False, reader=Deny())
+
+
+def test_canonical_store_reopens_world_isolation_and_expiring_estimate(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory = TabletopWorldMemory(str(path), tenant_id="t", project_id="p")
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    memory.record(obj, pose(0.1, "obs"), kind="observation", evidence=(evidence("obs"),))
+    memory.record(obj, pose(0.4, "estimate", NOW + timedelta(minutes=1)), kind="estimate", evidence=(evidence("estimate"),), estimate_expires_at=NOW + timedelta(minutes=2))
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p")
+    assert reopened.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow()).status == "estimated"
+    assert reopened.location(world_id="one", object_id="cup", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), estimated=True, reader=Allow()).status == "stale"
+    assert reopened.location(world_id="other", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"

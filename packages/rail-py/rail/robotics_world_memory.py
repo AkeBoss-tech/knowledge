@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import ExtensionDescriptor, describe_extension, describe_operator
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
+from rail.semantic.repository import JsonSemanticStore, SemanticRow
 
 
 class Strict(BaseModel):
@@ -70,10 +71,14 @@ def robotics_world_extension() -> ExtensionDescriptor:
 
 class TabletopWorldMemory:
     """Small deterministic temporal adapter; worlds never share object IDs."""
-    def __init__(self) -> None:
+    def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics") -> None:
         self._records: list[TemporalRecord] = []
+        self._store = JsonSemanticStore(path) if path is not None else None
+        self._tenant_id, self._project_id = tenant_id, project_id
+        if self._store is not None:
+            self._records = [TemporalRecord.model_validate(row.payload["record"]) for row in self._store.list(tenant_id, project_id, kind="robotics_world_record")]
 
-    def record(self, obj: WorldObject, pose: Pose, *, kind: Literal["observation", "estimate"], evidence: tuple[ResourceRef, ...]) -> TemporalRecord:
+    def record(self, obj: WorldObject, pose: Pose, *, kind: Literal["observation", "estimate"], evidence: tuple[ResourceRef, ...], estimate_expires_at: datetime | None = None) -> TemporalRecord:
         if not evidence:
             raise ValueError("world-memory records require exact evidence")
         record = create_temporal_record(
@@ -82,10 +87,15 @@ class TabletopWorldMemory:
             payload_schema_version="1.0.0", kind="observation" if kind == "observation" else "estimate",
             authority="robotics://world-memory", writer_family="robotics-world-memory", valid_from=pose.observed_at,
             recorded_at=pose.observed_at, source_refs=evidence, revision=pose.revision,
-            payload={"object": obj.model_dump(mode="json"), "pose": pose.model_dump(mode="json"), "state": kind},
+            payload={"object": obj.model_dump(mode="json"), "pose": pose.model_dump(mode="json"), "state": kind, "estimate_expires_at": estimate_expires_at.isoformat() if estimate_expires_at else None},
         )
         if record not in self._records:
             self._records.append(record)
+            if self._store is not None:
+                with self._store.transaction():
+                    current = self._store.get(self._tenant_id, self._project_id, "robotics_world_record", record.record_digest)
+                    if current is None:
+                        self._store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_world_record", record_id=record.record_digest, revision=1, payload={"record": record.model_dump(mode="json")}, created_at=pose.observed_at, updated_at=pose.observed_at), expected_revision=0)
         return record
 
     @staticmethod
@@ -116,6 +126,9 @@ class TabletopWorldMemory:
         if state == "estimate" and not estimated:
             return LocationAnswer(status="unknown")
         pose = Pose.model_validate(record.payload["pose"])
+        expires = record.payload.get("estimate_expires_at")
+        if state == "estimate" and expires is not None and datetime.fromisoformat(expires) <= at:
+            return LocationAnswer(status="stale", evidence=record.source_refs)
         if estimated and state == "observation" and pose.observed_at < at:
             # Last seen is evidence, not an inferred present location.
             return LocationAnswer(status="unknown")
