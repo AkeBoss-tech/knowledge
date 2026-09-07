@@ -42,6 +42,7 @@ class KnowledgeProposal:
     content_digest: str
     status: str = "proposed"
     reviewer_receipt: str | None = None
+    reviewer_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,8 @@ class SharedKnowledgeWorkspace:
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
-        result = subprocess.run(args, cwd=cwd, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        environment = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1"}
+        result = subprocess.run(args, cwd=cwd, env=environment, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode:
             raise SharedKnowledgeError(result.stderr.strip() or "git command failed")
         return result.stdout.strip()
@@ -93,22 +95,26 @@ class SharedKnowledgeWorkspace:
             except Exception:
                 raise
             else:
-                state["revision"] = int(state.get("revision", 0)) + 1
-                temporary = self.state_path.with_name(self.state_path.name + ".tmp")
-                fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as handle:
-                    json.dump(state, handle, sort_keys=True, indent=2)
-                    handle.write("\n")
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary, self.state_path)
-                directory_fd = os.open(self.state_path.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+                self._persist_locked(state)
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _persist_locked(self, state: dict) -> None:
+        """Durably save while the caller holds ``_locked_state``'s lock."""
+        state["revision"] = int(state.get("revision", 0)) + 1
+        temporary = self.state_path.with_name(self.state_path.name + ".tmp")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(state, handle, sort_keys=True, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self.state_path)
+        directory_fd = os.open(self.state_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     def _remote_ref(self, ref: str) -> str:
         return self._run("git", "--git-dir", str(self.remote), "rev-parse", ref)
@@ -144,8 +150,11 @@ class SharedKnowledgeWorkspace:
         return path
 
     def _validate_checkout(self, checkout: str | Path, base: str) -> Path:
-        checkout = Path(checkout).resolve(strict=True)
-        if checkout.is_symlink() or not checkout.is_dir():
+        supplied = Path(checkout)
+        if supplied.is_symlink():
+            raise SharedKnowledgeError("checkout must be an owned regular directory")
+        checkout = supplied.resolve(strict=True)
+        if not checkout.is_dir():
             raise SharedKnowledgeError("checkout must be an owned regular directory")
         if self._run("git", "rev-parse", "--is-inside-work-tree", cwd=checkout) != "true":
             raise SharedKnowledgeError("checkout is not a Git worktree")
@@ -176,7 +185,7 @@ class SharedKnowledgeWorkspace:
             if self._run("git", "status", "--porcelain", cwd=checkout_path):
                 raise SharedKnowledgeError("checkout must be clean")
             branch_name = f"krail/proposals/{proposal_id}"
-            self._run("git", "checkout", "-b", branch_name, base, cwd=checkout_path)
+            self._run("git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "checkout", "-b", branch_name, base, cwd=checkout_path)
             destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.exists() and destination.is_symlink():
                 raise SharedKnowledgeError("proposal destination may not be a symlink")
@@ -187,7 +196,9 @@ class SharedKnowledgeWorkspace:
             proposal = KnowledgeProposal(proposal_id, user_id, "refs/heads/" + branch_name, base, candidate, path, self._digest(content))
             proposal_ref = self._proposal_ref(proposal)
             self._authorize("shared_knowledge.propose", proposal_ref, user_id)
-            self._run("git", "push", "origin", f"HEAD:{proposal.branch}", cwd=checkout_path)
+            # Never honor an untrusted origin.pushurl; the configured bare
+            # remote was checked above and is supplied as the exact target.
+            self._run("git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "push", str(self.remote), f"HEAD:{proposal.branch}", cwd=checkout_path)
             self._authorize("shared_knowledge.propose", proposal_ref, user_id)
             state["proposals"][proposal_id] = asdict(proposal)
         # State persistence is an effect too; fail closed if authority changed
@@ -197,10 +208,10 @@ class SharedKnowledgeWorkspace:
 
     def _recover(self, state: dict, proposal: KnowledgeProposal) -> KnowledgeProposal:
         current = self._remote_ref("refs/heads/main")
-        if proposal.status == "proposed" and current == proposal.candidate_commit:
+        if proposal.status == "review-pending" and current == proposal.candidate_commit:
             proposal = KnowledgeProposal(**{**asdict(proposal), "status": "promoted"})
             state["proposals"][proposal.proposal_id] = asdict(proposal)
-        elif proposal.status == "proposed" and current != proposal.base_commit:
+        elif proposal.status in {"proposed", "review-pending"} and current != proposal.base_commit:
             proposal = KnowledgeProposal(**{**asdict(proposal), "status": "conflict"})
             state["proposals"][proposal.proposal_id] = asdict(proposal)
         return proposal
@@ -215,10 +226,19 @@ class SharedKnowledgeWorkspace:
             if not reviewer_id:
                 raise ValueError("reviewer identity is required")
             self._authorize("shared_knowledge.review", self._proposal_ref(proposal), reviewer_id)
+            if proposal.status == "review-pending" and proposal.reviewer_id != reviewer_id:
+                raise PermissionError("review-pending proposal belongs to a different reviewer")
             proposal = self._recover(state, proposal)
-            if proposal.status != "proposed":
+            if proposal.status not in {"proposed", "review-pending"}:
                 result = proposal
             else:
+                if proposal.status == "proposed":
+                    receipt = self._digest(f"{reviewer_id}:{proposal_id}:{proposal.candidate_commit}")
+                    proposal = KnowledgeProposal(**{**asdict(proposal), "status": "review-pending", "reviewer_receipt": receipt, "reviewer_id": reviewer_id})
+                    state["proposals"][proposal_id] = asdict(proposal)
+                    # Persist the authorized receipt before canonical Git can
+                    # move. Recovery can therefore never invent a reviewer.
+                    self._persist_locked(state)
                 proposal_ref = self._proposal_ref(proposal)
                 current = self._remote_ref("refs/heads/main")
                 candidate = self._remote_ref(proposal.branch)
@@ -227,8 +247,7 @@ class SharedKnowledgeWorkspace:
                     state["proposals"][proposal_id] = asdict(result)
                 else:
                     self._run("git", "--git-dir", str(self.remote), "update-ref", "refs/heads/main", candidate, current)
-                    receipt = self._digest(f"{reviewer_id}:{proposal_id}:{candidate}")
-                    result = KnowledgeProposal(**{**asdict(proposal), "status": "promoted", "reviewer_receipt": receipt})
+                    result = KnowledgeProposal(**{**asdict(proposal), "status": "promoted"})
                     state["proposals"][proposal_id] = asdict(result)
                     for key, value in tuple(state["proposals"].items()):
                         other = KnowledgeProposal(**value)
@@ -255,12 +274,26 @@ class SharedKnowledgeWorkspace:
                 lineage = tuple(sorted(item["candidate_commit"] for item in state.setdefault("proposals", {}).values() if item["status"] == "promoted" and item["candidate_commit"] == commit))
             context = AuthorizedKnowledgeContext(user_id, commit, tuple(files), lineage)
             self._cache[cache_key] = context
+        # A repository grant does not imply an exact-file grant. Recheck every
+        # cached byte and every lineage node at the return boundary.
         self._authorize("shared_knowledge.read", repository_ref, user_id)
+        for path, content in context.files:
+            self._authorize("shared_knowledge.read", self._ref("file/" + path, context.canonical_commit, self._digest(content)), user_id)
+        with self._locked_state() as state:
+            promoted = {
+                item["candidate_commit"]: KnowledgeProposal(**item)
+                for item in state.setdefault("proposals", {}).values()
+                if item["status"] == "promoted" and item["candidate_commit"] in context.lineage
+            }
+        for candidate in context.lineage:
+            self._authorize("shared_knowledge.read", self._proposal_ref(promoted[candidate]), user_id)
         return context
 
     def export(self, user_id: str) -> dict:
         context = self.authorized_context(user_id)
         self._authorize("shared_knowledge.export", self._repository_ref(context.canonical_commit), user_id)
+        for path, content in context.files:
+            self._authorize("shared_knowledge.export", self._ref("file/" + path, context.canonical_commit, self._digest(content)), user_id)
         return {"canonical_commit": context.canonical_commit, "files": dict(context.files), "lineage": context.lineage}
 
     def search(self, user_id: str, query: str) -> tuple[tuple[str, str], ...]:
@@ -268,4 +301,7 @@ class SharedKnowledgeWorkspace:
             raise ValueError("search query is required")
         context = self.authorized_context(user_id)
         self._authorize("shared_knowledge.search", self._repository_ref(context.canonical_commit), user_id)
-        return tuple((path, content) for path, content in context.files if query.casefold() in content.casefold())
+        results = tuple((path, content) for path, content in context.files if query.casefold() in content.casefold())
+        for path, content in results:
+            self._authorize("shared_knowledge.search", self._ref("file/" + path, context.canonical_commit, self._digest(content)), user_id)
+        return results

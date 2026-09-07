@@ -22,12 +22,15 @@ under that lock, a monotonically increasing revision, atomic replacement, and
 directory sync. If a process dies after Git's compare-and-swap promotion but
 before metadata persistence, restart recovery recognizes that `main` already
 equals the candidate and records promotion; any changed head instead becomes a
-conflict.
+conflict. An authorized reviewer receipt is durably recorded as
+`review-pending` before that Git mutation, so recovery never invents reviewer
+approval. Every cached file and promoted-lineage reference is reauthorized at
+the return boundary; a broad repository grant cannot expose a revoked file.
 
 | #29 requirement | Local journey evidence | Status |
 | --- | --- | --- |
 | One explicit authority mode | Fixed `connected-canonical-git-reviewed-changes`; remote `main` is canonical | Met for local connected Git. |
-| Conflict/review promotion | exact base/candidate refs and `git update-ref` expected-old atomic promotion | Met. |
+| Conflict/review promotion | durable authorized review-pending receipt, exact base/candidate refs, and `git update-ref` expected-old atomic promotion | Met. |
 | Restart and cache revocation | persisted proposal metadata, remote reread, user-keyed cache with live reauthorization, denied search/export | Met for process-local cache. |
 | Exact lineage | promoted candidate commit returned with canonical context | Met for promoted head. |
 | Mode transitions with consent/backup/rollback | No transition workflow | Remaining. |

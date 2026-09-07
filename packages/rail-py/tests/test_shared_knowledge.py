@@ -11,11 +11,12 @@ class LiveActionAuthorizer:
 
     def __init__(self, granted: set[str]):
         self.granted = granted
+        self.denied_resource_ids: set[str] = set()
         self.calls: list[tuple[str, str, tuple[str, str, str, str, str]]] = []
 
     def authorize(self, action, ref, *, subject_id):
         self.calls.append((action, subject_id, ref.exact_key))
-        if subject_id not in self.granted:
+        if subject_id not in self.granted or ref.resource_id in self.denied_resource_ids:
             raise PermissionError("source grant is revoked or absent")
 
 
@@ -53,6 +54,11 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path)
     second = workspace.propose(user_id="bob", checkout=bob, proposal_id="bob-edit", path="knowledge.md", content="bob competing change\n")
     assert first.base_commit == second.base_commit
 
+    grants.remove("reviewer")
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.review_and_promote("alice-edit", reviewer_id="reviewer")
+    assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == first.base_commit
+    grants.add("reviewer")
     promoted = workspace.review_and_promote("alice-edit", reviewer_id="reviewer")
     conflicted = workspace.review_and_promote("bob-edit", reviewer_id="reviewer")
     assert promoted.status == "promoted"
@@ -62,6 +68,17 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path)
     assert workspace.export("bob")["lineage"] == (promoted.candidate_commit,)
     assert workspace.search("bob", "alice") == (("knowledge.md", "alice reviewed change\n"),)
     assert promoted.reviewer_receipt
+
+    # A broad repository grant is insufficient once the exact file is revoked:
+    # cached context, search, export, and lineage must all fail closed.
+    authorizer.denied_resource_ids.add("file/knowledge.md")
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.authorized_context("alice")
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.search("alice", "alice")
+    with pytest.raises(PermissionError, match="revoked"):
+        workspace.export("alice")
+    authorizer.denied_resource_ids.clear()
 
     # Restart rebuilds only the disposable per-process cache from canonical Git
     # and persisted proposal metadata; it cannot promote the stale proposal.
