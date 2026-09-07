@@ -58,6 +58,15 @@ class ProjectionEdge(BaseModel):
     edge_digest: Digest
 
 
+class ProjectionAlias(BaseModel):
+    """Trusted exact-ref alias to a canonical temporal output."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    alias_ref: ResourceRef
+    canonical_ref: ResourceRef
+    alias_digest: Digest
+
+
 class ProjectionTombstone(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     event_id: str
@@ -175,6 +184,56 @@ class TemporalProjectionService:
             values.add(ProjectionCheckpoint.model_validate(row.payload["checkpoint"]).projection_id)
         return tuple(sorted(values))
 
+    def _resolve_alias_locked(self, ref: ResourceRef) -> ResourceRef | None:
+        for row in self.store.list(self.tenant_id, self.project_id, kind="procedure_projection_alias"):
+            alias = ProjectionAlias.model_validate(row.payload["alias"])
+            if alias.alias_ref.exact_key == ref.exact_key:
+                return alias.canonical_ref
+        return None
+
+    def _put_edge_locked(self, *, output_ref: ResourceRef, input_ref: ResourceRef, at: datetime) -> None:
+        edge = ProjectionEdge(
+            output_ref=output_ref,
+            input_ref=input_ref,
+            edge_digest=_digest({"output_ref": output_ref.model_dump(mode="json"), "input_ref": input_ref.model_dump(mode="json")}),
+        )
+        if self.store.get(self.tenant_id, self.project_id, "procedure_projection_edge", edge.edge_digest) is None:
+            self.store.put(
+                SemanticRow(
+                    tenant_id=self.tenant_id, project_id=self.project_id,
+                    record_kind="procedure_projection_edge", record_id=edge.edge_digest,
+                    revision=1, payload={"edge": edge.model_dump(mode="json")},
+                    created_at=at, updated_at=at,
+                ), expected_revision=0,
+            )
+
+    def register_alias(self, alias_ref: ResourceRef, canonical_ref: ResourceRef, *, at: datetime) -> ProjectionAlias:
+        """Persist one trusted immutable exact-ref alias and repair dependent edges."""
+
+        if not any(_record_ref(record).exact_key == canonical_ref.exact_key for record in self._records()):
+            raise ValueError("projection alias must target an existing exact temporal record")
+        body = {"alias_ref": alias_ref.model_dump(mode="json"), "canonical_ref": canonical_ref.model_dump(mode="json")}
+        alias = ProjectionAlias(**body, alias_digest=_digest(body))
+        alias_id = _digest({"alias_ref": body["alias_ref"]})
+        with self.store.transaction():
+            current = self.store.get(self.tenant_id, self.project_id, "procedure_projection_alias", alias_id)
+            if current is not None:
+                existing = ProjectionAlias.model_validate(current.payload["alias"])
+                if existing.alias_digest != alias.alias_digest:
+                    raise ValueError("conflicting projection alias replay")
+            else:
+                self.store.put(SemanticRow(
+                    tenant_id=self.tenant_id, project_id=self.project_id,
+                    record_kind="procedure_projection_alias", record_id=alias_id,
+                    revision=1, payload={"alias": alias.model_dump(mode="json")},
+                    created_at=at, updated_at=at,
+                ), expected_revision=0)
+            for row in self.store.list(self.tenant_id, self.project_id, kind="temporal_record"):
+                output = TemporalRecord.model_validate(row.payload["record"])
+                if any(ref.exact_key == alias_ref.exact_key for ref in output.source_refs + output.provenance_refs):
+                    self._put_edge_locked(output_ref=_record_ref(output), input_ref=canonical_ref, at=at)
+        return alias
+
     def ingest(self, record: TemporalRecord, *, at: datetime, writer: ProjectionWriter) -> TemporalRecord:
         verify_temporal_record_integrity(record)
         writer.authorize(record, at=self.clock())
@@ -200,21 +259,14 @@ class TemporalProjectionService:
                 )
                 if parent is not None:
                     input_refs += (_record_ref(TemporalRecord.model_validate(parent.payload["record"])),)
+            expanded_inputs: dict[tuple[str, str, str, str, str], ResourceRef] = {}
             for ref in input_refs:
-                edge = ProjectionEdge(
-                    output_ref=output_ref,
-                    input_ref=ref,
-                    edge_digest=_digest({"output_ref": output_ref.model_dump(mode="json"), "input_ref": ref.model_dump(mode="json")}),
-                )
-                edge_id = edge.edge_digest
-                self.store.put(
-                    SemanticRow(
-                        tenant_id=self.tenant_id, project_id=self.project_id,
-                        record_kind="procedure_projection_edge", record_id=edge_id,
-                        revision=1, payload={"edge": edge.model_dump(mode="json")},
-                        created_at=at, updated_at=at,
-                    ), expected_revision=0,
-                )
+                expanded_inputs.setdefault(ref.exact_key, ref)
+                alias = self._resolve_alias_locked(ref)
+                if alias is not None:
+                    expanded_inputs.setdefault(alias.exact_key, alias)
+            for ref in expanded_inputs.values():
+                self._put_edge_locked(output_ref=output_ref, input_ref=ref, at=at)
             # An ingested revision changes its own entity's materialized view.
             for projection_id in self._known_projection_ids_locked():
                 self._enqueue_locked(
@@ -374,6 +426,14 @@ class TemporalProjectionService:
             key=lambda ref: ref.exact_key,
         ))
 
+    def _transitive_stale_keys(self, direct_keys: set[str], refs: tuple[ResourceRef, ...]) -> set[str]:
+        """A stale exact input makes every reverse-edge dependent stale too."""
+
+        values = set(direct_keys)
+        for ref in refs:
+            values.update(item.exact_key for item in self.affected_region(ref))
+        return values
+
     def _current_records(self, records: tuple[TemporalRecord, ...], *, valid_at: datetime, known_at: datetime) -> tuple[TemporalRecord, ...]:
         tombstoned = {
             item.target_ref.exact_key for item in self._tombstones()
@@ -400,11 +460,17 @@ class TemporalProjectionService:
                 parent = next((item for item in records if item.record_digest == record.supersedes_digest), None)
                 if parent is not None:
                     input_refs += (_record_ref(parent),)
+            expanded_inputs: dict[tuple[str, str, str, str, str], ResourceRef] = {}
+            for input_ref in input_refs:
+                expanded_inputs.setdefault(input_ref.exact_key, input_ref)
+                alias = self._resolve_alias_locked(input_ref)
+                if alias is not None:
+                    expanded_inputs.setdefault(alias.exact_key, alias)
             lineage_parent_keys = {
                 _record_ref(item).exact_key for item in records
                 if record.supersedes_digest == item.record_digest
             }
-            for input_ref in input_refs:
+            for input_ref in expanded_inputs.values():
                 if input_ref.exact_key in stale_keys:
                     status = "stale"
                 elif input_ref.exact_key in dirty_keys:
@@ -497,10 +563,12 @@ class TemporalProjectionService:
             )
             current_keys = {_record_ref(item).exact_key for item in current_records}
             dirty_keys = {item.exact_key for item in pending}
-            stale_keys = {
+            direct_stale_keys = {
                 *{item.cause_ref.exact_key for item in eligible_entries if item.cause_ref.exact_key not in tombstone_targets},
                 *active_invalidation_keys,
             }
+            active_invalidation_refs = self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+            stale_keys = self._transitive_stale_keys(direct_stale_keys, active_invalidation_refs)
             selected = {entity: [] for entity in entities}
             for item in current_records:
                 entity = (item.entity_authority, item.entity_id)
@@ -548,7 +616,8 @@ class TemporalProjectionService:
             entities = {(item.entity_authority, item.entity_id) for item in records}
             for entity in sorted(entities):
                 entity_selected = tuple(item for item in current if (item.entity_authority, item.entity_id) == entity)
-                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys={ref.exact_key for ref in self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)}, current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
+                active_invalidation_refs = self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys=self._transitive_stale_keys({ref.exact_key for ref in active_invalidation_refs}, active_invalidation_refs), current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
                 self._write_current_locked(projection_id=projection_id, entity=entity, selected=entity_selected, inputs=tuple(item for item in records if (item.entity_authority, item.entity_id) == entity), dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at)
         state_digests = tuple(sorted(item.state_digest for item in self.current_state(projection_id)))
         input_record_digests = tuple(sorted(item.record_digest for item in records if (item.ingested_at or item.recorded_at) <= known_at))
@@ -580,7 +649,7 @@ class TemporalProjectionService:
 
 
 __all__ = [
-    "ProjectionCheckpoint", "ProjectionCurrentState", "ProjectionDependencyState", "ProjectionDirtyEntry", "ProjectionEdge",
+    "ProjectionAlias", "ProjectionCheckpoint", "ProjectionCurrentState", "ProjectionDependencyState", "ProjectionDirtyEntry", "ProjectionEdge",
     "ProjectionInvalidationAuthorizer", "ProjectionRecomputeRun", "ProjectionTombstone",
     "TemporalProjectionService", "create_projection_tombstone",
 ]

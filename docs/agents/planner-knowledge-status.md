@@ -31,6 +31,20 @@
   current recompute/rebuild derives the same stale state after restart.
   Immutable observations and an unrelated world's projected row remain
   unchanged.
+- The projection engine now has a domain-neutral immutable exact-ref alias
+  facility. The robotics pack verifies the full public world-record handle
+  against a stored robotics temporal envelope before registering its canonical
+  parent alias; it never rewrites the original record. Reopen repairs alias
+  edges for older persisted canonical rows, allowing source -> observation ->
+  recalibration invalidation to reach the estimate immediately and after
+  recompute/rebuild, while historical cutoffs remain current.
+- Hosted composition uses signed `AccessClaims`, not a local fallback. Its
+  robotics capability digest deterministically binds tenant, project, world,
+  and every exact scoped ref; separately signed `context.read`,
+  `projection.write`, and `procedure.invalidate` adapters check that binding
+  at an injected live clock. Hosted world-memory rejects an adapter from
+  another scope, a local fake, a reader substituted at call time, read-only
+  writes, expired/revoked contexts, and tampered signatures.
 - The real trusted-local registry dispatch registers the world-memory lookup as
   explicitly nondeterministic because it reads a mutable canonical snapshot.
   Handlers may return the reserved `HANDLER_LINEAGE_REFS` channel; dispatch
@@ -40,10 +54,10 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `144 passed`; compileall and `git diff --check` pass.
-- Remaining #19 boundary: no signed hosted robotics writer/reader adapter
-  exists yet; the local projection writer/invalidation authorizer and registry
-  authorization are the caller-supplied local seam plus `WorldReader`. No ROS transport,
+  reports `149 passed`; compileall and `git diff --check` pass.
+- Remaining #19 boundary: the signed hosted adapters are local-contract proof,
+  not a deployed control-plane integration. Session/episode modeling, richer
+  object lifecycle queries, camera/perception ingestion, ROS transport,
   perception pipeline, binary asset store, live robot control, identity merge,
   or general world-model engine is claimed.
 

@@ -27,11 +27,28 @@ PROCEDURE_INVALIDATION_CAPABILITY_ID = "krail.procedure-invalidation"
 PROCEDURE_INVALIDATION_CAPABILITY_VERSION = "1.0.0"
 PROCEDURE_PROJECTION_CAPABILITY_ID = "krail.procedure-projection"
 PROCEDURE_PROJECTION_CAPABILITY_VERSION = "1.0.0"
+ROBOTICS_WORLD_MEMORY_CAPABILITY_ID = "krail.robotics-world-memory"
+ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION = "1.0.0"
 
 
 def _digest(value: object) -> str:
     body = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def robotics_world_memory_scope_digest(*, tenant_id: str, project_id: str, world_id: str, exact_refs: tuple[ResourceRef, ...]) -> str:
+    """Capability binding for one signed hosted robotics world scope."""
+
+    if not world_id or not exact_refs or len({ref.exact_key for ref in exact_refs}) != len(exact_refs):
+        raise ValueError("world scope requires unique exact refs")
+    return _digest({
+        "capability_id": ROBOTICS_WORLD_MEMORY_CAPABILITY_ID,
+        "capability_version": ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION,
+        "tenant_id": tenant_id,
+        "project_id": project_id,
+        "world_id": world_id,
+        "exact_refs": [ref.model_dump(mode="json") for ref in sorted(exact_refs, key=lambda ref: ref.exact_key)],
+    })
 
 
 class AuthorizedContextAuthorizer(Protocol):
@@ -237,6 +254,91 @@ class HostedTemporalProjectionWriter:
         for ref in record.source_refs + record.provenance_refs:
             if ref.exact_key not in self.exact_refs or ref.resource_id not in claims.source_ids:
                 raise PermissionError("procedure projection write denied")
+
+
+class _HostedRoboticsAdapter:
+    """Shared signed-world binding; decisions always use the injected live clock."""
+
+    def __init__(self, authority: AccessContextAuthority, context: SignedAccessContext, *, tenant_id: str, project_id: str, world_id: str, exact_refs: tuple[ResourceRef, ...], capability_digest: str, clock: Callable[[], datetime] | None = None) -> None:
+        if not world_id or not exact_refs:
+            raise ValueError("world scope and exact robotics refs are required")
+        if capability_digest != robotics_world_memory_scope_digest(tenant_id=tenant_id, project_id=project_id, world_id=world_id, exact_refs=exact_refs):
+            raise ValueError("robotics capability digest does not bind the exact world scope")
+        self.authority, self.context = authority, context
+        self.tenant_id, self.project_id, self.world_id = tenant_id, project_id, world_id
+        self.exact_refs = frozenset(ref.exact_key for ref in exact_refs)
+        self.capability_digest = capability_digest
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def _claims(self, action: str):
+        try:
+            claims = self.authority.verify(self.context, as_of=self.clock())
+        except PermissionError as exc:
+            raise PermissionError("robotics world-memory access denied") from exc
+        if (
+            (claims.tenant_id, claims.project_id) != (self.tenant_id, self.project_id)
+            or claims.capability_id != ROBOTICS_WORLD_MEMORY_CAPABILITY_ID
+            or claims.capability_version != ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION
+            or claims.capability_digest != self.capability_digest
+            or action not in claims.actions
+            or claims.source_ids == ("*",)
+        ):
+            raise PermissionError("robotics world-memory access denied")
+        return claims
+
+    def _authorize_ref(self, ref: ResourceRef, *, action: str) -> None:
+        claims = self._claims(action)
+        if ref.exact_key not in self.exact_refs or ref.resource_id not in claims.source_ids:
+            raise PermissionError("robotics world-memory access denied")
+
+
+class HostedRoboticsWorldReader(_HostedRoboticsAdapter):
+    """Signed exact-ref reader bound to one hosted robotics world scope."""
+
+    def authorize(self, ref: ResourceRef) -> None:
+        self._authorize_ref(ref, action="context.read")
+
+
+class HostedRoboticsProjectionWriter(_HostedRoboticsAdapter):
+    """Signed world-scoped projection writer; a read context cannot ingest."""
+
+    def __init__(self, *args, allowed_record_digests: tuple[str, ...], **kwargs) -> None:
+        if not allowed_record_digests:
+            raise ValueError("exact robotics record digests are required")
+        super().__init__(*args, **kwargs)
+        self.allowed_record_digests = frozenset(allowed_record_digests)
+
+    def authorize(self, record: TemporalRecord, *, at: datetime) -> None:
+        del at
+        claims = self._claims("projection.write")
+        if (
+            record.entity_authority != f"robotics://world/{self.world_id}"
+            or record.record_digest not in self.allowed_record_digests
+        ):
+            raise PermissionError("robotics world-memory write denied")
+        for ref in record.source_refs + record.provenance_refs:
+            if ref.exact_key not in self.exact_refs or ref.resource_id not in claims.source_ids:
+                raise PermissionError("robotics world-memory write denied")
+
+
+class HostedRoboticsInvalidationAuthorizer(_HostedRoboticsAdapter):
+    """Signed exact-event writer for one world's dependency invalidations."""
+
+    def __init__(self, *args, allowed_event_digests: tuple[str, ...], **kwargs) -> None:
+        if not allowed_event_digests:
+            raise ValueError("exact robotics invalidation event digests are required")
+        super().__init__(*args, **kwargs)
+        self.allowed_event_digests = frozenset(allowed_event_digests)
+
+    def authorize_invalidation(self, event_id: str, changed_ref: ResourceRef, event_digest: str, *, at: datetime) -> None:
+        del event_id, at
+        claims = self._claims("procedure.invalidate")
+        if (
+            changed_ref.exact_key not in self.exact_refs
+            or changed_ref.resource_id not in claims.source_ids
+            or event_digest not in self.allowed_event_digests
+        ):
+            raise PermissionError("robotics world-memory invalidation denied")
 def assemble_authorized_context(
     service: ContextBriefService,
     request: ContextBriefRequest,
@@ -274,11 +376,17 @@ __all__ = [
     "HostedProcedureReviewAuthorizer",
     "HostedProcedureInvalidationAuthorizer",
     "HostedTemporalProjectionWriter",
+    "HostedRoboticsInvalidationAuthorizer",
+    "HostedRoboticsProjectionWriter",
+    "HostedRoboticsWorldReader",
     "PROCEDURE_REVIEW_CAPABILITY_ID",
     "PROCEDURE_REVIEW_CAPABILITY_VERSION",
     "PROCEDURE_INVALIDATION_CAPABILITY_ID",
     "PROCEDURE_INVALIDATION_CAPABILITY_VERSION",
     "PROCEDURE_PROJECTION_CAPABILITY_ID",
     "PROCEDURE_PROJECTION_CAPABILITY_VERSION",
+    "ROBOTICS_WORLD_MEMORY_CAPABILITY_ID",
+    "ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION",
+    "robotics_world_memory_scope_digest",
     "assemble_authorized_context",
 ]

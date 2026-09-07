@@ -13,6 +13,7 @@ from typing import Callable, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from krail.provider.v1 import ResourceRef
+from rail.authorized_context import HostedRoboticsInvalidationAuthorizer, HostedRoboticsProjectionWriter, HostedRoboticsWorldReader
 from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, HANDLER_LINEAGE_REFS, describe_extension, describe_operator
 from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidationAuthorizer, ProjectionRecomputeRun, ProjectionWriter, TemporalProjectionService
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
@@ -104,16 +105,34 @@ def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "
 
 class TabletopWorldMemory:
     """Small deterministic temporal adapter; worlds never share object IDs."""
-    def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None, projection_invalidation_authorizer: ProjectionInvalidationAuthorizer | None = None) -> None:
+    def __init__(self, path: str | None = None, *, tenant_id: str = "local", project_id: str = "robotics", clock: Callable[[], datetime] | None = None, projection_id: str = "robotics-world-memory", projection_writer: ProjectionWriter | None = None, projection_invalidation_authorizer: ProjectionInvalidationAuthorizer | None = None, hosted_world_id: str | None = None, hosted_reader: WorldReader | None = None) -> None:
         self._records: list[TemporalRecord] = []
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
         self._projection = TemporalProjectionService(path, tenant_id=tenant_id, project_id=project_id, clock=self._clock) if path is not None else None
+        self._hosted_world_id = hosted_world_id
+        self._hosted_reader = hosted_reader
+        if hosted_world_id is not None:
+            if path is None or projection_writer is None or projection_invalidation_authorizer is None or hosted_reader is None:
+                raise ValueError("hosted world-memory requires canonical storage and signed reader, writer, and invalidation adapters")
+            if not isinstance(hosted_reader, HostedRoboticsWorldReader) or not isinstance(projection_writer, HostedRoboticsProjectionWriter) or not isinstance(projection_invalidation_authorizer, HostedRoboticsInvalidationAuthorizer):
+                raise ValueError("hosted world-memory requires supported signed robotics adapters")
+            if any((adapter.world_id, adapter.tenant_id, adapter.project_id) != (hosted_world_id, tenant_id, project_id) for adapter in (hosted_reader, projection_writer, projection_invalidation_authorizer)):
+                raise ValueError("hosted world-memory adapters must bind the same exact world")
         self._projection_writer = projection_writer or _LocalProjectionWriter()
         self._projection_invalidation_authorizer = projection_invalidation_authorizer or _LocalProjectionInvalidationAuthorizer()
         self._migrate_legacy_records()
         self._refresh()
+        self._repair_projection_aliases()
+
+    def _require_world(self, world_id: str) -> None:
+        if self._hosted_world_id is not None and world_id != self._hosted_world_id:
+            raise PermissionError("world-memory access denied")
+
+    def _require_reader(self, reader: WorldReader) -> None:
+        if self._hosted_reader is not None and reader is not self._hosted_reader:
+            raise PermissionError("world-memory access denied")
 
     def _migrate_legacy_records(self) -> None:
         """Move pre-projection rows into canonical temporal history exactly once."""
@@ -123,17 +142,42 @@ class TabletopWorldMemory:
             record = TemporalRecord.model_validate(row.payload["record"])
             if record.payload_schema != "robotics.world-memory":
                 raise ValueError("legacy world-memory row has an unexpected payload schema")
+            if self._hosted_world_id is not None and record.entity_authority != f"robotics://world/{self._hosted_world_id}":
+                continue
             self._projection.ingest(
                 record,
                 at=record.ingested_at or record.recorded_at,
                 writer=self._projection_writer,
             )
 
+    @staticmethod
+    def _verified_world_parent(ref: ResourceRef, records: tuple[TemporalRecord, ...] | list[TemporalRecord]) -> TemporalRecord | None:
+        if ref.authority != "robotics://world-memory" or ref.resource_type != "world-record":
+            return None
+        return next((item for item in records if (
+            item.payload_schema == "robotics.world-memory"
+            and item.payload_schema_version == "1.0.0"
+            and item.writer_family == "robotics-world-memory"
+            and item.entity_authority.startswith("robotics://world/")
+            and item.record_digest == ref.digest
+            and item.record_id == ref.resource_id
+            and item.revision == ref.version
+        )), None)
+
+    def _repair_projection_aliases(self) -> None:
+        if self._projection is None:
+            return
+        for record in self._records:
+            if self._hosted_world_id is not None and record.entity_authority != f"robotics://world/{self._hosted_world_id}":
+                continue
+            self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=record.ingested_at or record.recorded_at)
+
     def _refresh(self) -> None:
         if self._projection is not None:
             self._records = [record for record in self._projection._records() if record.payload_schema == "robotics.world-memory"]
 
     def record(self, obj: WorldObject, pose: Pose, *, kind: Literal["observation", "estimate"], evidence: tuple[ResourceRef, ...], estimate_expires_at: datetime | None = None, recorded_at: datetime | None = None) -> TemporalRecord:
+        self._require_world(obj.world_id)
         if not evidence:
             raise ValueError("world-memory records require exact evidence")
         if kind == "estimate" and estimate_expires_at is None:
@@ -179,9 +223,13 @@ class TabletopWorldMemory:
             raise RuntimeError("world-memory projection requires a canonical store path")
         return self._projection.recompute(projection_id=self._projection_id, valid_at=valid_at, known_at=known_at, at=at)
 
-    def invalidate_map_revision(self, changed_ref: ResourceRef, *, reason: str, at: datetime, event_id: str | None = None, effective_at: datetime | None = None, recorded_at: datetime | None = None) -> tuple[ResourceRef, ...]:
+    def invalidate_map_revision(self, changed_ref: ResourceRef, *, reason: str, at: datetime, event_id: str | None = None, effective_at: datetime | None = None, recorded_at: datetime | None = None, world_id: str | None = None) -> tuple[ResourceRef, ...]:
         if self._projection is None:
             raise RuntimeError("world-memory projection requires a canonical store path")
+        if self._hosted_world_id is not None:
+            if world_id is None:
+                raise PermissionError("world-memory access denied")
+            self._require_world(world_id)
         effective_at = effective_at or at
         recorded_at = recorded_at or at
         event_id = event_id or "robotics-invalidation:" + sha256(
@@ -199,6 +247,10 @@ class TabletopWorldMemory:
         refs = (*record.source_refs, self.record_ref(record))
         if self._projection is not None:
             refs += (self._projection.record_ref(record),)
+            for source in record.source_refs + record.provenance_refs:
+                parent = self._verified_world_parent(source, self._records)
+                if parent is not None:
+                    refs += (self._projection.record_ref(parent),)
         refs = tuple(dict.fromkeys(refs))
         try:
             for ref in refs:
@@ -210,13 +262,22 @@ class TabletopWorldMemory:
     def recalibrate(self, observation: TemporalRecord, pose: Pose, *, evidence: tuple[ResourceRef, ...], estimate_expires_at: datetime) -> TemporalRecord:
         """Adds an estimate; it never rewrites the sensor observation."""
         obj = WorldObject.model_validate(observation.payload["object"])
-        return self.record(obj, pose, kind="estimate", evidence=tuple(dict.fromkeys((*evidence, self.record_ref(observation)))), estimate_expires_at=estimate_expires_at)
+        # Projection edges are keyed by its canonical temporal-record ref, not
+        # the public world-record handle. Existing historical rows retain
+        # their immutable bytes; new recalibrations bridge to the exact
+        # canonical parent so source invalidation reaches them transitively.
+        parent_ref = self._projection.record_ref(observation) if self._projection is not None else self.record_ref(observation)
+        return self.record(obj, pose, kind="estimate", evidence=tuple(dict.fromkeys((*evidence, parent_ref))), estimate_expires_at=estimate_expires_at)
 
     def _projection_marks_estimate_stale(self, record: TemporalRecord, *, valid_at: datetime, known_at: datetime) -> bool:
         if self._projection is None:
             return False
         dependency_keys = {ref.exact_key for ref in record.source_refs + record.provenance_refs}
-        if dependency_keys & {ref.exact_key for ref in self._projection.active_invalidation_refs(valid_at=valid_at, known_at=known_at)}:
+        active_refs = self._projection.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+        if dependency_keys & {ref.exact_key for ref in active_refs}:
+            return True
+        output_ref = self._projection.record_ref(record)
+        if any(output_ref in self._projection.affected_region(ref) for ref in active_refs):
             return True
         for state in self._projection.current_state(self._projection_id):
             if (state.entity_authority, state.entity_id) != (record.entity_authority, record.entity_id):
@@ -228,6 +289,8 @@ class TabletopWorldMemory:
         return False
 
     def scene(self, *, world_id: str, scene_id: str, records: tuple[TemporalRecord, ...], reader: WorldReader) -> SceneEpisode:
+        self._require_world(world_id)
+        self._require_reader(reader)
         if any(record.entity_authority != f"robotics://world/{world_id}" for record in records):
             raise ValueError("scene records must belong to the exact world")
         for record in records:
@@ -239,6 +302,8 @@ class TabletopWorldMemory:
         return SceneEpisode(world_id=world_id, scene_ref=ResourceRef(authority="robotics://world-memory", resource_type="scene", resource_id=scene_id, version="1", digest=digest), object_refs=refs)
 
     def location(self, *, world_id: str, object_id: str, at: datetime, known_at: datetime, estimated: bool, reader: WorldReader) -> LocationAnswer:
+        self._require_world(world_id)
+        self._require_reader(reader)
         self._refresh()
         candidates = [r for r in self._records if r.entity_authority == f"robotics://world/{world_id}" and r.entity_id == object_id and (estimated or r.kind == "observation")]
         if not candidates:
@@ -268,6 +333,8 @@ class TabletopWorldMemory:
         return LocationAnswer(status="observed" if state == "observation" else "estimated", pose=pose, evidence=evidence)
 
     def locate_class(self, *, world_id: str, class_label: str, at: datetime, known_at: datetime, reader: WorldReader) -> LocationAnswer:
+        self._require_world(world_id)
+        self._require_reader(reader)
         self._refresh()
         ids = set()
         visible: list[TemporalRecord] = []

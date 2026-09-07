@@ -5,6 +5,7 @@ import pytest
 
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import DomainExtensionRegistry
+from rail.procedure_projection import TemporalProjectionService
 from rail.robotics_world_memory import Pose, TabletopWorldMemory, WorldObject, register_world_memory_extension, robotics_world_extension, tabletop_episode_fixture, tabletop_fixture
 from rail.semantic.repository import JsonSemanticStore, SemanticRow
 
@@ -13,6 +14,11 @@ NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 
 class Allow:
     def authorize(self, ref): pass
+
+
+class AllowProjection:
+    def authorize(self, record, *, at):
+        return None
 
 
 class Deny:
@@ -237,6 +243,50 @@ def test_canonical_dependency_invalidation_respects_historical_cutoffs_and_rebui
     memory.rebuild_projection(valid_at=invalidated_at, known_at=invalidated_at, at=invalidated_at)
     assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
     assert any(estimate.record_digest in state.record_digests for state in memory._projection.current_state("robotics-world-memory") if state.entity_id == "cup")
+
+
+def test_recalibration_uses_canonical_parent_for_immediate_transitive_invalidation(tmp_path):
+    path = tmp_path / "semantic.json"
+    estimate_at = NOW + timedelta(minutes=1)
+    invalidated_at = NOW + timedelta(minutes=2)
+    memory = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    observation = memory.record(obj, pose(0.1, "sensor"), kind="observation", evidence=(evidence("sensor"),))
+    estimate = memory.recalibrate(
+        observation, pose(0.2, "calibrated", estimate_at), evidence=(evidence("calibration"),),
+        estimate_expires_at=NOW + timedelta(hours=1),
+    )
+    memory.rebuild_projection(valid_at=estimate_at, known_at=estimate_at, at=estimate_at)
+    assert memory.location(world_id="one", object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=Allow()).status == "estimated"
+    affected = memory.invalidate_map_revision(evidence("sensor"), reason="sensor withdrawn", at=invalidated_at)
+    assert {ref.digest for ref in affected} == {observation.record_digest, estimate.record_digest}
+    assert memory.location(world_id="one", object_id="cup", at=estimate_at, known_at=estimate_at, estimated=True, reader=Allow()).status == "estimated"
+    assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
+    memory.recompute_projection(valid_at=invalidated_at, known_at=invalidated_at, at=invalidated_at)
+    assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
+    memory.rebuild_projection(valid_at=invalidated_at, known_at=invalidated_at, at=invalidated_at)
+    assert memory.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
+
+
+def test_reopen_repairs_legacy_public_parent_alias_without_rewriting_records(tmp_path):
+    path = tmp_path / "semantic.json"
+    estimate_at = NOW + timedelta(minutes=1)
+    legacy = TabletopWorldMemory(clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    observation = legacy.record(obj, pose(0.1, "sensor"), kind="observation", evidence=(evidence("legacy-sensor"),))
+    legacy_estimate = legacy.record(
+        obj, pose(0.2, "legacy-estimate", estimate_at), kind="estimate",
+        evidence=(legacy.record_ref(observation),), estimate_expires_at=NOW + timedelta(hours=1),
+    )
+    service = TemporalProjectionService(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    for record in (observation, legacy_estimate):
+        service.ingest(record, at=NOW, writer=AllowProjection())
+    repaired = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert {record.record_digest for record in repaired._records} == {observation.record_digest, legacy_estimate.record_digest}
+    repaired.rebuild_projection(valid_at=estimate_at, known_at=estimate_at, at=estimate_at)
+    invalidated_at = NOW + timedelta(minutes=2)
+    assert {ref.digest for ref in repaired.invalidate_map_revision(evidence("legacy-sensor"), reason="sensor withdrawn", at=invalidated_at)} == {observation.record_digest, legacy_estimate.record_digest}
+    assert repaired.location(world_id="one", object_id="cup", at=invalidated_at, known_at=invalidated_at, estimated=True, reader=Allow()).status == "stale"
 
 
 def test_tabletop_episode_registry_dispatch_and_no_identity_merge():
