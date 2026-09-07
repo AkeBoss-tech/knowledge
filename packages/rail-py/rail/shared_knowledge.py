@@ -74,6 +74,19 @@ class KnowledgeBackupReceipt:
     bundle_digest: str
 
 
+@dataclass(frozen=True)
+class LocalKnowledgeCommit:
+    write_id: str
+    user_id: str
+    base_commit: str
+    candidate_commit: str
+    path: str
+    content_digest: str
+    generation: int
+    status: str = "pending"
+    deleted: bool = False
+
+
 class SharedKnowledgeWorkspace:
     """A locked, restartable boundary around one configured bare Git remote."""
 
@@ -101,6 +114,7 @@ class SharedKnowledgeWorkspace:
             state.setdefault("proposals", {})
             state.setdefault("backups", {})
             state.setdefault("transitions", {})
+            state.setdefault("local_commits", {})
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
@@ -213,39 +227,79 @@ class SharedKnowledgeWorkspace:
         return transition
 
     def commit_mode_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> KnowledgeModeTransition:
-        raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
+        """Atomically activate a previously registered, verified transition.
+
+        Validation and the mode/generation switch happen under a single
+        acquisition of the state lock so no other mutation can observe (or
+        race) a state where the preview was checked but the switch had not
+        yet landed. A transition may only ever be activated once, and only
+        one active_writer/mode pair can be durable at a time, so a stale
+        connected-git caller (any instance, old or new) is fenced the moment
+        the switch commits: `_require_writer` re-reads mode/active_writer from
+        disk on every call.
+        """
+        if transition.to_mode == self.hosted_mode:
+            raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
+        if transition.to_mode != self.local_mode:
+            raise SharedKnowledgeError("unknown canonical mode activation target")
+        with self._locked_state() as state:
+            existing = state.setdefault("transitions", {}).get(transition.transition_id)
+            if existing and existing.get("activated"):
+                raise SharedKnowledgeError("transition was already activated")
+            stored = self._validate_transition_locked(state, transition, owner_id=owner_id)
+            state["mode"] = transition.to_mode
+            state["active_writer"] = "local-git"
+            state["writer_generation"] = int(state["writer_generation"]) + 1
+            stored["activated"] = True
+            stored["activated_generation"] = state["writer_generation"]
+            state["transitions"][transition.transition_id] = stored
+            self._cache.clear()
+        self._authorize("shared_knowledge.mode_transition", self._repository_ref(transition.canonical_commit), owner_id)
+        return transition
+
+    def _validate_transition_locked(self, state: dict, transition: KnowledgeModeTransition, *, owner_id: str) -> dict:
+        """Validate a durable preview and its immutable bundle. Caller must already hold the state lock."""
+        stored = state.setdefault("transitions", {}).get(transition.transition_id)
+        if not stored or stored.get("owner_id") != owner_id or stored.get("transition") != asdict(transition):
+            raise SharedKnowledgeError("transition preview is forged, missing, or owned by another subject")
+        if state["mode"] != transition.from_mode or state["writer_generation"] != stored["generation"]:
+            raise SharedKnowledgeError("transition writer generation is stale")
+        current = self._remote_ref("refs/heads/main")
+        if current != transition.canonical_commit or transition.source_id != self.remote.as_uri() or transition.source_digest != self._digest(current):
+            raise SharedKnowledgeError("transition source or canonical head is stale")
+        backup = KnowledgeBackupReceipt(**stored["backup"])
+        bundle = Path(backup.bundle_path)
+        if bundle.is_symlink() or not bundle.is_file() or "sha256:" + sha256(bundle.read_bytes()).hexdigest() != backup.bundle_digest:
+            raise SharedKnowledgeError("transition backup bundle is missing or corrupt")
+        self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
+        heads = self._run("git", "bundle", "list-heads", str(bundle)).splitlines()
+        if not any(line.split()[0] == current for line in heads):
+            raise SharedKnowledgeError("transition backup does not contain canonical head")
+        self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
+        return stored
 
     def _validated_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> dict:
         """Validate a durable preview and its immutable bundle before activation."""
         with self._locked_state() as state:
-            stored = state.setdefault("transitions", {}).get(transition.transition_id)
-            if not stored or stored.get("owner_id") != owner_id or stored.get("transition") != asdict(transition):
-                raise SharedKnowledgeError("transition preview is forged, missing, or owned by another subject")
-            if state["mode"] != transition.from_mode or state["writer_generation"] != stored["generation"]:
-                raise SharedKnowledgeError("transition writer generation is stale")
-            current = self._remote_ref("refs/heads/main")
-            if current != transition.canonical_commit or transition.source_id != self.remote.as_uri() or transition.source_digest != self._digest(current):
-                raise SharedKnowledgeError("transition source or canonical head is stale")
-            backup = KnowledgeBackupReceipt(**stored["backup"])
-            bundle = Path(backup.bundle_path)
-            if bundle.is_symlink() or not bundle.is_file() or "sha256:" + sha256(bundle.read_bytes()).hexdigest() != backup.bundle_digest:
-                raise SharedKnowledgeError("transition backup bundle is missing or corrupt")
-            self._run("git", "--git-dir", str(self.remote), "bundle", "verify", str(bundle))
-            heads = self._run("git", "bundle", "list-heads", str(bundle)).splitlines()
-            if not any(line.split()[0] == current for line in heads):
-                raise SharedKnowledgeError("transition backup does not contain canonical head")
-            self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
-            return stored
+            return self._validate_transition_locked(state, transition, owner_id=owner_id)
 
     def _authorize(self, action: str, ref: ResourceRef, user_id: str) -> None:
         # Never cache authority. The adapter verifies live signature/grant state.
         self.action_authorizer.authorize(action, ref, subject_id=user_id)
 
-    def _require_writer(self, state: dict, expected_mode: str, expected_generation: int | None = None) -> int:
-        """Fence canonical mutation against a durable mode/writer generation."""
+    def _require_writer(self, state: dict, expected_mode: str, expected_writer: str, expected_generation: int | None = None) -> int:
+        """Fence canonical mutation against a durable mode/active-writer/generation triple.
+
+        Reads are always taken fresh from the on-disk state under the current
+        lock acquisition, so a stale in-memory `SharedKnowledgeWorkspace`
+        instance -- including one held from before a mode switch -- observes
+        the switch on its very next call and is fenced immediately. Only one
+        (mode, active_writer) pair can be durable at a time, so this also
+        guarantees at most one canonical writer kind is ever active.
+        """
         generation = int(state.get("writer_generation", 0))
-        if state.get("mode") != expected_mode or state.get("active_writer") != "connected-git":
-            raise SharedKnowledgeError("connected canonical writer is disabled")
+        if state.get("mode") != expected_mode or state.get("active_writer") != expected_writer:
+            raise SharedKnowledgeError(f"{expected_writer} canonical writer is disabled")
         if expected_generation is not None and generation != expected_generation:
             raise SharedKnowledgeError("canonical writer generation is stale")
         return generation
@@ -290,7 +344,7 @@ class SharedKnowledgeWorkspace:
             raise ValueError("proposal id must be a bounded safe identifier")
         path = self._safe_path(path)
         with self._locked_state() as state:
-            self._require_writer(state, self.mode)
+            self._require_writer(state, self.mode, "connected-git")
             if proposal_id in state.setdefault("proposals", {}):
                 raise SharedKnowledgeError("proposal id already exists")
             base = self._remote_ref("refs/heads/main")
@@ -330,6 +384,170 @@ class SharedKnowledgeWorkspace:
         self._authorize("shared_knowledge.propose", proposal_ref, user_id)
         return proposal
 
+    def _local_write_ref(self, record: LocalKnowledgeCommit) -> ResourceRef:
+        return self._ref("local/" + record.write_id, record.candidate_commit, record.content_digest)
+
+    def _recover_local(self, state: dict, record: LocalKnowledgeCommit) -> LocalKnowledgeCommit:
+        current = self._remote_ref("refs/heads/main")
+        if record.status == "pending" and current == record.candidate_commit:
+            record = LocalKnowledgeCommit(**{**asdict(record), "status": "landed"})
+            state["local_commits"][record.write_id] = asdict(record)
+        elif record.status == "pending" and current != record.base_commit:
+            record = LocalKnowledgeCommit(**{**asdict(record), "status": "conflict"})
+            state["local_commits"][record.write_id] = asdict(record)
+        return record
+
+    def write_local(self, *, user_id: str, checkout: str | Path, write_id: str, path: str, content: str | None, expected_head: str, expected_generation: int) -> LocalKnowledgeCommit:
+        """Direct single-writer canonical mutation for local-canonical-git mode.
+
+        Unlike ``propose``/``review_and_promote`` (which stage a branch for a
+        separate reviewer to promote), local-canonical-git mode has exactly
+        one durable active writer with no review step: the caller commits
+        straight onto canonical `main`. Every check below is load-bearing:
+
+          * durable active writer/generation: `_require_writer` re-reads
+            mode/active_writer/writer_generation from disk under the lock,
+            so a stale writer (wrong mode, or a superseded generation after a
+            mode transition) is rejected before anything else runs;
+          * exact expected main head: the caller must name the exact commit
+            it believes canonical `main` sits at; a mismatch fails closed
+            instead of silently rebasing onto an unexpected base;
+          * live caller authorization: re-checked against the *current*
+            canonical head, not any cached grant. This applies identically
+            on a resumed (post-crash retry) call: authorization against the
+            current repository and the exact prior record is proven before
+            recovery is allowed to observe or mutate that record's status,
+            and before any resumed effect (staging push or main CAS) can
+            run -- a revoked caller is denied before Git changes, never
+            after;
+          * owned clean checkout and safe path: reuses `_validate_checkout`
+            (real worktree, correct origin, HEAD at `expected_head`, no
+            unsafe local Git config) and `_safe_path`;
+          * candidate Git CAS: the local commit is first pushed to a
+            disposable per-write staging ref (an ordinary object transfer,
+            not a canonical mutation), and only then is `refs/heads/main`
+            moved with a single `git update-ref refs/heads/main <candidate>
+            <expected_head>` run directly against the bare remote. Unlike a
+            plain (non-force) `git push`, which Git will happily fast-forward
+            as long as the remote tip is *any* ancestor of the candidate,
+            `update-ref` with an explicit old value only succeeds if the
+            remote tip is *exactly* that value at the instant of the swap --
+            a real compare-and-swap, not merely "still on the same line of
+            history";
+          * provenance and crash safety: a "pending" record naming the exact
+            candidate is persisted durably *before* the CAS is attempted (the
+            same pattern `review_and_promote` uses for its reviewer receipt),
+            so a crash between commit and CAS can never lose the fact that
+            this local commit exists. A later call with the same `write_id`
+            recovers the exact outcome (landed / conflicted / still pending
+            and safe to resume) by re-checking canonical Git, and never
+            repeats the local commit or the CAS.
+        """
+        if not self._PROPOSAL_ID.fullmatch(write_id):
+            raise ValueError("write id must be a bounded safe identifier")
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", expected_head):
+            raise ValueError("expected head must be an exact commit id")
+        path = self._safe_path(path)
+        deleted = content is None
+        with self._locked_state() as state:
+            self._require_writer(state, self.local_mode, "local-git", expected_generation)
+            local_commits = state.setdefault("local_commits", {})
+            existing = local_commits.get(write_id)
+            if existing is not None:
+                prior = LocalKnowledgeCommit(**existing)
+                current = self._remote_ref("refs/heads/main")
+                # Live authorization against the current repository and the
+                # exact prior record must be proven *before* anything else:
+                # before `_recover_local` is allowed to observe or mutate
+                # this record's status, and before any resumed effect (a
+                # staging push or a main CAS) can run. Skipping this would
+                # let a revoked caller cause real Git mutation and only be
+                # told "denied" after the fact.
+                self._authorize("shared_knowledge.local_write", self._repository_ref(current), user_id)
+                self._authorize("shared_knowledge.local_write", self._local_write_ref(prior), user_id)
+                # Exact idempotent identity: a retry must reassert the same
+                # expected head and generation it originally used, not just
+                # matching content. This closes off a stolen/guessed
+                # write_id from recovering another subject's receipt by
+                # supplying plausible content without having actually
+                # observed the original preconditions.
+                incoming_digest = self._digest(content if content is not None else f"tombstone:{path}:{prior.base_commit}")
+                if (
+                    prior.user_id != user_id
+                    or prior.path != path
+                    or prior.deleted != deleted
+                    or prior.content_digest != incoming_digest
+                    or prior.base_commit != expected_head
+                    or prior.generation != expected_generation
+                ):
+                    raise SharedKnowledgeError("write id already exists")
+                record = self._recover_local(state, prior)
+                record_ref = self._local_write_ref(record)
+                if record.status != "pending":
+                    # Crash-safe idempotent recovery: the git write already
+                    # happened (or definitively failed) before some earlier
+                    # attempt crashed; never repeat it.
+                    self._authorize("shared_knowledge.local_write", record_ref, user_id)
+                    if record.status == "conflict":
+                        raise SharedKnowledgeError("canonical head is stale")
+                    return record
+                # Resume an interrupted attempt: the local commit already
+                # exists in this same checkout from before the crash.
+                checkout_path = self._validate_checkout(checkout, record.candidate_commit)
+            else:
+                current = self._remote_ref("refs/heads/main")
+                if current != expected_head:
+                    raise SharedKnowledgeError("canonical head is stale")
+                repository_ref = self._repository_ref(current)
+                self._authorize("shared_knowledge.local_write", repository_ref, user_id)
+                checkout_path = self._validate_checkout(checkout, current)
+                if self._run("git", "status", "--porcelain", cwd=checkout_path):
+                    raise SharedKnowledgeError("checkout must be clean")
+                destination = checkout_path / path
+                if any(parent.is_symlink() for parent in destination.parents if parent != checkout_path.parent):
+                    raise SharedKnowledgeError("write path may not traverse symlinks")
+                if deleted:
+                    if not destination.is_file():
+                        raise SharedKnowledgeError("only an existing regular file can be tombstoned")
+                    self._run("git", "-c", "core.hooksPath=/dev/null", "rm", "--", path, cwd=checkout_path)
+                else:
+                    if destination.exists() and destination.is_symlink():
+                        raise SharedKnowledgeError("write destination may not be a symlink")
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_text(content)
+                    self._run("git", "-c", "core.hooksPath=/dev/null", "add", "--", path, cwd=checkout_path)
+                self._run("git", "-c", "core.hooksPath=/dev/null", "commit", "-m", f"krail local write {write_id}", cwd=checkout_path)
+                candidate = self._run("git", "rev-parse", "HEAD", cwd=checkout_path)
+                digest = self._digest(content if content is not None else f"tombstone:{path}:{current}")
+                record = LocalKnowledgeCommit(write_id, user_id, current, candidate, path, digest, expected_generation, status="pending", deleted=deleted)
+                record_ref = self._local_write_ref(record)
+                self._authorize("shared_knowledge.local_write", record_ref, user_id)
+                local_commits[write_id] = asdict(record)
+                # Persist the pending intent before canonical Git can move.
+                # A crash before or during the CAS below can therefore never
+                # lose this write's provenance, and recovery never needs to
+                # (and never will) re-run the local commit.
+                self._persist_locked(state)
+            staging_ref = f"refs/krail/local-staging/{write_id}"
+            self._run("git", "-c", "core.hooksPath=/dev/null", "push", str(self.remote), f"HEAD:{staging_ref}", cwd=checkout_path)
+            cas = subprocess.run(
+                ("git", "--git-dir", str(self.remote), "update-ref", "refs/heads/main", record.candidate_commit, record.base_commit),
+                check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            self._run("git", "--git-dir", str(self.remote), "update-ref", "-d", staging_ref)
+            status = "landed" if cas.returncode == 0 else "conflict"
+            record = LocalKnowledgeCommit(**{**asdict(record), "status": status})
+            record_ref = self._local_write_ref(record)
+            self._authorize("shared_knowledge.local_write", record_ref, user_id)
+            local_commits[write_id] = asdict(record)
+            self._cache.clear()
+        # State persistence is an effect too; fail closed if authority changed
+        # while releasing the durable state lock.
+        self._authorize("shared_knowledge.local_write", record_ref, user_id)
+        if record.status == "conflict":
+            raise SharedKnowledgeError("canonical head is stale")
+        return record
+
     def _recover(self, state: dict, proposal: KnowledgeProposal) -> KnowledgeProposal:
         current = self._remote_ref("refs/heads/main")
         if proposal.status == "review-pending" and current == proposal.candidate_commit:
@@ -343,11 +561,15 @@ class SharedKnowledgeWorkspace:
     def review_and_promote(self, proposal_id: str, *, reviewer_id: str) -> KnowledgeProposal:
         result: KnowledgeProposal
         with self._locked_state() as state:
+            # Gate on durable writer identity before anything else, including
+            # the proposal lookup: a stale writer (e.g. after a connected ->
+            # local mode switch) must fail as "writer disabled", not leak an
+            # "unknown proposal" message for a proposal id it never had.
+            self._require_writer(state, self.mode, "connected-git")
             try:
                 proposal = KnowledgeProposal(**state.setdefault("proposals", {})[proposal_id])
             except KeyError as exc:
                 raise SharedKnowledgeError("unknown proposal") from exc
-            self._require_writer(state, self.mode)
             if not reviewer_id:
                 raise ValueError("reviewer identity is required")
             self._authorize("shared_knowledge.review", self._proposal_ref(proposal), reviewer_id)
@@ -396,7 +618,10 @@ class SharedKnowledgeWorkspace:
                 self._authorize("shared_knowledge.read", self._ref("file/" + path, commit, self._digest(content)), user_id)
                 files.append((path, content))
             with self._locked_state() as state:
-                lineage = tuple(sorted(item["candidate_commit"] for item in state.setdefault("proposals", {}).values() if item["status"] == "promoted" and item["candidate_commit"] == commit))
+                lineage = tuple(sorted({
+                    *(item["candidate_commit"] for item in state.setdefault("proposals", {}).values() if item["status"] == "promoted" and item["candidate_commit"] == commit),
+                    *(item["candidate_commit"] for item in state.setdefault("local_commits", {}).values() if item["status"] == "landed" and item["candidate_commit"] == commit),
+                }))
             context = AuthorizedKnowledgeContext(user_id, commit, tuple(files), lineage)
             self._cache[cache_key] = context
         # A repository grant does not imply an exact-file grant. Recheck every
@@ -410,8 +635,16 @@ class SharedKnowledgeWorkspace:
                 for item in state.setdefault("proposals", {}).values()
                 if item["status"] == "promoted" and item["candidate_commit"] in context.lineage
             }
+            landed_local = {
+                item["candidate_commit"]: LocalKnowledgeCommit(**item)
+                for item in state.setdefault("local_commits", {}).values()
+                if item["status"] == "landed" and item["candidate_commit"] in context.lineage
+            }
         for candidate in context.lineage:
-            self._authorize("shared_knowledge.read", self._proposal_ref(promoted[candidate]), user_id)
+            if candidate in promoted:
+                self._authorize("shared_knowledge.read", self._proposal_ref(promoted[candidate]), user_id)
+            else:
+                self._authorize("shared_knowledge.read", self._local_write_ref(landed_local[candidate]), user_id)
         return context
 
     def export(self, user_id: str) -> dict:
