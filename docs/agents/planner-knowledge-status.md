@@ -29,6 +29,12 @@
   episodes store exact snapshot refs rather than copies. Reopened
   `scene_at`, `episode_at`, and `object_history` queries enforce valid/known
   cutoffs plus source authorization before returning a record or reference.
+  Writes authorize caller-supplied evidence and transitive refs before the
+  transaction, then recheck inside it before commit; a failed final local
+  authorization check aborts that store transaction before a scene or episode row is published. RFC8785 digests include complete exact refs and
+  object/scene membership. A scene cannot predate a constituent record; an
+  incomplete episode appears only with constituents visible at the query time,
+  while a completed aggregate requires explicit `completed_at`.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
   invalidating either an exact source or map ref writes the projection's
@@ -61,7 +67,7 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `150 passed`; compileall and `git diff --check` pass.
+  reports `155 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: the signed hosted adapters are local-contract proof,
   not a deployed control-plane integration. Appearance observations/gallery
   metadata (asset/crop/mask/descriptors and identity candidates), explicit

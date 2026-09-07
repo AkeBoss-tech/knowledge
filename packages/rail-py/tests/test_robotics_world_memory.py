@@ -338,6 +338,85 @@ def test_scene_evidence_is_authorized_and_episode_handles_hour_boundary():
         memory.scene(world_id="table-a", scene_id="mixed", records=(initial, other), reader=Allow())
 
 
+def test_scene_and_episode_authorize_supplied_evidence_before_persisting(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory, _ = tabletop_fixture(NOW, str(path), tenant_id="t", project_id="p")
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    private = evidence("private-denied")
+    scenes_before = memory._projection.store.list("t", "p", kind="robotics_scene_snapshot")
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.scene(
+            world_id="table-a", scene_id="private-evidence", records=(left,),
+            reader=DenyResource("private-denied"), evidence_refs=(private,),
+        )
+    assert memory._projection.store.list("t", "p", kind="robotics_scene_snapshot") == scenes_before
+    scene = memory.scene(world_id="table-a", scene_id="public", records=(left,), reader=Allow())
+    episodes_before = memory._projection.store.list("t", "p", kind="robotics_episode")
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.episode(
+            world_id="table-a", session_id="default", episode_id="private-evidence",
+            scene_refs=(scene.scene_ref,), reader=DenyResource("private-denied"),
+            valid_from=NOW, evidence_refs=(private,),
+        )
+    assert memory._projection.store.list("t", "p", kind="robotics_episode") == episodes_before
+
+
+def test_scene_and_episode_rollback_when_final_authorization_is_revoked(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory, _ = tabletop_fixture(NOW, str(path), tenant_id="t", project_id="p")
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    scenes_before = memory._projection.store.list("t", "p", kind="robotics_scene_snapshot")
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.scene(world_id="table-a", scene_id="revoked-final", records=(left,), reader=RevokeAfter(5))
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened._projection.store.list("t", "p", kind="robotics_scene_snapshot") == scenes_before
+    scene = memory.scene(world_id="table-a", scene_id="public-final", records=(left,), reader=Allow())
+    episodes_before = memory._projection.store.list("t", "p", kind="robotics_episode")
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        memory.episode(
+            world_id="table-a", session_id="default", episode_id="revoked-final",
+            scene_refs=(scene.scene_ref,), reader=RevokeAfter(7), valid_from=NOW,
+        )
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened._projection.store.list("t", "p", kind="robotics_episode") == episodes_before
+
+
+def test_scene_and_episode_digests_bind_full_exact_refs_and_membership():
+    memory, _ = tabletop_fixture(NOW)
+    left = next(record for record in memory._records if record.entity_id == "cup-left")
+    right = next(record for record in memory._records if record.entity_id == "cup-right")
+    same_digest = "sha256:" + "a" * 64
+    ref_a = ResourceRef(authority="fixture://one", resource_type="annotation", resource_id="same", version="1", digest=same_digest)
+    ref_b = ResourceRef(authority="fixture://two", resource_type="annotation", resource_id="different", version="1", digest=same_digest)
+    first = memory.scene(world_id="table-a", scene_id="exact-ref", records=(left,), reader=Allow(), valid_at=NOW, recorded_at=NOW, evidence_refs=(ref_a,))
+    second = memory.scene(world_id="table-a", scene_id="exact-ref", records=(left,), reader=Allow(), valid_at=NOW, recorded_at=NOW, evidence_refs=(ref_b,))
+    assert first.scene_ref.digest != second.scene_ref.digest
+    all_refs = (memory.record_ref(left), memory.record_ref(right))
+    only_left = memory.scene(world_id="table-a", scene_id="membership", records=(left,), reader=Allow(), valid_at=NOW, recorded_at=NOW, evidence_refs=all_refs)
+    only_right = memory.scene(world_id="table-a", scene_id="membership", records=(right,), reader=Allow(), valid_at=NOW, recorded_at=NOW, evidence_refs=all_refs)
+    assert only_left.scene_ref.digest != only_right.scene_ref.digest
+    forward = memory.episode(world_id="table-a", session_id="default", episode_id="ordering", scene_refs=(only_left.scene_ref, only_right.scene_ref), reader=Allow(), valid_from=NOW, recorded_at=NOW, evidence_refs=(only_left.scene_ref, only_right.scene_ref))
+    reverse = memory.episode(world_id="table-a", session_id="default", episode_id="ordering", scene_refs=(only_right.scene_ref, only_left.scene_ref), reader=Allow(), valid_from=NOW, recorded_at=NOW, evidence_refs=(only_left.scene_ref, only_right.scene_ref))
+    assert forward.episode_ref.digest != reverse.episode_ref.digest
+
+
+def test_scene_and_episode_historical_queries_hide_future_constituents():
+    memory = TabletopWorldMemory(clock=lambda: NOW)
+    obj = WorldObject(world_id="table-a", object_id="cup", class_label="cup")
+    future = memory.record(obj, pose(0.3, "future", NOW + timedelta(minutes=2)), kind="observation", evidence=(evidence("future"),), recorded_at=NOW)
+    with pytest.raises(ValueError, match="cannot precede"):
+        memory.scene(world_id="table-a", scene_id="impossible", records=(future,), reader=Allow(), valid_at=NOW, recorded_at=NOW)
+    opening = memory.record(obj, pose(0.1, "opening"), kind="observation", evidence=(evidence("opening"),), recorded_at=NOW)
+    opening_scene = memory.scene(world_id="table-a", scene_id="opening", records=(opening,), reader=Allow(), valid_at=NOW, recorded_at=NOW)
+    future_scene = memory.scene(world_id="table-a", scene_id="future", records=(future,), reader=Allow(), valid_at=NOW + timedelta(minutes=2), recorded_at=NOW)
+    incomplete = memory.episode(world_id="table-a", session_id="default", episode_id="incomplete", scene_refs=(opening_scene.scene_ref, future_scene.scene_ref), reader=Allow(), valid_from=NOW, recorded_at=NOW)
+    assert memory.episode_at(world_id="table-a", session_id="default", at=NOW + timedelta(minutes=1), known_at=NOW, reader=Allow()) is None
+    completed = memory.episode(world_id="table-a", session_id="default", episode_id="completed", scene_refs=(opening_scene.scene_ref, future_scene.scene_ref), reader=Allow(), valid_from=NOW, completed_at=NOW + timedelta(minutes=2), recorded_at=NOW)
+    assert memory.episode_at(world_id="table-a", session_id="default", at=NOW + timedelta(minutes=1), known_at=NOW, reader=Allow()) is None
+    assert memory.episode_at(world_id="table-a", session_id="default", at=NOW + timedelta(minutes=2), known_at=NOW, reader=Allow()).episode_ref == completed.episode_ref
+    assert incomplete.episode_ref != completed.episode_ref
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")

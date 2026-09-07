@@ -16,6 +16,7 @@ from krail.provider.v1 import ResourceRef
 from rail.authorized_context import HostedRoboticsInvalidationAuthorizer, HostedRoboticsProjectionWriter, HostedRoboticsWorldReader
 from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, HANDLER_LINEAGE_REFS, describe_extension, describe_operator
 from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidationAuthorizer, ProjectionRecomputeRun, ProjectionWriter, TemporalProjectionService
+from rail.semantic.models import canonical_digest
 from rail.semantic.repository import SemanticRow
 from rail.temporal_records import TemporalRecord, create_temporal_record, query_temporal_records
 
@@ -73,6 +74,7 @@ class SceneEpisode(Strict):
     scene_refs: tuple[ResourceRef, ...]
     evidence_refs: tuple[ResourceRef, ...]
     valid_from: datetime
+    completed_at: datetime | None = None
     recorded_at: datetime
 
 
@@ -315,19 +317,49 @@ class TabletopWorldMemory:
                 return True
         return False
 
-    def _persist_scene(self, scene: SceneSnapshot) -> SceneSnapshot:
-        if scene not in self._scenes:
-            if self._projection is not None:
-                with self._projection.store.transaction():
-                    current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_scene_snapshot", scene.scene_ref.digest)
-                    payload = {"scene": scene.model_dump(mode="json")}
-                    if current is not None:
-                        if current.payload != payload:
-                            raise ValueError("conflicting scene snapshot replay")
-                    else:
-                        self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_scene_snapshot", record_id=scene.scene_ref.digest, revision=1, payload=payload, created_at=scene.recorded_at, updated_at=scene.recorded_at), expected_revision=0)
-            self._scenes.append(scene)
+    def _persist_scene(self, scene: SceneSnapshot, reader: WorldReader) -> SceneSnapshot:
+        if scene in self._scenes:
+            self._authorize_scene(scene, reader)
+            return scene
+        if self._projection is not None:
+            with self._projection.store.transaction():
+                # Both checks run while this transaction is open. A live
+                # revocation during the final check aborts the insert.
+                self._authorize_scene(scene, reader)
+                current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_scene_snapshot", scene.scene_ref.digest)
+                payload = {"scene": scene.model_dump(mode="json")}
+                if current is not None:
+                    if current.payload != payload:
+                        raise ValueError("conflicting scene snapshot replay")
+                else:
+                    self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_scene_snapshot", record_id=scene.scene_ref.digest, revision=1, payload=payload, created_at=scene.recorded_at, updated_at=scene.recorded_at), expected_revision=0)
+                self._authorize_scene(scene, reader)
+        else:
+            self._authorize_scene(scene, reader)
+            self._authorize_scene(scene, reader)
+        self._scenes.append(scene)
         return scene
+
+    def _persist_episode(self, episode: SceneEpisode, reader: WorldReader) -> SceneEpisode:
+        if episode in self._episodes:
+            self._authorize_episode(episode, reader)
+            return episode
+        if self._projection is not None:
+            with self._projection.store.transaction():
+                self._authorize_episode(episode, reader)
+                payload = {"episode": episode.model_dump(mode="json")}
+                current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_episode", episode.episode_ref.digest)
+                if current is not None:
+                    if current.payload != payload:
+                        raise ValueError("conflicting episode replay")
+                else:
+                    self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_episode", record_id=episode.episode_ref.digest, revision=1, payload=payload, created_at=episode.recorded_at, updated_at=episode.recorded_at), expected_revision=0)
+                self._authorize_episode(episode, reader)
+        else:
+            self._authorize_episode(episode, reader)
+            self._authorize_episode(episode, reader)
+        self._episodes.append(episode)
+        return episode
 
     def _record_for_ref(self, ref: ResourceRef) -> TemporalRecord | None:
         return next((record for record in self._records if self.record_ref(record).exact_key == ref.exact_key), None)
@@ -345,6 +377,19 @@ class TabletopWorldMemory:
         except PermissionError as exc:
             raise PermissionError("world-memory access denied") from exc
 
+    def _authorize_episode(self, episode: SceneEpisode, reader: WorldReader) -> None:
+        try:
+            reader.authorize(episode.episode_ref)
+            for ref in episode.evidence_refs:
+                reader.authorize(ref)
+            for scene_ref in episode.scene_refs:
+                scene = next((item for item in self._scenes if item.scene_ref.exact_key == scene_ref.exact_key), None)
+                if scene is None:
+                    raise PermissionError("episode scene is unavailable")
+                self._authorize_scene(scene, reader)
+        except PermissionError as exc:
+            raise PermissionError("world-memory access denied") from exc
+
     def _scene_known_at(self, scene: SceneSnapshot, known_at: datetime) -> bool:
         """A snapshot cannot reveal a raw object record learned after `known_at`."""
         if scene.recorded_at > known_at:
@@ -352,6 +397,15 @@ class TabletopWorldMemory:
         for ref in scene.object_refs:
             record = self._record_for_ref(ref)
             if record is None or (record.ingested_at or record.recorded_at) > known_at:
+                return False
+        return True
+
+    def _scene_visible_at(self, scene: SceneSnapshot, at: datetime, known_at: datetime) -> bool:
+        if scene.valid_at > at or not self._scene_known_at(scene, known_at):
+            return False
+        for ref in scene.object_refs:
+            record = self._record_for_ref(ref)
+            if record is None or record.valid_from > at or (record.valid_to is not None and at >= record.valid_to):
                 return False
         return True
 
@@ -364,6 +418,17 @@ class TabletopWorldMemory:
             for scene_ref in episode.scene_refs
         )
 
+    def _episode_visible_at(self, episode: SceneEpisode, at: datetime, known_at: datetime) -> bool:
+        if episode.valid_from > at or not self._episode_known_at(episode, known_at):
+            return False
+        if episode.completed_at is not None:
+            return episode.completed_at <= at
+        return all(
+            (scene := next((item for item in self._scenes if item.scene_ref.exact_key == scene_ref.exact_key), None)) is not None
+            and self._scene_visible_at(scene, at, known_at)
+            for scene_ref in episode.scene_refs
+        )
+
     def scene(self, *, world_id: str, scene_id: str, records: tuple[TemporalRecord, ...], reader: WorldReader, place_id: str = "table", session_id: str = "default", valid_at: datetime | None = None, recorded_at: datetime | None = None, evidence_refs: tuple[ResourceRef, ...] = ()) -> SceneSnapshot:
         self._require_world(world_id)
         self._require_reader(reader)
@@ -371,23 +436,27 @@ class TabletopWorldMemory:
             raise ValueError("scene snapshots require at least one exact object record")
         if any(record.entity_authority != f"robotics://world/{world_id}" for record in records):
             raise ValueError("scene records must belong to the exact world")
-        for record in records:
-            self._authorized_evidence(record, reader)
         refs = tuple(self.record_ref(record) for record in records)
         valid_at = valid_at or max(record.valid_from for record in records)
+        if valid_at < max(record.valid_from for record in records):
+            raise ValueError("scene valid time cannot precede a referenced object record")
         recorded_at = recorded_at or self._clock()
         scene_evidence = tuple(dict.fromkeys((*evidence_refs, *refs)))
-        digest = "sha256:" + sha256((world_id + ":" + session_id + ":" + place_id + ":" + scene_id + ":" + valid_at.isoformat() + ":" + recorded_at.isoformat() + ":" + ":".join(ref.digest for ref in scene_evidence)).encode()).hexdigest()
+        digest = canonical_digest({
+            "schema_version": "krail.robotics-scene-snapshot.v1",
+            "world_id": world_id, "session_id": session_id, "place_id": place_id,
+            "scene_id": scene_id, "object_refs": [ref.model_dump(mode="json") for ref in refs],
+            "evidence_refs": [ref.model_dump(mode="json") for ref in scene_evidence],
+            "valid_at": valid_at.isoformat(), "recorded_at": recorded_at.isoformat(),
+        })
         scene = SceneSnapshot(world_id=world_id, session_id=session_id, place_id=place_id, scene_ref=ResourceRef(authority="robotics://world-memory", resource_type="scene-snapshot", resource_id=scene_id, version="1", digest=digest), object_refs=refs, evidence_refs=scene_evidence, valid_at=valid_at, recorded_at=recorded_at)
-        for record in records:
-            self._authorized_evidence(record, reader)
-        return self._persist_scene(scene)
+        return self._persist_scene(scene, reader)
 
     def scene_at(self, *, world_id: str, place_id: str, session_id: str, at: datetime, known_at: datetime, reader: WorldReader) -> SceneSnapshot | None:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
-        choices = [scene for scene in self._scenes if scene.world_id == world_id and scene.place_id == place_id and scene.session_id == session_id and scene.valid_at <= at and self._scene_known_at(scene, known_at)]
+        choices = [scene for scene in self._scenes if scene.world_id == world_id and scene.place_id == place_id and scene.session_id == session_id and self._scene_visible_at(scene, at, known_at)]
         if not choices:
             return None
         scene = max(choices, key=lambda item: (item.valid_at, item.recorded_at, item.scene_ref.digest))
@@ -395,56 +464,40 @@ class TabletopWorldMemory:
         self._authorize_scene(scene, reader)
         return scene
 
-    def episode(self, *, world_id: str, session_id: str, episode_id: str, scene_refs: tuple[ResourceRef, ...], reader: WorldReader, valid_from: datetime, recorded_at: datetime | None = None, evidence_refs: tuple[ResourceRef, ...] = ()) -> SceneEpisode:
+    def episode(self, *, world_id: str, session_id: str, episode_id: str, scene_refs: tuple[ResourceRef, ...], reader: WorldReader, valid_from: datetime, completed_at: datetime | None = None, recorded_at: datetime | None = None, evidence_refs: tuple[ResourceRef, ...] = ()) -> SceneEpisode:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
         scenes = [next((scene for scene in self._scenes if scene.scene_ref.exact_key == ref.exact_key), None) for ref in scene_refs]
         if not scene_refs or any(scene is None or scene.world_id != world_id or scene.session_id != session_id for scene in scenes):
             raise ValueError("episode scenes must be exact snapshots from one world session")
-        for scene in scenes:
-            self._authorize_scene(scene, reader)  # type: ignore[arg-type]
+        complete_scenes = tuple(scene for scene in scenes if scene is not None)
+        if completed_at is not None and completed_at < max(scene.valid_at for scene in complete_scenes):
+            raise ValueError("completed episode cannot precede a referenced scene")
         recorded_at = recorded_at or self._clock()
         episode_evidence = tuple(dict.fromkeys((*evidence_refs, *scene_refs)))
-        digest = "sha256:" + sha256((world_id + ":" + session_id + ":" + episode_id + ":" + valid_from.isoformat() + ":" + recorded_at.isoformat() + ":" + ":".join(ref.digest for ref in episode_evidence)).encode()).hexdigest()
-        episode = SceneEpisode(world_id=world_id, session_id=session_id, episode_ref=ResourceRef(authority="robotics://world-memory", resource_type="episode", resource_id=episode_id, version="1", digest=digest), scene_refs=scene_refs, evidence_refs=episode_evidence, valid_from=valid_from, recorded_at=recorded_at)
-        if episode not in self._episodes:
-            if self._projection is not None:
-                with self._projection.store.transaction():
-                    payload = {"episode": episode.model_dump(mode="json")}
-                    current = self._projection.store.get(self._tenant_id, self._project_id, "robotics_episode", episode.episode_ref.digest)
-                    if current is not None:
-                        if current.payload != payload:
-                            raise ValueError("conflicting episode replay")
-                    else:
-                        self._projection.store.put(SemanticRow(tenant_id=self._tenant_id, project_id=self._project_id, record_kind="robotics_episode", record_id=episode.episode_ref.digest, revision=1, payload=payload, created_at=recorded_at, updated_at=recorded_at), expected_revision=0)
-            self._episodes.append(episode)
-        for scene in scenes:
-            self._authorize_scene(scene, reader)  # type: ignore[arg-type]
-        return episode
+        digest = canonical_digest({
+            "schema_version": "krail.robotics-episode.v1", "world_id": world_id,
+            "session_id": session_id, "episode_id": episode_id,
+            "scene_refs": [ref.model_dump(mode="json") for ref in scene_refs],
+            "evidence_refs": [ref.model_dump(mode="json") for ref in episode_evidence],
+            "valid_from": valid_from.isoformat(),
+            "completed_at": completed_at.isoformat() if completed_at else None,
+            "recorded_at": recorded_at.isoformat(),
+        })
+        episode = SceneEpisode(world_id=world_id, session_id=session_id, episode_ref=ResourceRef(authority="robotics://world-memory", resource_type="episode", resource_id=episode_id, version="1", digest=digest), scene_refs=scene_refs, evidence_refs=episode_evidence, valid_from=valid_from, completed_at=completed_at, recorded_at=recorded_at)
+        return self._persist_episode(episode, reader)
 
     def episode_at(self, *, world_id: str, session_id: str, at: datetime, known_at: datetime, reader: WorldReader) -> SceneEpisode | None:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
-        choices = [episode for episode in self._episodes if episode.world_id == world_id and episode.session_id == session_id and episode.valid_from <= at and self._episode_known_at(episode, known_at)]
+        choices = [episode for episode in self._episodes if episode.world_id == world_id and episode.session_id == session_id and self._episode_visible_at(episode, at, known_at)]
         if not choices:
             return None
         episode = max(choices, key=lambda item: (item.valid_from, item.recorded_at, item.episode_ref.digest))
-        try:
-            reader.authorize(episode.episode_ref)
-            for ref in episode.evidence_refs:
-                reader.authorize(ref)
-            for scene_ref in episode.scene_refs:
-                scene = next((item for item in self._scenes if item.scene_ref.exact_key == scene_ref.exact_key), None)
-                if scene is None:
-                    raise PermissionError("episode scene is unavailable")
-                self._authorize_scene(scene, reader)
-            reader.authorize(episode.episode_ref)
-            for ref in episode.evidence_refs:
-                reader.authorize(ref)
-        except PermissionError as exc:
-            raise PermissionError("world-memory access denied") from exc
+        self._authorize_episode(episode, reader)
+        self._authorize_episode(episode, reader)
         return episode
 
     def object_history(self, *, world_id: str, object_id: str, valid_from: datetime, valid_to: datetime | None, known_at: datetime, reader: WorldReader) -> ObjectHistory:
@@ -540,7 +593,7 @@ def tabletop_episode_fixture(at: datetime, path: str | None = None, *, tenant_id
     occluded = memory.scene(world_id="table-a", scene_id="occluded", records=(estimate, right), reader=_FixtureReader(), place_id="table", session_id="session-1", valid_at=at + timedelta(minutes=1), recorded_at=at + timedelta(minutes=1))
     reobserved = memory.record(obj, Pose(frame_id="table", metres=(0.45, 0.2, 0.0), quaternion_xyzw=(0, 0, 0, 1), observed_at=at + timedelta(minutes=3), uncertainty_metres=0.01, revision="obs-2", map_revision="table-map-2"), kind="observation", evidence=(evidence,), recorded_at=at + timedelta(minutes=3))
     final = memory.scene(world_id="table-a", scene_id="reobserved", records=(reobserved, right), reader=_FixtureReader(), place_id="table", session_id="session-1", valid_at=at + timedelta(minutes=3), recorded_at=at + timedelta(minutes=3))
-    episode = memory.episode(world_id="table-a", session_id="session-1", episode_id="occlusion-and-reobservation", scene_refs=(opening.scene_ref, occluded.scene_ref, final.scene_ref), reader=_FixtureReader(), valid_from=at, recorded_at=at + timedelta(minutes=3))
+    episode = memory.episode(world_id="table-a", session_id="session-1", episode_id="occlusion-and-reobservation", scene_refs=(opening.scene_ref, occluded.scene_ref, final.scene_ref), reader=_FixtureReader(), valid_from=at, completed_at=at + timedelta(minutes=3), recorded_at=at + timedelta(minutes=3))
     return memory, {"left_initial": left, "left_estimate": estimate, "left_reobserved": reobserved, "opening_scene": opening, "occluded_scene": occluded, "final_scene": final, "episode": episode}
 
 
