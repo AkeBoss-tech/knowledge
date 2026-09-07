@@ -5,6 +5,7 @@ import pytest
 from krail.provider.v1 import ResourceRef
 from rail.extension_registry import (
     DomainExtensionRegistry,
+    HANDLER_LINEAGE_REFS,
     describe_extension,
     describe_operator,
     verify_invocation_integrity,
@@ -39,6 +40,15 @@ class RevokeAfterFirstCheck:
         self.calls += 1
         if self.calls > 1:
             raise PermissionError("revoked")
+
+
+class DenyResource:
+    def __init__(self, resource_id: str) -> None:
+        self.resource_id = resource_id
+
+    def authorize(self, ref: ResourceRef) -> None:
+        if ref.resource_id == self.resource_id:
+            raise PermissionError("hidden source")
 
 
 def _extension(extension_id: str, schema: str, operator_id: str):
@@ -139,6 +149,55 @@ def test_invocation_lineage_exposes_output_digest_for_integrity_checks() -> None
     result.output["valid"] = False
     with pytest.raises(ValueError, match="output was mutated"):
         verify_invocation_integrity(result, operator)
+
+
+def test_dispatch_binds_handler_consumed_exact_refs_into_lineage() -> None:
+    registry = DomainExtensionRegistry()
+    descriptor, operator = _extension("robotics", "robotics.pose.v1", "robotics.validate")
+    canonical_ref = _ref("canonical-snapshot")
+    registry.register(
+        descriptor,
+        {operator.operator_id: lambda inputs, config: {"valid": True, HANDLER_LINEAGE_REFS: (canonical_ref,)}},
+    )
+    caller_ref = _ref("caller")
+    result = registry.dispatch(
+        operator.operator_id,
+        operator.version,
+        ((caller_ref, {}),),
+        config={},
+        authorizer=Allow(),
+    )
+    assert result.output == {"valid": True}
+    assert {ref.exact_key for ref in result.input_refs} == {caller_ref.exact_key, canonical_ref.exact_key}
+    verify_invocation_integrity(result, operator)
+
+
+def test_dispatch_rejects_denied_or_malformed_handler_lineage_refs() -> None:
+    registry = DomainExtensionRegistry()
+    descriptor, operator = _extension("robotics", "robotics.pose.v1", "robotics.validate")
+    canonical_ref = _ref("canonical-secret")
+    calls = []
+    registry.register(
+        descriptor,
+        {operator.operator_id: lambda inputs, config: calls.append(True) or {HANDLER_LINEAGE_REFS: (canonical_ref,)}},
+    )
+    with pytest.raises(PermissionError, match="extension access denied"):
+        registry.dispatch(
+            operator.operator_id,
+            operator.version,
+            ((_ref("caller"), {}),),
+            config={},
+            authorizer=DenyResource("canonical-secret"),
+        )
+    assert calls == [True]
+
+    malformed = DomainExtensionRegistry()
+    malformed.register(
+        descriptor,
+        {operator.operator_id: lambda inputs, config: {HANDLER_LINEAGE_REFS: ("not-a-ref",)}},
+    )
+    with pytest.raises(TypeError, match="lineage refs"):
+        malformed.dispatch(operator.operator_id, operator.version, ((_ref("caller"), {}),), config={}, authorizer=Allow())
 
 
 def test_invocation_integrity_rejects_output_schema_tampering() -> None:

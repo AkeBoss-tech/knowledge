@@ -1,5 +1,40 @@
 # Knowledge planner status
 
+## #19 feature branch: temporal tabletop world-memory hardening (2026-09-07)
+
+- `TabletopWorldMemory` persists immutable observation and estimate envelopes
+  in the existing canonical `JsonSemanticStore`, refreshes a second open
+  reader before each query, and keeps physical observation time (`valid_from`)
+  separate from the trusted ingestion clock (`recorded_at`). A late physical
+  observation is therefore absent from a historical `known_at` query until it
+  arrives, while its original effective time remains intact.
+- Location answers distinguish last observed, current estimated, expired
+  estimate (`stale`), and unknown current location. Authorized stale and
+  last-seen answers retain exact source and canonical-record evidence;
+  unauthorized callers fail before any status, evidence, class count, or scene
+  reference is exposed. Scene construction and class ambiguity recheck every
+  exact source and record ref immediately before return.
+- The deterministic tabletop episode has two same-class cups, an occlusion and
+  unseen move, a bounded-expiry estimate, later reobservation with a new map
+  revision, and an hour-boundary-safe timeline. Class lookup filters both
+  future and unauthorized objects before deciding ambiguity, and scene records
+  must belong to one exact world.
+- The real trusted-local registry dispatch registers the world-memory lookup as
+  explicitly nondeterministic because it reads a mutable canonical snapshot.
+  Handlers may return the reserved `HANDLER_LINEAGE_REFS` channel; dispatch
+  removes it from output, authorizes it, and binds every exact consumed ref
+  into the immutable invocation lineage. Denied or malformed added refs fail
+  closed. This does not make a mutable lookup replayable without the matching
+  canonical snapshot.
+- Verification on `codex/roadmap-knowledge-followup`:
+  `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
+  reports `140 passed`; compileall and `git diff --check` pass.
+- Remaining #19 boundary: no signed hosted robotics writer/reader adapter or
+  `TemporalProjectionService` materialization exists yet; registry authorization
+  is the caller-supplied local seam plus `WorldReader`. No ROS transport,
+  perception pipeline, binary asset store, live robot control, identity merge,
+  or general world-model engine is claimed.
+
 ## Current authoritative slice: durable procedure freshness projection (2026-09-07)
 
 - Added immutable `procedure_invalidation` events and rebuildable
