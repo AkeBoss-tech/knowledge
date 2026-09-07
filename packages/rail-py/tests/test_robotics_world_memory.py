@@ -336,3 +336,49 @@ def test_scene_evidence_is_authorized_and_episode_handles_hour_boundary():
     other = memory.record(WorldObject(world_id="other", object_id="cup", class_label="cup"), pose(0.0, "other"), kind="observation", evidence=(evidence("other"),))
     with pytest.raises(ValueError, match="exact world"):
         memory.scene(world_id="table-a", scene_id="mixed", records=(initial, other), reader=Allow())
+
+
+def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
+    path = tmp_path / "semantic.json"
+    memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")
+    opening = fixture["opening_scene"]
+    occluded = fixture["occluded_scene"]
+    final = fixture["final_scene"]
+    episode = fixture["episode"]
+    right_ref = next(ref for ref in opening.object_refs if "cup-right" in ref.resource_id)
+    assert right_ref in occluded.object_refs and right_ref in final.object_refs
+    reopened = TabletopWorldMemory(str(path), tenant_id="t", project_id="p", clock=lambda: NOW)
+    assert reopened.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()).scene_ref == opening.scene_ref
+    assert reopened.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW + timedelta(minutes=1), known_at=NOW + timedelta(minutes=1), reader=Allow()).scene_ref == occluded.scene_ref
+    assert reopened.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()).scene_ref == final.scene_ref
+    assert reopened.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=1), reader=Allow()).scene_ref == occluded.scene_ref
+    history = reopened.object_history(world_id="table-a", object_id="cup-left", valid_from=NOW, valid_to=NOW + timedelta(minutes=4), known_at=NOW + timedelta(minutes=3), reader=Allow())
+    assert tuple(record.payload["state"] for record in history.records) == ("observation", "estimate", "observation")
+    assert history.evidence
+    assert reopened.episode_at(world_id="table-a", session_id="session-1", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()).episode_ref == episode.episode_ref
+    assert reopened.episode_at(world_id="table-a", session_id="session-1", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=1), reader=Allow()) is None
+    assert reopened.scene_at(world_id="other", place_id="table", session_id="session-1", at=NOW + timedelta(minutes=3), known_at=NOW + timedelta(minutes=3), reader=Allow()) is None
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reopened.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW, known_at=NOW, reader=Deny())
+    with pytest.raises(PermissionError, match="world-memory access denied"):
+        reopened.object_history(world_id="table-a", object_id="cup-left", valid_from=NOW, valid_to=None, known_at=NOW + timedelta(minutes=3), reader=Deny())
+
+
+def test_scene_and_episode_do_not_become_known_before_their_raw_records(tmp_path):
+    memory = TabletopWorldMemory(str(tmp_path / "semantic.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
+    record = memory.record(
+        WorldObject(world_id="table-a", object_id="cup", class_label="cup"),
+        pose(0.1, "late", NOW), kind="observation", evidence=(evidence("late"),),
+        recorded_at=NOW + timedelta(minutes=5),
+    )
+    scene = memory.scene(
+        world_id="table-a", scene_id="malformed-early-snapshot", records=(record,), reader=Allow(),
+        session_id="session-1", valid_at=NOW, recorded_at=NOW,
+    )
+    memory.episode(
+        world_id="table-a", session_id="session-1", episode_id="malformed-early-episode",
+        scene_refs=(scene.scene_ref,), reader=Allow(), valid_from=NOW, recorded_at=NOW,
+    )
+    assert memory.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()) is None
+    assert memory.episode_at(world_id="table-a", session_id="session-1", at=NOW, known_at=NOW, reader=Allow()) is None
+    assert memory.scene_at(world_id="table-a", place_id="table", session_id="session-1", at=NOW, known_at=NOW + timedelta(minutes=5), reader=Allow()).scene_ref == scene.scene_ref

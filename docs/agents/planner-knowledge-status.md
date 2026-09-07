@@ -22,6 +22,13 @@
   revision, and an hour-boundary-safe timeline. Class lookup filters both
   future and unauthorized objects before deciding ambiguity, and scene records
   must belong to one exact world.
+- Scene snapshots and episodes are now distinct canonical records, each with
+  explicit world, session, exact evidence, valid time, and recorded time.
+  Snapshots store only exact object-record refs, so the unchanged right cup is
+  structurally shared across opening, occlusion, and reobservation snapshots;
+  episodes store exact snapshot refs rather than copies. Reopened
+  `scene_at`, `episode_at`, and `object_history` queries enforce valid/known
+  cutoffs plus source authorization before returning a record or reference.
 - Estimates require an explicit future expiry and include their exact map
   revision ref. The existing projection materializes their current state:
   invalidating either an exact source or map ref writes the projection's
@@ -54,12 +61,14 @@
   canonical snapshot.
 - Verification on `codex/roadmap-knowledge-followup`:
   `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
-  reports `149 passed`; compileall and `git diff --check` pass.
+  reports `150 passed`; compileall and `git diff --check` pass.
 - Remaining #19 boundary: the signed hosted adapters are local-contract proof,
-  not a deployed control-plane integration. Session/episode modeling, richer
-  object lifecycle queries, camera/perception ingestion, ROS transport,
-  perception pipeline, binary asset store, live robot control, identity merge,
-  or general world-model engine is claimed.
+  not a deployed control-plane integration. Appearance observations/gallery
+  metadata (asset/crop/mask/descriptors and identity candidates), explicit
+  support/containment/attachment and region queries, prediction/action-outcome
+  records, camera/perception ingestion, ROS transport, binary asset store,
+  live robot control, identity merge, spatial indexes, and a general
+  world-model engine remain outside this bounded #19 slice.
 
 ## Current authoritative slice: durable procedure freshness projection (2026-09-07)
 
