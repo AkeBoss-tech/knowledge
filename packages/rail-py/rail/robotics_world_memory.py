@@ -369,6 +369,13 @@ class TabletopWorldMemory:
                 self._projection.ingest(record, at=recorded_at, writer=self._projection_writer)
                 self._projection.register_alias(self.record_ref(record), self._projection.record_ref(record), at=recorded_at)
             self._records.append(record)
+            # A prepared RAM snapshot names canonical records as its declared
+            # input.  Keep that exact snapshot complete for same-process
+            # publication instead of leaving a newly admitted record invisible
+            # until a second explicit rebuild.  ``apply`` still evaluates the
+            # fixed valid/known cutoffs, so future/unknown records cannot leak.
+            if self._spatial_current is not None:
+                self._spatial_current.apply(record)
         return record
 
     def prepare_spatial_snapshot(self, *, valid_at: datetime, known_at: datetime) -> ProjectionWork:
@@ -964,6 +971,7 @@ class TabletopWorldMemory:
         if region.world_id != world_id:
             return RegionObjectsAnswer(status="unknown")
         evidence = list(self._authorized_region(region_record, reader))
+        active: tuple[ResourceRef, ...] = ()
         if self._projection is not None:
             active = self._projection.active_invalidation_refs(valid_at=at, known_at=known_at)
             canonical = self._projection.record_ref(region_record)
@@ -971,7 +979,7 @@ class TabletopWorldMemory:
                 return RegionObjectsAnswer(status="stale", evidence=tuple(evidence))
         records_by_object: dict[str, list[TemporalRecord]] = {}
         spatial = self._spatial_current
-        if spatial is not None and (spatial.valid_at, spatial.known_at) == (at, known_at) and not spatial.requires_conservative_fallback(world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision):
+        if spatial is not None and not active and (spatial.valid_at, spatial.known_at) == (at, known_at) and not spatial.requires_conservative_fallback(world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision):
             margin = spatial.max_uncertainty_metres
             candidates = spatial.candidate_query(
                 world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision,

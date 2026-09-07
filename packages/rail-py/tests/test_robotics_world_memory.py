@@ -524,6 +524,30 @@ def test_persisted_regions_relations_and_bounded_same_frame_membership(tmp_path)
     assert reopened.objects_in_region(world_id="table-a", region_ref=region.region_ref, at=NOW + timedelta(minutes=2), known_at=NOW + timedelta(minutes=2), reader=Allow()).status == "stale"
 
 
+@pytest.mark.parametrize("persisted", (False, True))
+def test_prepared_spatial_snapshot_receives_same_cutoff_and_retroactive_object_records(tmp_path, persisted):
+    path = str(tmp_path / "spatial.json") if persisted else None
+    memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    region = memory.record_region(
+        world_id="one", session_id="session-a", place_id="table", region_id="zone",
+        frame_id="table", map_revision="map-1", min_metres=(0, -.1, -.1), max_metres=(.5, .1, .1),
+        evidence_refs=(evidence("zone"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    assert memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW).history_rows_read == 0
+    cup = memory.record(WorldObject(world_id="one", object_id="cup", class_label="cup"), pose(.1, "cup"), kind="observation", evidence=(evidence("cup"),), recorded_at=NOW)
+    answer = memory.objects_in_region(world_id="one", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+    assert answer.status == "current" and answer.object_refs == (memory.record_ref(cup),)
+    # A late ingested but already-effective estimate is within known-time
+    # cutoff and updates the declared snapshot input immediately.
+    retro = memory.record(WorldObject(world_id="one", object_id="retro", class_label="cup"), pose(.2, "retro", NOW - timedelta(seconds=1)), kind="estimate", evidence=(evidence("retro"),), estimate_expires_at=NOW + timedelta(minutes=1), recorded_at=NOW)
+    answer = memory.objects_in_region(world_id="one", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow())
+    assert answer.status == "current" and set(answer.object_refs) == {memory.record_ref(cup), memory.record_ref(retro)}
+    if persisted:
+        reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+        reopened.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+        assert reopened.objects_in_region(world_id="one", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(cup), reopened.record_ref(retro))
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")
