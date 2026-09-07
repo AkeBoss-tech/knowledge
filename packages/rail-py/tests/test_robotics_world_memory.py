@@ -637,6 +637,21 @@ def test_invalid_appearance_descriptor_is_rejected_before_persistence(tmp_path):
     assert reopened.appearance_gallery(world_id="one", object_id="cup", at=NOW, known_at=NOW, reader=Allow()) == ()
 
 
+def test_similarity_persisted_known_time_external_refresh_and_rebuild(tmp_path):
+    path = str(tmp_path / "similarity.json")
+    writer = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    reader_memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    obj = WorldObject(world_id="one", object_id="cup", class_label="cup")
+    observed = writer.record(obj, pose(.1, "obs"), kind="observation", evidence=(evidence("obs-sim"),), recorded_at=NOW)
+    late = writer.record_appearance(obj, observed, asset_ref=evidence("asset-sim"), viewpoint="top", context="table", descriptor_model="m", descriptor_version="1", quality=.9, occluded=False, revision="a", descriptor=(1., 0.), recorded_at=NOW + timedelta(minutes=1))
+    assert reader_memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow()) == ()
+    expected = reader_memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW + timedelta(minutes=1), reader=Allow())
+    assert expected[0].appearance.appearance_ref == late.appearance_ref
+    reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    reopened.prepare_appearance_similarity_snapshot(valid_at=NOW, known_at=NOW + timedelta(minutes=1))
+    assert reopened.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW + timedelta(minutes=1), reader=Allow()) == expected
+
+
 def test_persisted_scene_episode_and_object_history_queries_preserve_structural_sharing(tmp_path):
     path = tmp_path / "semantic.json"
     memory, fixture = tabletop_episode_fixture(NOW, str(path), tenant_id="t", project_id="p")
