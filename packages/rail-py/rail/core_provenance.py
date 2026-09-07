@@ -248,6 +248,21 @@ class ProcedureExplanation(StrictModel):
         return self
 
 
+class ProcedureActionableGuidance(StrictModel):
+    """Authorized reviewed guidance safe for an operational consumer."""
+
+    schema_version: Literal["krail.procedure-actionable-guidance.v1"] = (
+        "krail.procedure-actionable-guidance.v1"
+    )
+    candidate_digest: Digest
+    reviewed_digest: Digest
+    procedure_id: Identifier
+    procedure_version: Identifier
+    guidance: Annotated[str, StringConstraints(min_length=1, max_length=4096)]
+    evidence_refs: tuple[ResourceRef, ...] = Field(min_length=1, max_length=64)
+    projection_state_digest: Digest | None = None
+
+
 def _procedure_refs(record: ProcedureRecord) -> tuple[ResourceRef, ...]:
     refs = record.package_refs + record.command_refs + record.environment_refs
     refs += record.test_evidence_refs + record.dependency_refs
@@ -794,11 +809,9 @@ class ProcedureExplanationService:
         )
         if self._projection is not None:
             temporal = procedure_temporal_history(all_records)
-            temporal_digests = {item.record_digest for item in temporal}
-            projection_stale = any(
-                any(digest in temporal_digests for digest in state.record_digests)
-                and any(item.status != "current" for item in state.dependency_states)
-                for state in self._projection.current_state(self._projection_id)
+            actionable = temporal[-1] if reviewed is not None else temporal[0]
+            projection_stale = not self._projection.actionable_record(
+                actionable, projection_id=self._projection_id
             )
             stale = stale or projection_stale
         gaps: list[str] = []
@@ -867,6 +880,78 @@ class ProcedureExplanationService:
         except PermissionError as exc:
             raise PermissionError("procedure explanation access denied") from exc
         return result
+
+    def actionable_guidance(
+        self,
+        request: ProcedureExplanationRequest,
+        *,
+        authorizer: CoreProvenanceAuthorizer,
+    ) -> ProcedureActionableGuidance | None:
+        """Return only currently supported, fully authorized reviewed guidance.
+
+        Historical explanation remains available through ``explain``. This
+        operational read abstains when review or exact dependency state is not
+        uniquely current; authorization is still performed before abstention
+        so private procedure existence and lineage are not exposed.
+        """
+
+        explanation = self.explain(request, authorizer=authorizer)
+        if (
+            explanation.review_status != "accepted"
+            or explanation.support_status != "current"
+            or explanation.reviewed is None
+        ):
+            return None
+        reviewed = explanation.reviewed
+        now = self._clock()
+        if (
+            reviewed.recorded_at > now
+            or reviewed.valid_from > now
+            or (reviewed.valid_to is not None and now >= reviewed.valid_to)
+        ):
+            return None
+        projection_state_digest: str | None = None
+        if self._projection is not None:
+            temporal = procedure_temporal_history((explanation.candidate, reviewed))[-1]
+            if not self._projection.actionable_record(
+                temporal, projection_id=self._projection_id
+            ):
+                return None
+            projection_state_digest = next(
+                (
+                    state.state_digest
+                    for state in self._projection.current_state(self._projection_id)
+                    if temporal.record_digest in state.record_digests
+                ),
+                None,
+            )
+        final_now = self._clock()
+        if (
+            reviewed.recorded_at > final_now
+            or reviewed.valid_from > final_now
+            or (reviewed.valid_to is not None and final_now >= reviewed.valid_to)
+        ):
+            return None
+        final_refs = tuple(dict.fromkeys((
+            *_procedure_refs(explanation.candidate),
+            *_procedure_refs(reviewed),
+            *(ref for decision in explanation.decisions for ref in _decision_refs(decision)),
+            *explanation.invalidation_refs,
+        )))
+        try:
+            for ref in final_refs:
+                authorizer.authorize(ref, at=final_now)
+        except PermissionError as exc:
+            raise PermissionError("procedure guidance access denied") from exc
+        return ProcedureActionableGuidance(
+            candidate_digest=explanation.candidate.record_digest,
+            reviewed_digest=reviewed.record_digest,
+            procedure_id=reviewed.procedure_id,
+            procedure_version=reviewed.procedure_version,
+            guidance=reviewed.rationale,
+            evidence_refs=reviewed.test_evidence_refs,
+            projection_state_digest=projection_state_digest,
+        )
 
 
 class CoreProvenanceService:
@@ -997,6 +1082,7 @@ __all__ = [
     "ProcedureReviewAuthorizer",
     "ProcedureReviewService",
     "ProcedureExplanation",
+    "ProcedureActionableGuidance",
     "ProcedureExplanationRequest",
     "ProcedureExplanationService",
     "PROCEDURE_EXPLANATION_VERSION",

@@ -82,3 +82,35 @@ Invalidation admission is a separate signed action boundary. Callers must
 present the additive `krail.procedure-invalidation` `1.0.0` capability with
 `procedure.invalidate`, exact changed-ref scope, and the event digest; a
 read-only `context.read` grant cannot write stale-marking events.
+
+
+## Actionable reviewed guidance
+
+`ProcedureExplanationService.actionable_guidance(request, authorizer=...)`
+returns a `ProcedureActionableGuidance` only for an accepted, currently supported
+reviewed procedure. The result binds the candidate and reviewed digests,
+procedure identity/version, reviewed rationale, exact evidence refs, and an
+optional corroborating projection-state digest. This read does not execute the
+procedure or claim that its rationale is independently correct.
+
+The service rechecks exact read authority before exposure. Historical explanation
+remains available separately; operational guidance returns `None` when it must
+abstain. No structured abstention reason is currently returned.
+
+When composed with `TemporalProjectionService`, eligibility is evaluated against
+live canonical valid/known time, competing records, persisted tombstones, dirty
+outputs, and exact dependency state. Cached projection rows cannot establish
+eligibility or select a winner among conflicting roots. Invalidation, expiry,
+new conflicting evidence, and supersession are checked before recomputation and
+after restart. Explicit canonical freshness propagates through direct,
+transitive, and aliased inputs. Pure supersession lineage is distinct from an
+explicit dependency on a predecessor.
+
+The company incident acceptance test persists incident revisions, uses the real
+review/promotion service with signed review/read/invalidation authorities,
+withholds guidance after source invalidation, and restores a supported revision
+against new evidence. Core receipt trust and temporal writer admission in that
+test are deterministic fixtures. This is local callable evidence, not a hosted
+company-memory product, a published actionable-guidance capability, a UI journey,
+or completion of Knowledge #15/#29. The existing explanation capability remains
+separate from this new Python read path.

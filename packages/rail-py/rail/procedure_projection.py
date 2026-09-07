@@ -442,10 +442,11 @@ class TemporalProjectionService:
             return entry
         existing = ProjectionDirtyEntry.model_validate(current.payload["entry"])
         if existing.cleared_at is None:
-            if existing.cause_ref == cause_ref:
+            if existing.cause_ref == cause_ref and existing.reason == reason:
                 return existing
-            # A later exact invalidation supersedes an ingest-only dirty hint;
-            # keep the actionable cause that must survive recomputation.
+            # A later exact invalidation supersedes an ingest-only dirty hint,
+            # including when both name the same temporal record. Keep the
+            # actionable cause and reason that must survive recomputation.
             self.store.put(SemanticRow(
                 tenant_id=self.tenant_id, project_id=self.project_id, record_kind="procedure_projection_dirty",
                 record_id=entry_id, revision=current.revision + 1, payload={"entry": entry.model_dump(mode="json")},
@@ -508,12 +509,36 @@ class TemporalProjectionService:
 
     def _dependency_states(
         self, *, selected: tuple[TemporalRecord, ...], records: tuple[TemporalRecord, ...],
-        dirty_keys: set[str], stale_keys: set[str], current_keys: set[str], valid_at: datetime, known_at: datetime,
+        dirty_keys: set[str], stale_keys: set[str], direct_stale_keys: set[str],
+        current_keys: set[str], valid_at: datetime, known_at: datetime,
     ) -> tuple[ProjectionDependencyState, ...]:
         by_ref = {_record_ref(item).exact_key: item for item in records}
         states: dict[str, ProjectionDependencyState] = {}
+
+        def stale_authority_input(ref: ResourceRef, seen: set[tuple[str, str, str, str, str]]) -> bool:
+            """Propagate explicit canonical freshness through record edges."""
+            if ref.exact_key in seen:
+                return False
+            if ref.exact_key in stale_keys or ref.exact_key in dirty_keys:
+                return True
+            resolved = self._resolve_alias_locked(ref)
+            if resolved is not None:
+                return stale_authority_input(resolved, {*seen, ref.exact_key})
+            source = by_ref.get(ref.exact_key)
+            if source is None:
+                return False
+            if (
+                source.freshness != "current"
+                or _record_ref(source).exact_key not in current_keys
+                or _record_ref(source).exact_key in stale_keys
+                or _record_ref(source).exact_key in dirty_keys
+            ):
+                return True
+            next_seen = {*seen, ref.exact_key}
+            return any(stale_authority_input(child, next_seen) for child in source.source_refs + source.provenance_refs)
         for record in selected:
             input_refs = record.source_refs + record.provenance_refs
+            explicit_input_keys = {ref.exact_key for ref in input_refs}
             if record.supersedes_digest is not None:
                 parent = next((item for item in records if item.record_digest == record.supersedes_digest), None)
                 if parent is not None:
@@ -529,14 +554,22 @@ class TemporalProjectionService:
                 if record.supersedes_digest == item.record_digest
             }
             for input_ref in expanded_inputs.values():
-                if input_ref.exact_key in stale_keys:
+                if (
+                    input_ref.exact_key in lineage_parent_keys
+                    and input_ref.exact_key not in explicit_input_keys
+                ):
+                    # Supersession is lineage, not an inherited dependency on
+                    # every source consumed by the prior revision. A successor
+                    # that replaces invalid evidence may recover after review;
+                    # an explicit invalidation of the parent revision itself
+                    # still fails closed.
+                    status = "stale" if input_ref.exact_key in direct_stale_keys else "current"
+                elif input_ref.exact_key in stale_keys:
                     status = "stale"
                 elif input_ref.exact_key in dirty_keys:
                     status = "dirty"
-                elif input_ref.exact_key in lineage_parent_keys:
-                    # Supersession is immutable temporal lineage. It becomes
-                    # stale only through an explicit invalidation cause.
-                    status = "current"
+                elif stale_authority_input(input_ref, set()):
+                    status = "stale"
                 elif input_ref.exact_key in by_ref:
                     status = "current" if input_ref.exact_key in current_keys else "stale"
                 else:
@@ -621,11 +654,26 @@ class TemporalProjectionService:
             )
             current_keys = {_record_ref(item).exact_key for item in current_records}
             dirty_keys = {item.exact_key for item in pending}
+            active_invalidation_refs = self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
+            # Ingest and supersession enqueue temporal-record refs as work
+            # hints; they are not invalidation facts. External dirty causes
+            # remain stale signals for adapters whose canonical invalidation
+            # event lives in the shared semantic store rather than here.
             direct_stale_keys = {
-                *{item.cause_ref.exact_key for item in eligible_entries if item.cause_ref.exact_key not in tombstone_targets},
+                *{
+                    item.cause_ref.exact_key
+                    for item in eligible_entries
+                    if item.cause_ref.exact_key not in tombstone_targets
+                    and (
+                        item.cause_ref.exact_key not in by_ref
+                        or item.reason not in {
+                            "temporal record ingested",
+                            "temporal record superseded",
+                        }
+                    )
+                },
                 *active_invalidation_keys,
             }
-            active_invalidation_refs = self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
             stale_keys = self._transitive_stale_keys(direct_stale_keys, active_invalidation_refs)
             selected = {entity: [] for entity in entities}
             for item in current_records:
@@ -635,7 +683,7 @@ class TemporalProjectionService:
             changed: list[str] = []
             for entity in sorted(entities):
                 inputs = tuple(by_entity[entity])
-                dependencies = self._dependency_states(selected=tuple(selected[entity]), records=records, dirty_keys=dirty_keys, stale_keys=stale_keys, current_keys=current_keys, valid_at=valid_at, known_at=known_at)
+                dependencies = self._dependency_states(selected=tuple(selected[entity]), records=records, dirty_keys=dirty_keys, stale_keys=stale_keys, direct_stale_keys=direct_stale_keys, current_keys=current_keys, valid_at=valid_at, known_at=known_at)
                 if self._write_current_locked(projection_id=projection_id, entity=entity, selected=tuple(selected[entity]), inputs=inputs, dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at):
                     changed.append(self._entity_key(by_ref[next(item.exact_key for item in pending if item.exact_key in by_ref and (by_ref[item.exact_key].entity_authority, by_ref[item.exact_key].entity_id) == entity)]))
             for output_ref in pending:
@@ -662,6 +710,94 @@ class TemporalProjectionService:
     def current_state(self, projection_id: str) -> tuple[ProjectionCurrentState, ...]:
         return tuple(sorted((ProjectionCurrentState.model_validate(row.payload["state"]) for row in self._rows("procedure_projection_current") if row.payload["state"]["projection_id"] == projection_id), key=lambda value: (value.entity_authority, value.entity_id)))
 
+    def actionable_record(self, record: TemporalRecord, *, projection_id: str) -> bool:
+        """Evaluate one exact output against live canonical projection state.
+
+        This is intentionally candidate-scoped: immutable/history reads may
+        contain several independent roots, but no root becomes actionable while
+        another non-invalidated root for the same entity remains current.
+        Persisted tombstones are consulted at the live clock, so a stale cached
+        materialization cannot leak guidance before recomputation or restart.
+        """
+
+        verify_temporal_record_integrity(record)
+        # A selected record that its authoritative procedure/source marked
+        # stale, missing, or conflicted is an abstention result even when its
+        # temporal interval and cached dependencies still look current.
+        if record.freshness != "current":
+            return False
+        with self.store.transaction():
+            now = self.clock()
+            records = self._records()
+            by_digest = {item.record_digest: item for item in records}
+            if record.record_digest not in by_digest:
+                return False
+            current = self._current_records(records, valid_at=now, known_at=now)
+            live_entity = tuple(
+                item for item in current
+                if (item.entity_authority, item.entity_id)
+                == (record.entity_authority, record.entity_id)
+            )
+            if record.record_digest not in {item.record_digest for item in live_entity}:
+                return False
+            active_refs = self.active_invalidation_refs(valid_at=now, known_at=now)
+            direct_stale_keys = {ref.exact_key for ref in active_refs}
+            stale_keys = self._transitive_stale_keys(direct_stale_keys, active_refs)
+            record_ref = _record_ref(record)
+            if record_ref.exact_key in stale_keys:
+                return False
+            live_competitors = tuple(
+                item for item in live_entity
+                if item.record_digest != record.record_digest
+                and _record_ref(item).exact_key not in stale_keys
+            )
+            if live_competitors:
+                return False
+            pending = tuple(
+                ProjectionDirtyEntry.model_validate(row.payload["entry"])
+                for row in self._rows("procedure_projection_dirty")
+                if row.payload["entry"]["projection_id"] == projection_id
+                and row.payload["entry"].get("cleared_at") is None
+            )
+            actionable_dirty = {
+                item.output_ref.exact_key
+                for item in pending
+                if item.reason not in {
+                    "temporal record ingested",
+                    "temporal record superseded",
+                }
+            }
+            if record_ref.exact_key in actionable_dirty:
+                return False
+            dependencies = self._dependency_states(
+                selected=(record,),
+                records=records,
+                dirty_keys=actionable_dirty,
+                stale_keys=stale_keys,
+                direct_stale_keys=direct_stale_keys,
+                current_keys={_record_ref(item).exact_key for item in current},
+                valid_at=now,
+                known_at=now,
+            )
+            if any(item.status != "current" for item in dependencies):
+                return False
+            # A unique cached row may corroborate adapter-owned invalidation
+            # state after its dirty event is consumed, but never establishes
+            # current time eligibility or resolves live competitors.
+            states = tuple(
+                state
+                for state in self.current_state(projection_id)
+                if (state.entity_authority, state.entity_id)
+                == (record.entity_authority, record.entity_id)
+            )
+            if (
+                len(states) == 1
+                and states[0].record_digests == (record.record_digest,)
+                and any(item.status != "current" for item in states[0].dependency_states)
+            ):
+                return False
+            return True
+
     def rebuild(self, *, projection_id: str, valid_at: datetime, known_at: datetime, at: datetime) -> ProjectionCheckpoint:
         records = self._records()
         current = self._current_records(records, valid_at=valid_at, known_at=known_at)
@@ -675,7 +811,8 @@ class TemporalProjectionService:
             for entity in sorted(entities):
                 entity_selected = tuple(item for item in current if (item.entity_authority, item.entity_id) == entity)
                 active_invalidation_refs = self.active_invalidation_refs(valid_at=valid_at, known_at=known_at)
-                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys=self._transitive_stale_keys({ref.exact_key for ref in active_invalidation_refs}, active_invalidation_refs), current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
+                direct_stale_keys = {ref.exact_key for ref in active_invalidation_refs}
+                dependencies = self._dependency_states(selected=entity_selected, records=records, dirty_keys=set(), stale_keys=self._transitive_stale_keys(direct_stale_keys, active_invalidation_refs), direct_stale_keys=direct_stale_keys, current_keys={_record_ref(item).exact_key for item in current}, valid_at=valid_at, known_at=known_at)
                 self._write_current_locked(projection_id=projection_id, entity=entity, selected=entity_selected, inputs=tuple(item for item in records if (item.entity_authority, item.entity_id) == entity), dependency_states=dependencies, valid_at=valid_at, known_at=known_at, at=at)
         state_digests = tuple(sorted(item.state_digest for item in self.current_state(projection_id)))
         input_record_digests = tuple(sorted(item.record_digest for item in records if (item.ingested_at or item.recorded_at) <= known_at))
