@@ -110,10 +110,18 @@ class AppearanceObservation(Strict):
     context: str
     descriptor_model: str
     descriptor_version: str
+    descriptor_metric: Literal["cosine"] = "cosine"
+    descriptor: tuple[float, ...] | None = None
     quality: float = Field(ge=0, le=1)
     occluded: bool
     valid_at: datetime
     recorded_at: datetime
+
+    @model_validator(mode="after")
+    def _descriptor_is_bounded(self):
+        if self.descriptor is not None and (not 1 <= len(self.descriptor) <= 512 or not all(isfinite(value) for value in self.descriptor)):
+            raise ValueError("appearance descriptor must be 1..512 finite values")
+        return self
 
 
 class IdentityCandidate(Strict):
@@ -573,6 +581,7 @@ class TabletopWorldMemory:
             mask_ref=ResourceRef.model_validate(payload["mask_ref"]) if payload.get("mask_ref") else None,
             viewpoint=str(payload["viewpoint"]), context=str(payload["context"]),
             descriptor_model=str(payload["descriptor_model"]), descriptor_version=str(payload["descriptor_version"]),
+            descriptor_metric=str(payload.get("descriptor_metric", "cosine")), descriptor=tuple(payload["descriptor"]) if payload.get("descriptor") is not None else None,
             quality=float(payload["quality"]), occluded=bool(payload["occluded"]),
             valid_at=record.valid_from, recorded_at=record.recorded_at,
         )
@@ -707,7 +716,7 @@ class TabletopWorldMemory:
         self, obj: WorldObject, source_observation: TemporalRecord, *, asset_ref: ResourceRef,
         crop_ref: ResourceRef | None = None, mask_ref: ResourceRef | None = None,
         viewpoint: str, context: str, descriptor_model: str, descriptor_version: str,
-        quality: float, occluded: bool, revision: str, valid_at: datetime | None = None,
+        quality: float, occluded: bool, revision: str, descriptor: tuple[float, ...] | None = None, valid_at: datetime | None = None,
         recorded_at: datetime | None = None,
     ) -> AppearanceObservation:
         """Persist asset metadata; bytes remain at their referenced authority."""
@@ -725,6 +734,8 @@ class TabletopWorldMemory:
             raise ValueError("appearance cannot be recorded before its source observation is known")
         if not isfinite(quality) or not 0 <= quality <= 1:
             raise ValueError("appearance quality must be finite and between zero and one")
+        if descriptor is not None and (not 1 <= len(descriptor) <= 512 or not all(isfinite(value) for value in descriptor)):
+            raise ValueError("appearance descriptor must be 1..512 finite values")
         source_ref = self.record_ref(source_observation)
         refs = tuple(dict.fromkeys((source_ref, asset_ref, *(item for item in (crop_ref, mask_ref) if item is not None))))
         record = create_temporal_record(
@@ -740,7 +751,7 @@ class TabletopWorldMemory:
                 "crop_ref": crop_ref.model_dump(mode="json") if crop_ref else None,
                 "mask_ref": mask_ref.model_dump(mode="json") if mask_ref else None,
                 "viewpoint": viewpoint, "context": context, "descriptor_model": descriptor_model,
-                "descriptor_version": descriptor_version, "quality": quality, "occluded": occluded,
+                "descriptor_version": descriptor_version, "descriptor_metric": "cosine", "descriptor": list(descriptor) if descriptor is not None else None, "quality": quality, "occluded": occluded,
             },
         )
         if record not in self._appearance_records:
