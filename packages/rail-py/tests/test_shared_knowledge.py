@@ -133,11 +133,12 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     assert tombstone.deleted is True
     assert restarted.review_and_promote("remove-knowledge", reviewer_id="reviewer").status == "promoted"
     assert restarted.authorized_context("alice").files == ()
-    source_digest = "sha256:" + "1" * 64
-    with pytest.raises(Exception, match="provisioned target adapter"):
-        restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
-    with pytest.raises(Exception, match="provisioned target adapter"):
-        restarted.preview_mode_transition(owner_id="owner", transition_id="hosted", to_mode="hosted-canonical-service", source_id="canonical.git", source_digest=source_digest)
+    source_digest = restarted._digest(restarted._remote_ref("refs/heads/main"))
+    preview = restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id=remote.resolve().as_uri(), source_digest=source_digest)
+    assert Path(restarted.state_path.with_name(restarted.state_path.name + ".backups") / "transition-to-local.bundle").exists()
+    with pytest.raises(Exception, match="already exists"):
+        restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id=remote.resolve().as_uri(), source_digest=source_digest)
+    assert preview.to_mode == "local-canonical-git"
     receipt = restarted.create_backup(owner_id="owner", backup_id="main-snapshot")
     assert receipt.bundle_digest.startswith("sha256:")
     restored = tmp_path / "restored.git"

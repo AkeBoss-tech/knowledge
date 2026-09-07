@@ -100,6 +100,7 @@ class SharedKnowledgeWorkspace:
             state.setdefault("revision", 0)
             state.setdefault("proposals", {})
             state.setdefault("backups", {})
+            state.setdefault("transitions", {})
 
     @staticmethod
     def _run(*args: str, cwd: Path | None = None) -> str:
@@ -193,12 +194,23 @@ class SharedKnowledgeWorkspace:
     def preview_mode_transition(self, *, owner_id: str, transition_id: str, to_mode: str, source_id: str, source_digest: str) -> KnowledgeModeTransition:
         if not self._PROPOSAL_ID.fullmatch(transition_id) or not source_id or not re.fullmatch(r"sha256:[0-9a-f]{64}", source_digest):
             raise ValueError("transition requires safe id and exact source identity/digest")
-        if to_mode not in {self.mode, self.local_mode, self.hosted_mode}:
+        if to_mode not in {self.mode, self.local_mode}:
             raise ValueError("unknown canonical mode")
-        # A local writer handoff needs a separately provisioned local canonical
-        # adapter with verified backup/restore semantics. This connected-Git
-        # adapter must not pretend that a state hash is such a backup.
-        raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
+        backup = self.create_backup(owner_id=owner_id, backup_id="transition-" + transition_id)
+        with self._locked_state() as state:
+            if transition_id in state.setdefault("transitions", {}):
+                raise SharedKnowledgeError("transition id already exists")
+            current = self._remote_ref("refs/heads/main")
+            if current != backup.canonical_commit or state["mode"] != self.mode:
+                raise SharedKnowledgeError("transition source changed while backup was created")
+            if source_id != self.remote.as_uri() or source_digest != self._digest(current):
+                raise SharedKnowledgeError("transition source identity or digest does not match canonical head")
+            self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
+            next_revision = state["revision"] + 1
+            transition = KnowledgeModeTransition(transition_id, self.mode, to_mode, current, next_revision, source_id, source_digest, backup.bundle_digest)
+            state["transitions"][transition_id] = {"owner_id": owner_id, "generation": state["writer_generation"], "backup": asdict(backup), "transition": asdict(transition)}
+        self._authorize("shared_knowledge.mode_transition", self._repository_ref(current), owner_id)
+        return transition
 
     def commit_mode_transition(self, transition: KnowledgeModeTransition, *, owner_id: str) -> KnowledgeModeTransition:
         raise SharedKnowledgeError("canonical mode transition is unavailable without a provisioned target adapter and verified backup")
