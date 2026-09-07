@@ -614,6 +614,10 @@ def test_exact_appearance_similarity_is_scoped_live_and_numerically_stable():
     assert extreme.appearance.appearance_ref == target.appearance_ref and extreme.score == pytest.approx(1.0)
     fresh = add("one", "fresh", (1., 0.))
     assert memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())[0].appearance.appearance_ref == fresh.appearance_ref
+    assert memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="other", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow()) == ()
+    assert memory.similar_appearances(world_id="one", descriptor=(1.,), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow()) == ()
+    with pytest.raises(PermissionError):
+        memory.similar_appearances(world_id="one", descriptor=(1., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Deny())
     with pytest.raises(ValueError):
         memory.similar_appearances(world_id="one", descriptor=(0., 0.), descriptor_model="m", descriptor_version="1", at=NOW, known_at=NOW, reader=Allow())
 
