@@ -96,6 +96,7 @@ class SharedKnowledgeWorkspace:
                 raise SharedKnowledgeError("hosted canonical mode requires a real hosted adapter")
             state.setdefault("mode", self.mode)
             state.setdefault("active_writer", "connected-git" if state["mode"] == self.mode else "local-git")
+            state.setdefault("writer_generation", 0)
             state.setdefault("revision", 0)
             state.setdefault("proposals", {})
             state.setdefault("backups", {})
@@ -206,6 +207,15 @@ class SharedKnowledgeWorkspace:
         # Never cache authority. The adapter verifies live signature/grant state.
         self.action_authorizer.authorize(action, ref, subject_id=user_id)
 
+    def _require_writer(self, state: dict, expected_mode: str, expected_generation: int | None = None) -> int:
+        """Fence canonical mutation against a durable mode/writer generation."""
+        generation = int(state.get("writer_generation", 0))
+        if state.get("mode") != expected_mode or state.get("active_writer") != "connected-git":
+            raise SharedKnowledgeError("connected canonical writer is disabled")
+        if expected_generation is not None and generation != expected_generation:
+            raise SharedKnowledgeError("canonical writer generation is stale")
+        return generation
+
     @staticmethod
     def _safe_path(path: str) -> str:
         candidate = Path(path)
@@ -246,6 +256,7 @@ class SharedKnowledgeWorkspace:
             raise ValueError("proposal id must be a bounded safe identifier")
         path = self._safe_path(path)
         with self._locked_state() as state:
+            self._require_writer(state, self.mode)
             if proposal_id in state.setdefault("proposals", {}):
                 raise SharedKnowledgeError("proposal id already exists")
             base = self._remote_ref("refs/heads/main")
@@ -302,6 +313,7 @@ class SharedKnowledgeWorkspace:
                 proposal = KnowledgeProposal(**state.setdefault("proposals", {})[proposal_id])
             except KeyError as exc:
                 raise SharedKnowledgeError("unknown proposal") from exc
+            self._require_writer(state, self.mode)
             if not reviewer_id:
                 raise ValueError("reviewer identity is required")
             self._authorize("shared_knowledge.review", self._proposal_ref(proposal), reviewer_id)
