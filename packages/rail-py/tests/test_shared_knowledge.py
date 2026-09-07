@@ -128,6 +128,11 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
         restarted.export("bob")
     assert restarted.authorized_context("alice").files == (("knowledge.md", "alice reviewed change\n"),)
     assert any(action == "shared_knowledge.export" for action, _subject, _ref in authorizer.calls)
+    deletion_checkout = checkout(remote, tmp_path / "deleter", "alice")
+    tombstone = restarted.propose(user_id="alice", checkout=deletion_checkout, proposal_id="remove-knowledge", path="knowledge.md", content=None)
+    assert tombstone.deleted is True
+    assert restarted.review_and_promote("remove-knowledge", reviewer_id="reviewer").status == "promoted"
+    assert restarted.authorized_context("alice").files == ()
     source_digest = "sha256:" + "1" * 64
     transition = restarted.preview_mode_transition(owner_id="owner", transition_id="to-local", to_mode="local-canonical-git", source_id="canonical.git", source_digest=source_digest)
     assert restarted.commit_mode_transition(transition, owner_id="owner").to_mode == "local-canonical-git"
