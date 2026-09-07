@@ -241,6 +241,7 @@ class TabletopWorldMemory:
         self._temporal_scope_cursor: int | None = None
         self.last_spatial_update_work: ProjectionWork | None = None
         self.last_region_read_work: dict[str, int] = {}
+        self.last_refresh_work: dict[str, int] = {"temporal_rows_parsed": 0}
         self._tenant_id, self._project_id = tenant_id, project_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._projection_id = projection_id
@@ -333,9 +334,34 @@ class TabletopWorldMemory:
         if self._projection is not None:
             cursor = self._projection.scope_cursor()
             if self._temporal_scope_cursor == cursor:
+                self.last_refresh_work = {"temporal_rows_parsed": 0}
                 return
+            changes = (
+                self._projection.temporal_changes_after(self._temporal_scope_cursor)
+                if self._temporal_scope_cursor is not None else None
+            )
+            if changes is not None:
+                next_cursor, record_ids = changes
+                previous = tuple(record.record_digest for record in self._records)
+                for record_id in record_ids:
+                    row = self._projection.store.get(self._tenant_id, self._project_id, "temporal_record", record_id)
+                    if row is None:
+                        # The immutable change ledger and record row disagree.
+                        # Fall through to the canonical rebuild rather than
+                        # treating a partial update as current.
+                        changes = None
+                        break
+                    self._append_loaded_temporal_record(TemporalRecord.model_validate(row.payload["record"]))
+                if changes is not None:
+                    if previous != tuple(record.record_digest for record in self._records):
+                        self._spatial_current = None
+                    self._reindex_world_records()
+                    self._temporal_scope_cursor = next_cursor
+                    self.last_refresh_work = {"temporal_rows_parsed": len(record_ids)}
+                    return
             previous = tuple(record.record_digest for record in self._records)
             all_records = self._projection._records()
+            self.last_refresh_work = {"temporal_rows_parsed": len(all_records)}
             self._records = [record for record in all_records if record.payload_schema == "robotics.world-memory"]
             if previous != tuple(record.record_digest for record in self._records):
                 # A different process may have changed canonical records. Never
@@ -350,6 +376,20 @@ class TabletopWorldMemory:
             self._resolution_records = [record for record in all_records if record.payload_schema == "robotics.identity-resolution"]
             self._scenes = [SceneSnapshot.model_validate(row.payload["scene"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_scene_snapshot")]
             self._episodes = [SceneEpisode.model_validate(row.payload["episode"]) for row in self._projection.store.list(self._tenant_id, self._project_id, kind="robotics_episode")]
+
+    def _append_loaded_temporal_record(self, record: TemporalRecord) -> None:
+        """Merge one exact immutable canonical row from the change ledger."""
+        targets = {
+            "robotics.world-memory": self._records,
+            "robotics.appearance-observation": self._appearance_records,
+            "robotics.identity-candidate": self._identity_candidate_records,
+            "robotics.place-region": self._region_records,
+            "robotics.spatial-relation": self._relation_records,
+            "robotics.identity-resolution": self._resolution_records,
+        }
+        target = targets.get(record.payload_schema)
+        if target is not None and all(item.record_digest != record.record_digest for item in target):
+            target.append(record)
 
     def _reindex_world_records(self) -> None:
         """Derived exact-ref/entity lookup; rebuilt after every canonical refresh."""
@@ -1019,12 +1059,12 @@ class TabletopWorldMemory:
                 record = self._record_for_ref(hit.record_ref)
                 if record is not None:
                     records_by_object.setdefault(record.entity_id, []).append(record)
-            self.last_region_read_work = {"canonical_rows_refreshed": len(self._records), "exact_candidate_rows": len(candidates.hits), "history_rows_selected": sum(len(value) for value in records_by_object.values())}
+            self.last_region_read_work = {"canonical_rows_loaded": len(self._records), **self.last_refresh_work, "exact_candidate_rows": len(candidates.hits), "history_rows_selected": sum(len(value) for value in records_by_object.values())}
         else:
             for record in self._records:
                 if record.entity_authority == f"robotics://world/{world_id}":
                     records_by_object.setdefault(record.entity_id, []).append(record)
-            self.last_region_read_work = {"canonical_rows_refreshed": len(self._records), "exact_candidate_rows": 0, "history_rows_selected": sum(len(value) for value in records_by_object.values())}
+            self.last_region_read_work = {"canonical_rows_loaded": len(self._records), **self.last_refresh_work, "exact_candidate_rows": 0, "history_rows_selected": sum(len(value) for value in records_by_object.values())}
         inside: list[ResourceRef] = []
         unknown = stale = False
         for history in records_by_object.values():

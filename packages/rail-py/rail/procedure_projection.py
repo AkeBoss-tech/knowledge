@@ -174,7 +174,7 @@ class TemporalProjectionService:
         row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_cursor", self._scope_cursor_id())
         return row.revision if row is not None else 0
 
-    def _advance_scope_cursor_locked(self, *, at: datetime) -> int:
+    def _advance_scope_cursor_locked(self, *, at: datetime, temporal_record_id: str | None = None) -> int:
         row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_cursor", self._scope_cursor_id())
         revision = (row.revision if row else 0) + 1
         self.store.put(SemanticRow(
@@ -183,12 +183,40 @@ class TemporalProjectionService:
             revision=revision, payload={"revision": revision},
             created_at=row.created_at if row else at, updated_at=at,
         ), expected_revision=row.revision if row else 0)
+        self.store.put(SemanticRow(
+            tenant_id=self.tenant_id, project_id=self.project_id,
+            record_kind="temporal_scope_change", record_id=f"{revision:020d}",
+            revision=1, payload={"cursor": revision, "temporal_record_id": temporal_record_id},
+            created_at=at, updated_at=at,
+        ), expected_revision=0)
         return revision
 
     def touch_scope_cursor(self, *, at: datetime) -> int:
         """Publish any cached world-memory mutation to scoped readers."""
         with self.store.transaction():
             return self._advance_scope_cursor_locked(at=at)
+
+    def temporal_changes_after(self, cursor: int, *, limit: int = 256) -> tuple[int, tuple[str, ...]] | None:
+        """Return exact temporal row IDs since a prior canonical cursor.
+
+        ``None`` asks callers to rebuild: an old store without ledger rows,
+        an oversized gap, or a non-temporal change must never be guessed.
+        """
+        current = self.scope_cursor()
+        if cursor == current:
+            return current, ()
+        if cursor < 0 or current - cursor > limit:
+            return None
+        ids: list[str] = []
+        for revision in range(cursor + 1, current + 1):
+            row = self.store.get(self.tenant_id, self.project_id, "temporal_scope_change", f"{revision:020d}")
+            if row is None:
+                return None
+            record_id = row.payload.get("temporal_record_id")
+            if record_id is None:
+                return None
+            ids.append(str(record_id))
+        return current, tuple(ids)
 
     @staticmethod
     def _entity_key(record: TemporalRecord) -> str:
@@ -277,7 +305,7 @@ class TemporalProjectionService:
                     revision=1, payload=payload, created_at=at, updated_at=at,
                 ), expected_revision=0,
             )
-            self._advance_scope_cursor_locked(at=at)
+            self._advance_scope_cursor_locked(at=at, temporal_record_id=record.record_digest)
             output_ref = _record_ref(record)
             input_refs = record.source_refs + record.provenance_refs
             if record.supersedes_digest is not None:

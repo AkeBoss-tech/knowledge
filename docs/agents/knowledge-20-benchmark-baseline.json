@@ -20,32 +20,33 @@
   "incremental_move": {
     "history_rows_read": 4,
     "index_rows_touched": 2,
-    "ms": 66.3749
+    "ms": 83.0838
   },
   "public_authorized_region_query": {
-    "p50_ms": 25.2723,
-    "p95_ms": 31.4911
+    "p50_ms": 33.9981,
+    "p95_ms": 42.5456
   },
   "public_authorized_region_query_forced_refresh": {
-    "p50_ms": 37.3989,
-    "p95_ms": 43.306
+    "p50_ms": 51.6649,
+    "p95_ms": 60.5335
   },
   "raw_grid_candidate_query": {
-    "p50_ms": 0.0115,
-    "p95_ms": 0.0135
+    "p50_ms": 0.0105,
+    "p95_ms": 0.0137
   },
   "reads": {
-    "canonical_rows_refreshed": 96,
+    "canonical_rows_loaded": 96,
     "exact_candidate_rows": 7,
     "history_rows_selected": 7,
     "public_hits": 7,
     "raw_candidate_rows": 10,
-    "raw_cells": 24
+    "raw_cells": 24,
+    "temporal_rows_parsed": 0
   },
   "rebuild": {
     "history_rows_read": 96,
     "index_rows_touched": 32,
-    "ms": 22.6243
+    "ms": 29.774
   },
   "restart": {
     "equivalent_authorized_refs": true,

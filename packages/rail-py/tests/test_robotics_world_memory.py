@@ -558,7 +558,9 @@ def test_canonical_scope_cursor_refreshes_cross_process_current_and_known_time_r
     # The exact canonical cursor makes the other process reload rather than
     # relying on JSON mtime, while known-time still excludes the late row.
     assert second.location(world_id="one", object_id="cup", at=NOW, known_at=NOW, estimated=True, reader=Allow()).status == "unknown"
+    assert second.last_refresh_work == {"temporal_rows_parsed": 1}
     assert second.location(world_id="one", object_id="cup", at=NOW, known_at=NOW + timedelta(minutes=1), estimated=True, reader=Allow()).status == "observed"
+    assert second.last_refresh_work == {"temporal_rows_parsed": 0}
 
 
 def test_scope_cursor_does_not_hide_interleaved_cross_process_writes(tmp_path):

@@ -50,6 +50,7 @@ SemanticKind = Literal[
     "procedure_freshness",
     "temporal_record",
     "temporal_scope_cursor",
+    "temporal_scope_change",
     "procedure_projection_edge",
     "procedure_projection_alias",
     "procedure_projection_checkpoint",

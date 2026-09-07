@@ -68,7 +68,10 @@ unseen external row. The current optimization rebuilds
 authority-qualified exact-ref and entity-history maps after every refresh, so
 each selected candidate no longer linearly scans all refreshed records. It does
 not bypass current reader authorization or invalidation checks; a store-level
-selective temporal read remains future work.
+The temporal change ledger now selectively loads exact immutable rows after an
+external cursor change; a regression verifies one external row parses one row
+while a repeated current read parses zero. Full rebuild remains the conservative
+fallback for old stores, oversized ledger gaps, or non-temporal cached changes.
 
 The fixture uses 0.1 m cells and deterministic 2026-09-07 timestamps. Its
 assertions record work counts rather than machine-specific latency claims:
