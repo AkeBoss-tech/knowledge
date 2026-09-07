@@ -133,6 +133,7 @@ class KnowledgeApplicationService:
             self.provider,
             EpistemicHistory(runtime.project_path),
         )
+        self.authorized_context_packets = None
         from rail.capability_publication import LocalCapabilityPublication
         from rail.outcome_observations import OutcomeObservationService
         from rail.verification_evidence import VerificationEvidenceService
@@ -263,6 +264,48 @@ class KnowledgeApplicationService:
         """Assemble a bounded brief without performing provider or external writes."""
         return self.context_briefs.assemble(request)
 
+    def configure_authorized_context_packets(
+        self,
+        authority,
+        *,
+        tenant_id: str,
+        project_id: str,
+        clock=None,
+        current_ref_resolver=None,
+    ):
+        """Inject the caller-owned verifier at the application composition root."""
+
+        from rail.authorized_context import AuthorizedContextPacketService
+
+        descriptor = self.capability_publication.descriptor(
+            "krail.authorized-context-packet"
+        )
+        self.authorized_context_packets = AuthorizedContextPacketService(
+            self.context_briefs,
+            project_path=self.runtime.project_path,
+            authority=authority,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            capability_descriptor_digest=descriptor.descriptor_digest,
+            clock=clock,
+            current_ref_resolver=current_ref_resolver or self.provider._ref,
+        )
+        return self.authorized_context_packets
+
+    def create_authorized_context_packet(self, request):
+        if self.authorized_context_packets is None:
+            raise PermissionError("authorized context packet access denied")
+        return self.authorized_context_packets.create(request)
+
+    def read_authorized_context_packet(self, request):
+        if self.authorized_context_packets is None:
+            from rail.authorized_context import AuthorizedContextPacketReadResult
+
+            return AuthorizedContextPacketReadResult(
+                status="context_packet_unavailable"
+            )
+        return self.authorized_context_packets.read(request)
+
     def assemble_verification_evidence(self, request):
         """Interpret supplied bounded artifacts without executing or mutating."""
         return self.verification_evidence.assemble(request)
@@ -348,6 +391,14 @@ class LocalKnowledgeProvider:
     def context_brief(self, request):
         """Delegate to the accepted K2.1 service; do not duplicate assembly."""
         return self.application.context_brief(request)
+
+    def create_authorized_context_packet(self, request):
+        """Create one signed, bounded, content-addressed context packet."""
+        return self.application.create_authorized_context_packet(request)
+
+    def read_authorized_context_packet(self, request):
+        """Reauthorize and return one existing immutable packet."""
+        return self.application.read_authorized_context_packet(request)
 
     def assemble_verification_evidence(self, request):
         return self.application.assemble_verification_evidence(request)

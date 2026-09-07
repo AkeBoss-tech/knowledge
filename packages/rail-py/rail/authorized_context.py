@@ -9,14 +9,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Callable, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
-from krail.provider.v1 import ResourceRef
+from krail.provider.v1 import GetResourceRequest, MAX_EVIDENCE_ITEM_BYTES, ResourceRef
 from rail.context_brief import ContextBrief, ContextBriefRequest, ContextBriefService
-from rail.hosted.access import AccessContextAuthority, SignedAccessContext
+from rail.hosted.access import (
+    AccessContextAuthority,
+    SignedAccessContext,
+    SignedPacketRequestBinding,
+)
 from rail.temporal_records import TemporalRecord
 
 
@@ -29,11 +36,38 @@ PROCEDURE_PROJECTION_CAPABILITY_ID = "krail.procedure-projection"
 PROCEDURE_PROJECTION_CAPABILITY_VERSION = "1.0.0"
 ROBOTICS_WORLD_MEMORY_CAPABILITY_ID = "krail.robotics-world-memory"
 ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION = "1.0.0"
+AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID = "krail.authorized-context-packet"
+AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION = "1.0.0"
+AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION = "krail.authorized-context-packet.v2"
+AUTHORIZED_CONTEXT_PACKET_REQUEST_VERSION = "krail.authorized-context-packet-request.v1"
+AUTHORIZED_CONTEXT_PACKET_READ_VERSION = "krail.authorized-context-packet-read.v1"
+MAX_AUTHORIZED_CONTEXT_PACKET_BYTES = 524_288
+MAX_AUTHORIZED_CONTEXT_TOKENS = 32_768
 
 
 def _digest(value: object) -> str:
     body = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def _context_refs(context: ContextBrief) -> tuple[ResourceRef, ...]:
+    refs = (
+        context.repository,
+        context.issue,
+        *(item.source for item in context.evidence.items),
+        *(item.source for item in context.assertions),
+        *(item.source for item in context.freshness),
+        *(source for item in context.conflicts for source in item.sources),
+        *(item.source for item in context.ranking_trace),
+    )
+    unique = {ref.exact_key: ref for ref in refs}
+    return tuple(unique[key] for key in sorted(unique))
 
 
 def robotics_world_memory_scope_digest(*, tenant_id: str, project_id: str, world_id: str, exact_refs: tuple[ResourceRef, ...]) -> str:
@@ -83,6 +117,445 @@ class AuthorizedContextPacket(BaseModel):
         if self.packet_digest != expected:
             raise ValueError("authorized context packet digest does not match")
         return self
+
+
+NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
+
+
+class AuthorizedContextPacketCreateRequest(BaseModel):
+    """Caller-owned signed scope and bounded query for one immutable packet."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["krail.authorized-context-packet-request.v1"] = (
+        AUTHORIZED_CONTEXT_PACKET_REQUEST_VERSION
+    )
+    access_context: SignedAccessContext
+    request_binding: SignedPacketRequestBinding
+    exact_refs: tuple[ResourceRef, ...] = Field(min_length=2, max_length=256)
+    context_request: ContextBriefRequest
+    purpose: NonEmpty
+    scope: NonEmpty
+    max_context_tokens: int = Field(default=MAX_AUTHORIZED_CONTEXT_TOKENS, ge=1, le=MAX_AUTHORIZED_CONTEXT_TOKENS)
+
+    @model_validator(mode="after")
+    def _bounded_exact_request(self) -> "AuthorizedContextPacketCreateRequest":
+        if self.context_request.query is None:
+            raise ValueError("authorized packet query must be explicit")
+        if len({ref.exact_key for ref in self.exact_refs}) != len(self.exact_refs):
+            raise ValueError("authorized packet exact refs must be unique")
+        mandatory = {
+            self.context_request.repository.exact_key,
+            self.context_request.issue.exact_key,
+        }
+        if not mandatory <= {ref.exact_key for ref in self.exact_refs}:
+            raise ValueError("authorized packet exact refs must include repository and issue")
+        if self.context_request.max_total_bytes > self.max_context_tokens * 4:
+            raise ValueError("authorized packet byte budget exceeds token budget")
+        return self
+
+
+class AuthorizedContextPacketReadRequest(BaseModel):
+    """Fresh caller delegation for an immutable stored packet handle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["krail.authorized-context-packet-read.v1"] = (
+        AUTHORIZED_CONTEXT_PACKET_READ_VERSION
+    )
+    packet_digest: Digest
+    access_context: SignedAccessContext
+    request_binding: SignedPacketRequestBinding
+    exact_refs: tuple[ResourceRef, ...] = Field(min_length=1, max_length=256)
+    query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192)]
+    purpose: NonEmpty
+    scope: NonEmpty
+
+    @field_validator("exact_refs")
+    @classmethod
+    def _unique_exact_refs(cls, value: tuple[ResourceRef, ...]) -> tuple[ResourceRef, ...]:
+        if len({ref.exact_key for ref in value}) != len(value):
+            raise ValueError("authorized packet exact refs must be unique")
+        return value
+
+
+class SharedAuthorizedContextPacket(BaseModel):
+    """Immutable bounded packet shared by a Run and its Inspector."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["krail.authorized-context-packet.v2"] = (
+        AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION
+    )
+    packet_id: Digest
+    packet_digest: Digest
+    authorization_digest: Digest
+    capability_id: Literal["krail.authorized-context-packet"] = AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID
+    capability_version: Literal["1.0.0"] = AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION
+    capability_descriptor_digest: Digest
+    request_digest: Digest
+    purpose: NonEmpty
+    scope: NonEmpty
+    exact_evidence_refs: tuple[ResourceRef, ...] = Field(min_length=1, max_length=256)
+    context: ContextBrief
+    canonical_context_utf8_bytes: int = Field(ge=1, le=MAX_AUTHORIZED_CONTEXT_PACKET_BYTES)
+    canonical_packet_utf8_bytes: int = Field(ge=1, le=MAX_AUTHORIZED_CONTEXT_PACKET_BYTES)
+    max_context_tokens: int = Field(ge=1, le=MAX_AUTHORIZED_CONTEXT_TOKENS)
+    context_token_upper_bound: int = Field(ge=1, le=MAX_AUTHORIZED_CONTEXT_TOKENS)
+    token_estimation: Literal["canonical-context-utf8-bytes-conservative-upper-bound"] = (
+        "canonical-context-utf8-bytes-conservative-upper-bound"
+    )
+    truncation_uncertainty: Literal["bounded-search-or-source-truncation-may-omit-evidence"]
+    truncated: bool
+
+    @model_validator(mode="after")
+    def _packet_digest_matches(self) -> "SharedAuthorizedContextPacket":
+        body = self.model_dump(mode="json", exclude={"packet_id", "packet_digest"})
+        expected = _digest(body)
+        if self.packet_id != expected or self.packet_digest != expected:
+            raise ValueError("authorized context packet digest does not match")
+        if _context_refs(self.context) != self.exact_evidence_refs:
+            raise ValueError("authorized context packet evidence refs do not match context")
+        context_bytes = len(_canonical(self.context.model_dump(mode="json")))
+        if (
+            self.canonical_context_utf8_bytes != context_bytes
+            or self.context_token_upper_bound != context_bytes
+            or self.context_token_upper_bound > self.max_context_tokens
+        ):
+            raise ValueError("authorized context packet context budget does not match")
+        if self.canonical_packet_utf8_bytes != len(
+            _canonical(self.model_dump(mode="json"))
+        ):
+            raise ValueError("authorized context packet byte count does not match")
+        return self
+
+
+class AuthorizedContextReauthorization(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["krail.authorized-context-reauthorization.v1"] = (
+        "krail.authorized-context-reauthorization.v1"
+    )
+    reauthorized_at: datetime
+    current_authorization_digest: Digest
+    decision_digest: Digest
+
+    @field_validator("reauthorized_at")
+    @classmethod
+    def _timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("reauthorized_at must include a timezone")
+        return value
+
+
+class AuthorizedContextPacketReadResult(BaseModel):
+    """Available packet or one metadata-free protected-resource replacement."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal["krail.authorized-context-packet-read-result.v1"] = (
+        "krail.authorized-context-packet-read-result.v1"
+    )
+    status: Literal["available", "context_packet_unavailable"]
+    packet: SharedAuthorizedContextPacket | None = None
+    reauthorization: AuthorizedContextReauthorization | None = None
+
+    @model_validator(mode="after")
+    def _coarse_unavailable(self) -> "AuthorizedContextPacketReadResult":
+        if self.status == "available" and (
+            self.packet is None or self.reauthorization is None
+        ):
+            raise ValueError("packet read result availability fields do not match status")
+        if self.status == "context_packet_unavailable" and (
+            self.packet is not None or self.reauthorization is not None
+        ):
+            raise ValueError("packet read result availability fields do not match status")
+        return self
+
+
+def authorized_context_packet_request_digest(
+    *,
+    exact_refs: tuple[ResourceRef, ...],
+    context_request: ContextBriefRequest,
+    purpose: str,
+    scope: str,
+    max_context_tokens: int,
+) -> str:
+    """Digest every caller-authorized input that can shape packet content."""
+
+    return _digest(
+        {
+            "schema_version": AUTHORIZED_CONTEXT_PACKET_REQUEST_VERSION,
+            "exact_refs": [
+                ref.model_dump(mode="json")
+                for ref in sorted(exact_refs, key=lambda value: value.exact_key)
+            ],
+            "context_request": context_request.model_dump(mode="json"),
+            "purpose": purpose,
+            "scope": scope,
+            "max_context_tokens": max_context_tokens,
+        }
+    )
+
+
+class AuthorizedContextPacketService:
+    """Published create/read service with caller-owned signed authorization."""
+
+    def __init__(
+        self,
+        context_briefs: ContextBriefService,
+        *,
+        project_path: str | Path,
+        authority: AccessContextAuthority,
+        tenant_id: str,
+        project_id: str,
+        capability_descriptor_digest: str,
+        current_ref_resolver: Callable[[str], ResourceRef],
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.context_briefs = context_briefs
+        self.provider = context_briefs.provider
+        self.project_path = Path(project_path).resolve()
+        self.packet_path = self.project_path / ".krail" / "authorized-context-packets"
+        self.authority = authority
+        self.tenant_id = tenant_id
+        self.project_id = project_id
+        self.capability_descriptor_digest = capability_descriptor_digest
+        self.clock = clock or (lambda: datetime.now(UTC))
+        self.current_ref_resolver = current_ref_resolver
+
+    def _authorizer(
+        self,
+        *,
+        access_context: SignedAccessContext,
+        request_binding: SignedPacketRequestBinding,
+        exact_refs: tuple[ResourceRef, ...],
+        request_digest: str,
+        purpose: str,
+        scope: str,
+    ) -> HostedAccessContextAuthorizer:
+        now = self.clock()
+        claims = self.authority.verify(access_context, as_of=now)
+        binding = self.authority.verify_packet_request_binding(
+            request_binding, access_context=access_context, as_of=now
+        )
+        exact_keys = {ref.exact_key for ref in exact_refs}
+        if (
+            (claims.tenant_id, claims.project_id) != (self.tenant_id, self.project_id)
+            or claims.capability_id != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID
+            or claims.capability_version != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION
+            or claims.capability_digest != self.capability_descriptor_digest
+            or "context.read" not in claims.actions
+            or claims.source_ids == ("*",)
+            or (binding.tenant_id, binding.project_id) != (self.tenant_id, self.project_id)
+            or binding.capability_id != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID
+            or binding.capability_version != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION
+            or binding.capability_digest != self.capability_descriptor_digest
+            or binding.request_digest != request_digest
+            or binding.purpose != purpose
+            or binding.scope != scope
+            or scope != self.project_id
+            or any(ref.resource_id not in claims.source_ids for ref in exact_refs)
+            or len(exact_keys) != len(exact_refs)
+        ):
+            raise PermissionError("authorized context packet access denied")
+        return HostedAccessContextAuthorizer(
+            self.authority,
+            access_context,
+            exact_refs=exact_refs,
+            clock=self.clock,
+        )
+
+    def _verify_exact_resources(
+        self,
+        refs: tuple[ResourceRef, ...],
+        authorizer: HostedAccessContextAuthorizer,
+    ) -> None:
+        for ref in refs:
+            authorizer.authorize(ref, at=self.clock())
+            self.provider.get_resource(
+                GetResourceRequest(ref=ref, max_bytes=MAX_EVIDENCE_ITEM_BYTES)
+            )
+            if self.current_ref_resolver(ref.resource_id).exact_key != ref.exact_key:
+                raise ValueError("authorized context packet source revision changed")
+
+    def _packet_file(self, digest: str) -> Path:
+        return self.packet_path / f"{digest.removeprefix('sha256:')}.json"
+
+    def _persist(self, packet: SharedAuthorizedContextPacket) -> None:
+        payload = _canonical(packet.model_dump(mode="json"))
+        if len(payload) > MAX_AUTHORIZED_CONTEXT_PACKET_BYTES:
+            raise ValueError("authorized context packet exceeds byte limit")
+        path = self._packet_file(packet.packet_digest)
+        self.packet_path.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise ValueError("conflicting authorized context packet")
+            return
+        descriptor, temporary = tempfile.mkstemp(
+            dir=self.packet_path, prefix=".authorized-context-packet."
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    def create(
+        self, request: AuthorizedContextPacketCreateRequest
+    ) -> SharedAuthorizedContextPacket:
+        request_digest = authorized_context_packet_request_digest(
+            exact_refs=request.exact_refs,
+            context_request=request.context_request,
+            purpose=request.purpose,
+            scope=request.scope,
+            max_context_tokens=request.max_context_tokens,
+        )
+        try:
+            authorizer = self._authorizer(
+                access_context=request.access_context,
+                request_binding=request.request_binding,
+                exact_refs=request.exact_refs,
+                request_digest=request_digest,
+                purpose=request.purpose,
+                scope=request.scope,
+            )
+            context = self.context_briefs.assemble(
+                request.context_request, authorizer=authorizer
+            )
+            evidence_refs = _context_refs(context)
+            self._verify_exact_resources(evidence_refs, authorizer)
+            # Reverify the signed service scope immediately before persistence.
+            self._authorizer(
+                access_context=request.access_context,
+                request_binding=request.request_binding,
+                exact_refs=request.exact_refs,
+                request_digest=request_digest,
+                purpose=request.purpose,
+                scope=request.scope,
+            )
+        except (FileNotFoundError, LookupError, PermissionError, ValueError) as exc:
+            raise PermissionError("authorized context packet access denied") from exc
+
+        context_bytes = len(_canonical(context.model_dump(mode="json")))
+        if context_bytes > request.max_context_tokens:
+            raise ValueError("authorized context packet exceeds token upper bound")
+        body = {
+            "schema_version": AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION,
+            "authorization_digest": request.access_context.context_digest,
+            "capability_id": AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID,
+            "capability_version": AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION,
+            "capability_descriptor_digest": self.capability_descriptor_digest,
+            "request_digest": request_digest,
+            "purpose": request.purpose,
+            "scope": request.scope,
+            "exact_evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+            "context": context.model_dump(mode="json"),
+            "canonical_context_utf8_bytes": context_bytes,
+            "canonical_packet_utf8_bytes": 0,
+            "max_context_tokens": request.max_context_tokens,
+            "context_token_upper_bound": context_bytes,
+            "token_estimation": "canonical-context-utf8-bytes-conservative-upper-bound",
+            "truncation_uncertainty": "bounded-search-or-source-truncation-may-omit-evidence",
+            "truncated": context.truncated,
+        }
+        for _ in range(8):
+            packet_digest = _digest(body)
+            packet_size = len(
+                _canonical(
+                    {
+                        "packet_id": packet_digest,
+                        "packet_digest": packet_digest,
+                        **body,
+                    }
+                )
+            )
+            if packet_size == body["canonical_packet_utf8_bytes"]:
+                break
+            body["canonical_packet_utf8_bytes"] = packet_size
+        else:
+            raise ValueError("authorized context packet byte count did not converge")
+        packet_digest = _digest(body)
+        packet = SharedAuthorizedContextPacket(
+            packet_id=packet_digest,
+            packet_digest=packet_digest,
+            **body,
+        )
+        try:
+            self._persist(packet)
+            self._verify_exact_resources(evidence_refs, authorizer)
+            self._authorizer(
+                access_context=request.access_context,
+                request_binding=request.request_binding,
+                exact_refs=request.exact_refs,
+                request_digest=request_digest,
+                purpose=request.purpose,
+                scope=request.scope,
+            )
+        except (LookupError, PermissionError, ValueError) as exc:
+            raise PermissionError("authorized context packet access denied") from exc
+        return packet
+
+    def read(
+        self, request: AuthorizedContextPacketReadRequest
+    ) -> AuthorizedContextPacketReadResult:
+        unavailable = AuthorizedContextPacketReadResult(
+            status="context_packet_unavailable"
+        )
+        try:
+            with self._packet_file(request.packet_digest).open("rb") as handle:
+                payload = handle.read(MAX_AUTHORIZED_CONTEXT_PACKET_BYTES + 1)
+            if len(payload) > MAX_AUTHORIZED_CONTEXT_PACKET_BYTES:
+                return unavailable
+            packet = SharedAuthorizedContextPacket.model_validate_json(payload)
+            if (
+                packet.packet_digest != request.packet_digest
+                or packet.context.evidence.query != request.query
+                or packet.purpose != request.purpose
+                or packet.scope != request.scope
+            ):
+                return unavailable
+            authorizer = self._authorizer(
+                access_context=request.access_context,
+                request_binding=request.request_binding,
+                exact_refs=request.exact_refs,
+                request_digest=packet.request_digest,
+                purpose=request.purpose,
+                scope=request.scope,
+            )
+            granted_keys = {ref.exact_key for ref in request.exact_refs}
+            if any(ref.exact_key not in granted_keys for ref in packet.exact_evidence_refs):
+                return unavailable
+            self._verify_exact_resources(packet.exact_evidence_refs, authorizer)
+            authorizer = self._authorizer(
+                access_context=request.access_context,
+                request_binding=request.request_binding,
+                exact_refs=request.exact_refs,
+                request_digest=packet.request_digest,
+                purpose=request.purpose,
+                scope=request.scope,
+            )
+            self._verify_exact_resources(packet.exact_evidence_refs, authorizer)
+            now = self.clock()
+            receipt_body = {
+                "reauthorized_at": now.isoformat(),
+                "current_authorization_digest": request.access_context.context_digest,
+                "packet_digest": packet.packet_digest,
+                "request_binding_digest": request.request_binding.binding_digest,
+            }
+            receipt = AuthorizedContextReauthorization(
+                reauthorized_at=now,
+                current_authorization_digest=request.access_context.context_digest,
+                decision_digest=_digest(receipt_body),
+            )
+            result = AuthorizedContextPacketReadResult(
+                status="available", packet=packet, reauthorization=receipt
+            )
+            if len(_canonical(result.model_dump(mode="json"))) > (
+                MAX_AUTHORIZED_CONTEXT_PACKET_BYTES + 8192
+            ):
+                return unavailable
+            return result
+        except (LookupError, OSError, PermissionError, ValueError):
+            return unavailable
 
 
 class HostedAccessContextAuthorizer:
@@ -384,8 +857,18 @@ def assemble_authorized_context(
 
 
 __all__ = [
+    "AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID",
+    "AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION",
+    "AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION",
+    "MAX_AUTHORIZED_CONTEXT_PACKET_BYTES",
+    "MAX_AUTHORIZED_CONTEXT_TOKENS",
     "AuthorizedContextAuthorizer",
     "AuthorizedContextPacket",
+    "AuthorizedContextPacketCreateRequest",
+    "AuthorizedContextPacketReadRequest",
+    "AuthorizedContextPacketReadResult",
+    "AuthorizedContextPacketService",
+    "AuthorizedContextReauthorization",
     "HostedAccessContextAuthorizer",
     "HostedProcedureReviewAuthorizer",
     "HostedProcedureInvalidationAuthorizer",
@@ -401,6 +884,8 @@ __all__ = [
     "PROCEDURE_PROJECTION_CAPABILITY_VERSION",
     "ROBOTICS_WORLD_MEMORY_CAPABILITY_ID",
     "ROBOTICS_WORLD_MEMORY_CAPABILITY_VERSION",
+    "SharedAuthorizedContextPacket",
+    "authorized_context_packet_request_digest",
     "robotics_world_memory_scope_digest",
     "assemble_authorized_context",
 ]

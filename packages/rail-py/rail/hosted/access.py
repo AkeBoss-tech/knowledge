@@ -162,6 +162,53 @@ class SignedAccessContext(StrictModel):
         return _digest(_model_bytes(self))
 
 
+class PacketRequestBinding(StrictModel):
+    """Caller-authority signature scope for one immutable packet request."""
+
+    schema_version: Literal["krail.packet-request-binding.v1"] = (
+        "krail.packet-request-binding.v1"
+    )
+    access_context_digest: Digest
+    tenant_id: NonEmpty
+    project_id: NonEmpty
+    capability_id: NonEmpty
+    capability_version: NonEmpty
+    capability_digest: Digest
+    request_digest: Digest
+    purpose: NonEmpty
+    scope: NonEmpty
+    issued_at: datetime
+    not_before: datetime
+    expires_at: datetime
+    nonce: NonEmpty
+
+    @field_validator("issued_at", "not_before", "expires_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        _utc_timestamp(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "PacketRequestBinding":
+        if not self.issued_at <= self.not_before < self.expires_at:
+            raise ValueError("packet request binding validity interval is invalid")
+        return self
+
+
+class SignedPacketRequestBinding(StrictModel):
+    schema_version: Literal["krail.signed-packet-request-binding.v1"] = (
+        "krail.signed-packet-request-binding.v1"
+    )
+    binding: PacketRequestBinding
+    key_id: NonEmpty
+    algorithm: Literal["hmac-sha256"] = "hmac-sha256"
+    signature: Digest
+
+    @property
+    def binding_digest(self) -> str:
+        return _digest(_model_bytes(self))
+
+
 class RevocationRegistry(Protocol):
     def is_revoked(
         self, context_digest: str, delegation_id: str, *, as_of: datetime
@@ -229,6 +276,45 @@ class AccessContextAuthority:
             "sha256:" + hmac.new(key, _model_bytes(claims), hashlib.sha256).hexdigest()
         )
         return SignedAccessContext(claims=claims, key_id=key_id, signature=signature)
+
+    def issue_packet_request_binding(
+        self, binding: PacketRequestBinding, *, key_id: str
+    ) -> SignedPacketRequestBinding:
+        key = self._keys.get(key_id)
+        if key is None:
+            raise InvalidAccessContext()
+        signature = (
+            "sha256:"
+            + hmac.new(key, _model_bytes(binding), hashlib.sha256).hexdigest()
+        )
+        return SignedPacketRequestBinding(
+            binding=binding, key_id=key_id, signature=signature
+        )
+
+    def verify_packet_request_binding(
+        self,
+        signed: SignedPacketRequestBinding,
+        *,
+        access_context: SignedAccessContext,
+        as_of: datetime,
+    ) -> PacketRequestBinding:
+        _utc_timestamp(as_of)
+        key = self._keys.get(signed.key_id)
+        binding = signed.binding
+        if key is None:
+            raise InvalidAccessContext()
+        observed = (
+            "sha256:"
+            + hmac.new(key, _model_bytes(binding), hashlib.sha256).hexdigest()
+        )
+        if (
+            not hmac.compare_digest(observed, signed.signature)
+            or binding.access_context_digest != access_context.context_digest
+            or as_of < binding.not_before
+            or as_of >= binding.expires_at
+        ):
+            raise InvalidAccessContext()
+        return binding
 
     def verify(self, context: SignedAccessContext, *, as_of: datetime) -> AccessClaims:
         _utc_timestamp(as_of)

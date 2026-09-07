@@ -19,3 +19,17 @@ The durable review test injects the same fixed clock into ingestion, review,
 and restarted review services. Its temporal assertions therefore test
 promotion, rejection, replay, and idempotence independently of the wall clock
 on the day the suite runs.
+
+## K25-SHARED-PACKET — one immutable packet remains authorization-bound
+
+The published packet operation binds tenant, project, capability identity,
+query, purpose, project scope, budgets, and exact resource grants into a
+caller-authority signature. Packet creation and every later read reverify the
+current signed context, signed request binding, exact grants, and current
+source heads before returning any content.
+
+`test_authorized_context_packet_service.py` proves narrow and wide users,
+opaque omission, original-context expiry followed by a fresh wide grant,
+fresh-grant narrowing, revocation, retained historical source bytes after the
+current source head advances, tamper, restart, request substitution, full
+canonical-context budget enforcement, and read-only capability publication.
