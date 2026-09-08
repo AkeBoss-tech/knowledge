@@ -57,6 +57,40 @@ does not report deletion while cache bytes survive.
 `test_authorized_context_packet_service.py` fault-injects stale cache backup
 restoration and a full durable journal at the packet service boundary.
 
+## K24-EXPLICIT-BELIEF-INFERENCE — declared uncertainty remains deterministic
+
+Belief values carry explicit uncertainty semantics and are never combined by
+numeric coincidence. Likelihood-ratio factors update an explicitly calibrated
+probability from the original prior in log-odds space, under a declared
+conditional-independence assumption. Deterministic implication and bounded
+support/contradiction aggregation remain separate methods.
+
+`test_belief_inference.py` proves a hand-verifiable `0.2 * LR(3) = 3/7`
+posterior, stable extreme ratios and endpoint priors, incompatible method and
+correlated-evidence rejection, exact factor/operator/input derivations,
+deterministic replay, and unrelated-region exclusion. Stale evidence removes
+only its factor and leaves the residual prior/evidence contribution; it never
+becomes probability zero. An all-stale recomputation retains the original
+prior and an explicit previous posterior reverts to that prior, marking the
+output changed so downstream invalidation can continue. The direct dirty
+frontier is topology-safe for a diamond, consumes newly computed upstream
+states, and gates downstream traversal by its declared threshold. The engine
+accepts the existing #18 projection dependency-region callback and the
+trusted `DomainExtensionRegistry` operator seam, so a caller's dirty-region
+and candidate/review workflow can drive the same bounded recomputation path.
+`BeliefProjectService` composes the durable `TemporalProjectionService` directly:
+candidate, review/promotion, and derived output are immutable temporal records;
+restart discovers them from the projection rather than a second belief store.
+The public operator consumes actual declared prior/evidence payloads and aligned
+factor IDs. Tombstoned evidence removes only its contribution, while an
+authorizer denial filters the affected candidate before any derived output is
+returned.
+Temporal admissibility is evaluated at the requested valid/known time, so
+future, expired, superseded, and review-tombstoned rows cannot drive output.
+The public service requires a current authorizer over the complete candidate,
+review, prior, factor, and evidence lineage before inference or persistence;
+exact derivation records are retained as temporal rows for restart explanation.
+
 ## K29-SHARED-SIGNED-AUTHORITY — connected Git actions require current exact grants
 
 Every connected canonical Git proposal, review, read, search, and export action

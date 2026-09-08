@@ -393,60 +393,71 @@ class TemporalProjectionService:
                     self._put_edge_locked(output_ref=_record_ref(output), input_ref=canonical_ref, at=at)
         return alias
 
-    def ingest(self, record: TemporalRecord, *, at: datetime, writer: ProjectionWriter) -> TemporalRecord:
-        verify_temporal_record_integrity(record)
-        writer.authorize(record, at=self.clock())
+    def _ingest_locked(self, record: TemporalRecord, *, at: datetime) -> TemporalRecord:
         payload = {"record": record.model_dump(mode="json")}
-        with self.store.transaction():
-            current = self.store.get(self.tenant_id, self.project_id, "temporal_record", record.record_digest)
-            if current is not None:
-                if current.payload != payload:
-                    raise ValueError("conflicting temporal record replay")
-                return record
-            self.store.put(
-                SemanticRow(
-                    tenant_id=self.tenant_id, project_id=self.project_id,
-                    record_kind="temporal_record", record_id=record.record_digest,
-                    revision=1, payload=payload, created_at=at, updated_at=at,
-                ), expected_revision=0,
+        current = self.store.get(self.tenant_id, self.project_id, "temporal_record", record.record_digest)
+        if current is not None:
+            if current.payload != payload:
+                raise ValueError("conflicting temporal record replay")
+            return record
+        self.store.put(
+            SemanticRow(
+                tenant_id=self.tenant_id, project_id=self.project_id,
+                record_kind="temporal_record", record_id=record.record_digest,
+                revision=1, payload=payload, created_at=at, updated_at=at,
+            ), expected_revision=0,
+        )
+        self._advance_scope_cursor_locked(at=at, temporal_record_id=record.record_digest)
+        output_ref = _record_ref(record)
+        input_refs = record.source_refs + record.provenance_refs
+        if record.supersedes_digest is not None:
+            parent = self.store.get(
+                self.tenant_id, self.project_id, "temporal_record", record.supersedes_digest
             )
-            self._advance_scope_cursor_locked(at=at, temporal_record_id=record.record_digest)
-            output_ref = _record_ref(record)
-            input_refs = record.source_refs + record.provenance_refs
+            if parent is not None:
+                input_refs += (_record_ref(TemporalRecord.model_validate(parent.payload["record"])),)
+        expanded_inputs: dict[tuple[str, str, str, str, str], ResourceRef] = {}
+        for ref in input_refs:
+            expanded_inputs.setdefault(ref.exact_key, ref)
+            alias = self._resolve_alias_locked(ref)
+            if alias is not None:
+                expanded_inputs.setdefault(alias.exact_key, alias)
+        for ref in expanded_inputs.values():
+            self._put_edge_locked(output_ref=output_ref, input_ref=ref, at=at)
+        for projection_id in self._known_projection_ids_locked():
+            self._enqueue_locked(
+                projection_id=projection_id, output_ref=output_ref, cause_ref=output_ref,
+                reason="temporal record ingested", at=at,
+            )
             if record.supersedes_digest is not None:
                 parent = self.store.get(
                     self.tenant_id, self.project_id, "temporal_record", record.supersedes_digest
                 )
                 if parent is not None:
-                    input_refs += (_record_ref(TemporalRecord.model_validate(parent.payload["record"])),)
-            expanded_inputs: dict[tuple[str, str, str, str, str], ResourceRef] = {}
-            for ref in input_refs:
-                expanded_inputs.setdefault(ref.exact_key, ref)
-                alias = self._resolve_alias_locked(ref)
-                if alias is not None:
-                    expanded_inputs.setdefault(alias.exact_key, alias)
-            for ref in expanded_inputs.values():
-                self._put_edge_locked(output_ref=output_ref, input_ref=ref, at=at)
-            # An ingested revision changes its own entity's materialized view.
-            for projection_id in self._known_projection_ids_locked():
-                self._enqueue_locked(
-                    projection_id=projection_id, output_ref=output_ref, cause_ref=output_ref,
-                    reason="temporal record ingested", at=at,
-                )
-                # A new revision supersedes a precise old output. Its exact
-                # dependents are made dirty in the same durable transaction.
-                if record.supersedes_digest is not None:
-                    parent = self.store.get(
-                        self.tenant_id, self.project_id, "temporal_record", record.supersedes_digest
-                    )
-                    if parent is not None:
-                        parent_ref = _record_ref(TemporalRecord.model_validate(parent.payload["record"]))
-                        for dependent in self.affected_region(parent_ref):
-                            self._enqueue_locked(
-                                projection_id=projection_id, output_ref=dependent, cause_ref=parent_ref,
-                                reason="temporal record superseded", at=at,
-                            )
+                    parent_ref = _record_ref(TemporalRecord.model_validate(parent.payload["record"]))
+                    for dependent in self.affected_region(parent_ref):
+                        self._enqueue_locked(
+                            projection_id=projection_id, output_ref=dependent, cause_ref=parent_ref,
+                            reason="temporal record superseded", at=at,
+                        )
         return record
+
+    def ingest(self, record: TemporalRecord, *, at: datetime, writer: ProjectionWriter) -> TemporalRecord:
+        verify_temporal_record_integrity(record)
+        writer.authorize(record, at=self.clock())
+        with self.store.transaction():
+            return self._ingest_locked(record, at=at)
+
+    def ingest_many(self, records: tuple[TemporalRecord, ...], *, at: datetime, writer: ProjectionWriter, before_commit=None) -> tuple[TemporalRecord, ...]:
+        """Atomically ingest a bounded batch through the same writer authority."""
+        for record in records:
+            verify_temporal_record_integrity(record)
+            writer.authorize(record, at=self.clock())
+        with self.store.transaction():
+            result = tuple(self._ingest_locked(record, at=at) for record in records)
+            if before_commit is not None:
+                before_commit()
+            return result
 
     def tombstone(
         self,
