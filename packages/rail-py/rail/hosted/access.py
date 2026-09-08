@@ -55,6 +55,16 @@ Action = Literal[
     "projection.rebuild",
     "backup.create",
     "backup.restore",
+    "shared_knowledge.propose",
+    "shared_knowledge.review",
+    "shared_knowledge.read",
+    "shared_knowledge.search",
+    "shared_knowledge.export",
+    "shared_knowledge.local_write",
+    "shared_knowledge.mode_transition",
+    "shared_knowledge.backup",
+    "shared_knowledge.backup_inventory",
+    "shared_knowledge.backup_prune",
 ]
 ALL_CLASSIFICATIONS: frozenset[str] = frozenset(
     {"public", "internal", "confidential", "restricted"}

@@ -1,11 +1,24 @@
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from rail.shared_knowledge import SharedKnowledgeError, SharedKnowledgeWorkspace
+from krail.provider.v1 import ResourceRef
+from rail.hosted.access import (
+    AccessClaims,
+    AccessContextAuthority,
+    MemoryRevocationRegistry,
+    PacketRequestBinding,
+)
+from rail.shared_knowledge import (
+    SharedKnowledgeError,
+    SharedKnowledgeWorkspace,
+    SignedSharedKnowledgeActionAuthorizer,
+    shared_knowledge_action_request_digest,
+)
 
 
 class LiveActionAuthorizer:
@@ -25,6 +38,91 @@ class LiveActionAuthorizer:
             or (action, ref.resource_id) in self.denied_actions
         ):
             raise PermissionError("source grant is revoked or absent")
+
+
+class SignedLiveActionAuthorizer:
+    """Caller-side resolver that issues one exact signed context per request."""
+
+    now = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+    capability_digest = "sha256:" + "c" * 64
+
+    def __init__(self, authority: AccessContextAuthority, granted: set[str]):
+        self.authority = authority
+        self.granted = granted
+        self.contexts: dict[tuple[str, str, str], object] = {}
+        self.issue_count = 0
+
+    def resolve(self, subject_id: str, action: str, ref: ResourceRef):
+        if subject_id not in self.granted:
+            return None
+        key = (subject_id, action, ref.exact_key)
+        context = self.contexts.get(key)
+        if context is None:
+            claims = AccessClaims(
+                issuer="https://control.example.test",
+                tenant_id="tenant-a",
+                project_id="project-a",
+                subject=subject_id,
+                delegator="control-plane",
+                delegation_id=f"delegation/{subject_id}",
+                capability_id="shared-knowledge",
+                capability_version="1.0.0",
+                capability_digest=self.capability_digest,
+                actions=(action,),
+                source_ids=(ref.resource_id,),
+                classifications=("internal",),
+                policy_digest="sha256:" + "d" * 64,
+                issued_at=self.now - timedelta(minutes=1),
+                not_before=self.now - timedelta(seconds=1),
+                expires_at=self.now + timedelta(hours=1),
+                nonce=f"nonce-{self.issue_count}",
+            )
+            self.issue_count += 1
+            context = self.authority.issue(claims, key_id="key-1")
+            binding = self.authority.issue_packet_request_binding(
+                PacketRequestBinding(
+                    access_context_digest=context.context_digest,
+                    tenant_id="tenant-a",
+                    project_id="project-a",
+                    capability_id="shared-knowledge",
+                    capability_version="1.0.0",
+                    capability_digest=self.capability_digest,
+                    request_digest=shared_knowledge_action_request_digest(action, ref),
+                    purpose="shared-knowledge-action",
+                    scope=ref.authority,
+                    issued_at=self.now - timedelta(minutes=1),
+                    not_before=self.now - timedelta(seconds=1),
+                    expires_at=self.now + timedelta(hours=1),
+                    nonce=f"binding-{self.issue_count}",
+                ),
+                key_id="key-1",
+            )
+            self.contexts[key] = (context, binding)
+        return self.contexts[key]
+
+    def revoke_current(self, subject_id: str) -> None:
+        for (subject, _action, _ref), (context, _binding) in self.contexts.items():
+            if subject == subject_id:
+                self.authority.revocations.revoke_context(
+                    context.context_digest, revoked_at=self.now
+                )
+
+    def fresh_grant(self, subject_id: str) -> None:
+        self.contexts = {
+            key: context
+            for key, context in self.contexts.items()
+            if key[0] != subject_id
+        }
+
+
+def signed_authorizer(granted: set[str]) -> SignedLiveActionAuthorizer:
+    revocations = MemoryRevocationRegistry()
+    authority = AccessContextAuthority(
+        {"key-1": b"shared-knowledge-key"},
+        issuer="https://control.example.test",
+        revocations=revocations,
+    )
+    return SignedLiveActionAuthorizer(authority, granted)
 
 
 def git(*args: str, cwd: Path | None = None) -> str:
@@ -171,6 +269,286 @@ def test_two_user_git_proposals_review_conflict_restart_and_revocation(tmp_path,
     Path(receipt.bundle_path).write_bytes(b"corrupt")
     with pytest.raises(Exception):
         restarted._run("git", "--git-dir", str(remote), "bundle", "verify", receipt.bundle_path)
+
+
+def test_signed_authority_public_journey_rechecks_revoked_pending_review_after_restart(
+    tmp_path, monkeypatch
+):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "signed-state.json"
+    grants = {"alice", "reviewer"}
+    signed = signed_authorizer(grants)
+    authorizer = SignedSharedKnowledgeActionAuthorizer(
+        signed.authority,
+        tenant_id="tenant-a",
+        project_id="project-a",
+        capability_id="shared-knowledge",
+        capability_version="1.0.0",
+        capability_digest=signed.capability_digest,
+        context_for=signed.resolve,
+        clock=lambda: signed.now,
+    )
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    alice = checkout(remote, tmp_path / "signed-alice", "alice")
+    proposal = workspace.propose(
+        user_id="alice",
+        checkout=alice,
+        proposal_id="signed-review",
+        path="knowledge.md",
+        content="signed change\n",
+    )
+
+    persisted = workspace._persist_locked
+    interrupted = True
+
+    def persist_pending_then_interrupt(current_state):
+        nonlocal interrupted
+        persisted(current_state)
+        if interrupted and current_state["proposals"][proposal.proposal_id]["status"] == "review-pending":
+            interrupted = False
+            raise OSError("interrupted before signed review CAS")
+
+    monkeypatch.setattr(workspace, "_persist_locked", persist_pending_then_interrupt)
+    with pytest.raises(OSError, match="interrupted"):
+        workspace.review_and_promote(proposal.proposal_id, reviewer_id="reviewer")
+
+    # The restart sees a durable pending receipt, but the reviewer context was
+    # revoked while it was pending. A stale receipt cannot bypass live checks.
+    signed.revoke_current("reviewer")
+    restarted = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        restarted.review_and_promote(proposal.proposal_id, reviewer_id="reviewer")
+    assert git("--git-dir", str(remote), "rev-parse", "refs/heads/main") == proposal.base_commit
+
+    # A newly issued reviewer context is the only way to continue, and the
+    # exact signed context still scopes the resulting public reads/exports.
+    signed.fresh_grant("reviewer")
+    promoted = restarted.review_and_promote(proposal.proposal_id, reviewer_id="reviewer")
+    assert promoted.status == "promoted"
+    assert restarted.authorized_context("alice").files == (("knowledge.md", "signed change\n"),)
+    assert restarted.export("alice")["files"] == {"knowledge.md": "signed change\n"}
+
+    # A resolver that returns no current grant is an explicit denial, including
+    # after bytes have entered the disposable per-process cache.
+    grants.remove("alice")
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        restarted.export("alice")
+
+
+def test_signed_authorizer_binds_full_resource_request_and_capability_version():
+    ref = ResourceRef(
+        authority="file:///expected",
+        resource_type="git.repository",
+        resource_id="knowledge.md",
+        version="v1",
+        digest="sha256:" + "a" * 64,
+    )
+    signed = signed_authorizer({"alice"})
+    pair = signed.resolve("alice", "shared_knowledge.read", ref)
+    authorizer = SignedSharedKnowledgeActionAuthorizer(
+        signed.authority,
+        tenant_id="tenant-a",
+        project_id="project-a",
+        capability_id="shared-knowledge",
+        capability_version="1.0.0",
+        capability_digest=signed.capability_digest,
+        context_for=lambda *_: pair,
+        clock=lambda: signed.now,
+    )
+    authorizer.authorize("shared_knowledge.read", ref, subject_id="alice")
+
+    for mutation in (
+        {"authority": "file:///different"},
+        {"resource_type": "other.type"},
+        {"resource_id": "other-resource"},
+        {"version": "v2"},
+        {"digest": "sha256:" + "b" * 64},
+    ):
+        with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+            authorizer.authorize(
+                "shared_knowledge.read", ref.model_copy(update=mutation), subject_id="alice"
+            )
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        authorizer.authorize("shared_knowledge.search", ref, subject_id="alice")
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        authorizer.authorize("shared_knowledge.read", ref, subject_id="bob")
+
+    context, binding = pair
+    wrong_claims = context.claims.model_copy(update={"capability_version": "2.0.0"})
+    wrong_context = signed.authority.issue(wrong_claims, key_id="key-1")
+    wrong_binding = signed.authority.issue_packet_request_binding(
+        binding.binding.model_copy(
+            update={
+                "access_context_digest": wrong_context.context_digest,
+                "capability_version": "2.0.0",
+            }
+        ),
+        key_id="key-1",
+    )
+    wrong_version = SignedSharedKnowledgeActionAuthorizer(
+        signed.authority,
+        tenant_id="tenant-a",
+        project_id="project-a",
+        capability_id="shared-knowledge",
+        capability_version="1.0.0",
+        capability_digest=signed.capability_digest,
+        context_for=lambda *_: (wrong_context, wrong_binding),
+        clock=lambda: signed.now,
+    )
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        wrong_version.authorize("shared_knowledge.read", ref, subject_id="alice")
+
+    for field in ("tenant_id", "project_id"):
+        claims = context.claims.model_copy(update={field: "wrong"})
+        altered = signed.authority.issue(claims, key_id="key-1")
+        altered_binding = signed.authority.issue_packet_request_binding(
+            binding.binding.model_copy(
+                update={field: "wrong", "access_context_digest": altered.context_digest}
+            ),
+            key_id="key-1",
+        )
+        with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+            SignedSharedKnowledgeActionAuthorizer(
+                signed.authority,
+                tenant_id="tenant-a",
+                project_id="project-a",
+                capability_id="shared-knowledge",
+                capability_version="1.0.0",
+                capability_digest=signed.capability_digest,
+                context_for=lambda *_: (altered, altered_binding),
+                clock=lambda: signed.now,
+            ).authorize("shared_knowledge.read", ref, subject_id="alice")
+
+    wildcard_claims = context.claims.model_copy(update={"source_ids": ("*",)})
+    wildcard_context = signed.authority.issue(wildcard_claims, key_id="key-1")
+    wildcard_binding = signed.authority.issue_packet_request_binding(
+        binding.binding.model_copy(update={"access_context_digest": wildcard_context.context_digest}),
+        key_id="key-1",
+    )
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        SignedSharedKnowledgeActionAuthorizer(
+            signed.authority,
+            tenant_id="tenant-a",
+            project_id="project-a",
+            capability_id="shared-knowledge",
+            capability_version="1.0.0",
+            capability_digest=signed.capability_digest,
+            context_for=lambda *_: (wildcard_context, wildcard_binding),
+            clock=lambda: signed.now,
+        ).authorize("shared_knowledge.read", ref, subject_id="alice")
+
+    for field, value in (("purpose", "wrong-purpose"), ("scope", "file:///wrong")):
+        altered_binding = signed.authority.issue_packet_request_binding(
+            binding.binding.model_copy(update={field: value}), key_id="key-1"
+        )
+        with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+            SignedSharedKnowledgeActionAuthorizer(
+                signed.authority,
+                tenant_id="tenant-a",
+                project_id="project-a",
+                capability_id="shared-knowledge",
+                capability_version="1.0.0",
+                capability_digest=signed.capability_digest,
+                context_for=lambda *_: (context, altered_binding),
+                clock=lambda: signed.now,
+            ).authorize("shared_knowledge.read", ref, subject_id="alice")
+
+
+@pytest.mark.parametrize("failure", ["expired", "revoked", "missing", "malformed"])
+def test_signed_authorizer_denies_expired_revoked_or_missing_current_context(failure):
+    ref = ResourceRef(
+        authority="file:///expected",
+        resource_type="git.repository",
+        resource_id="knowledge.md",
+        version="v1",
+        digest="sha256:" + "a" * 64,
+    )
+    signed = signed_authorizer({"alice"})
+    pair = signed.resolve("alice", "shared_knowledge.read", ref)
+    clock = lambda: signed.now
+    context, _binding = pair
+    if failure == "expired":
+        clock = lambda: signed.now + timedelta(hours=2)
+    elif failure == "revoked":
+        signed.authority.revocations.revoke_context(
+            context.context_digest, revoked_at=signed.now
+        )
+    if failure == "missing":
+        resolver = None
+    elif failure == "malformed":
+        resolver = lambda *_: ("not-a-signed-context",)
+    else:
+        resolver = lambda *_: pair
+    authorizer = SignedSharedKnowledgeActionAuthorizer(
+        signed.authority,
+        tenant_id="tenant-a",
+        project_id="project-a",
+        capability_id="shared-knowledge",
+        capability_version="1.0.0",
+        capability_digest=signed.capability_digest,
+        context_for=resolver,
+        clock=clock,
+    )
+    with pytest.raises(PermissionError, match="source grant is revoked or absent"):
+        authorizer.authorize("shared_knowledge.read", ref, subject_id="alice")
+
+
+def test_signed_authority_two_user_conflict_promotion_and_other_conflict(tmp_path):
+    remote = _bootstrap_remote(tmp_path)
+    state = tmp_path / "signed-two-user-state.json"
+    grants = {"alice", "bob", "reviewer"}
+    signed = signed_authorizer(grants)
+    authorizer = SignedSharedKnowledgeActionAuthorizer(
+        signed.authority,
+        tenant_id="tenant-a",
+        project_id="project-a",
+        capability_id="shared-knowledge",
+        capability_version="1.0.0",
+        capability_digest=signed.capability_digest,
+        context_for=signed.resolve,
+        clock=lambda: signed.now,
+    )
+    workspace = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    second = SharedKnowledgeWorkspace(remote, state, action_authorizer=authorizer)
+    alice = checkout(remote, tmp_path / "signed-two-alice", "alice")
+    bob = checkout(remote, tmp_path / "signed-two-bob", "bob")
+    barrier = threading.Barrier(2)
+
+    def propose(instance, **kwargs):
+        barrier.wait(timeout=5)
+        return instance.propose(**kwargs)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            propose,
+            workspace,
+            user_id="alice",
+            checkout=alice,
+            proposal_id="signed-alice-edit",
+            path="knowledge.md",
+            content="alice signed change\n",
+        )
+        second_future = executor.submit(
+            propose,
+            second,
+            user_id="bob",
+            checkout=bob,
+            proposal_id="signed-bob-edit",
+            path="knowledge.md",
+            content="bob signed competing change\n",
+        )
+        first, competing = first_future.result(), second_future.result()
+    assert first.base_commit == competing.base_commit
+    promoted = workspace.review_and_promote(first.proposal_id, reviewer_id="reviewer")
+    conflicted = second.review_and_promote(competing.proposal_id, reviewer_id="reviewer")
+    assert promoted.status == "promoted"
+    assert conflicted.status == "conflict"
+    assert workspace.authorized_context("alice").files == (
+        ("knowledge.md", "alice signed change\n"),
+    )
+    assert workspace.search("bob", "alice signed") == (
+        ("knowledge.md", "alice signed change\n"),
+    )
 
 
 def _bootstrap_remote(tmp_path: Path) -> Path:

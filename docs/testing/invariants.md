@@ -56,3 +56,17 @@ does not report deletion while cache bytes survive.
 
 `test_authorized_context_packet_service.py` fault-injects stale cache backup
 restoration and a full durable journal at the packet service boundary.
+
+## K29-SHARED-SIGNED-AUTHORITY — connected Git actions require current exact grants
+
+Every connected canonical Git proposal, review, read, search, and export action
+must re-resolve a caller-owned signed context and verify its tenant, project,
+capability identity/version, signed action/resource request binding, validity
+interval, and revocation state.
+Durable pending review metadata must not let a revoked reviewer resume a Git
+promotion after restart, and an absent resolver grant must deny cached reads.
+
+`test_signed_authority_public_journey_rechecks_revoked_pending_review_after_restart`
+uses the public `SharedKnowledgeWorkspace` journey with real HMAC contexts,
+fault-injected interruption after the durable pending receipt, reviewer
+revocation, restart, fresh re-issuance, and post-cache denial.

@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -19,7 +20,15 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
 
+import rfc8785
+
 from krail.provider.v1 import ResourceRef
+from rail.hosted.access import (
+    AccessContextAuthority,
+    InvalidAccessContext,
+    SignedAccessContext,
+    SignedPacketRequestBinding,
+)
 
 
 class SharedKnowledgeError(RuntimeError):
@@ -31,6 +40,81 @@ class SharedKnowledgeActionAuthorizer(Protocol):
 
     def authorize(self, action: str, ref: ResourceRef, *, subject_id: str) -> None:
         """Raise PermissionError if this action is currently denied or revoked."""
+
+
+def shared_knowledge_action_request_digest(action: str, ref: ResourceRef) -> str:
+    """Digest the complete action and immutable resource request for signing."""
+
+    payload = {"action": action, "resource": ref.model_dump(mode="json")}
+    return "sha256:" + sha256(rfc8785.dumps(payload)).hexdigest()
+
+
+class SignedSharedKnowledgeActionAuthorizer:
+    """Caller-composed signed authority for one connected-Git workspace."""
+
+    def __init__(
+        self,
+        authority: AccessContextAuthority,
+        *,
+        tenant_id: str,
+        project_id: str,
+        capability_id: str,
+        capability_version: str,
+        capability_digest: str,
+        context_for: Callable[
+            [str, str, ResourceRef],
+            tuple[SignedAccessContext, SignedPacketRequestBinding] | None,
+        ] | None,
+        clock: Callable[[], datetime],
+    ) -> None:
+        self.authority = authority
+        self.tenant_id, self.project_id = tenant_id, project_id
+        self.capability_id, self.capability_version = capability_id, capability_version
+        self.capability_digest = capability_digest
+        self.context_for, self.clock = context_for, clock
+
+    def authorize(self, action: str, ref: ResourceRef, *, subject_id: str) -> None:
+        if self.context_for is None:
+            raise PermissionError("source grant is revoked or absent")
+        try:
+            authorization = self.context_for(subject_id, action, ref)
+            if authorization is None:
+                raise PermissionError("source grant is revoked or absent")
+            context, request_binding = authorization
+            now = self.clock()
+            claims = self.authority.verify(context, as_of=now)
+            binding = self.authority.verify_packet_request_binding(
+                request_binding, access_context=context, as_of=now
+            )
+        except (
+            AttributeError,
+            InvalidAccessContext,
+            KeyError,
+            LookupError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise PermissionError("source grant is revoked or absent") from exc
+        if (
+            (claims.tenant_id, claims.project_id) != (self.tenant_id, self.project_id)
+            or claims.subject != subject_id
+            or claims.capability_id != self.capability_id
+            or claims.capability_version != self.capability_version
+            or claims.capability_digest != self.capability_digest
+            or action not in claims.actions
+            or claims.source_ids == ("*",)
+            or ref.resource_id not in claims.source_ids
+            or (binding.tenant_id, binding.project_id)
+            != (self.tenant_id, self.project_id)
+            or binding.capability_id != self.capability_id
+            or binding.capability_version != self.capability_version
+            or binding.capability_digest != self.capability_digest
+            or binding.access_context_digest != context.context_digest
+            or binding.request_digest != shared_knowledge_action_request_digest(action, ref)
+            or binding.purpose != "shared-knowledge-action"
+            or binding.scope != ref.authority
+        ):
+            raise PermissionError("source grant is revoked or absent")
 
 
 @dataclass(frozen=True)
