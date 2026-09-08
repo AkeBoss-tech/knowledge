@@ -40,7 +40,13 @@ from rail.core_provenance import (
     procedure_record_ref,
 )
 from rail.extension_registry import DomainExtensionRegistry, verify_invocation_integrity
-from rail.hosted.access import AccessClaims, AccessContextAuthority, MemoryRevocationRegistry
+from rail.hosted.access import AccessClaims, AccessContextAuthority, MemoryRevocationRegistry, PacketRequestBinding
+from rail.company_guidance_packet import (
+    CompanyGuidancePacketCreateRequest,
+    CompanyGuidancePacketReadRequest,
+    CompanyGuidancePacketService,
+)
+from rail.capability_publication import company_guidance_packet_descriptor
 from rail.procedure_projection import TemporalProjectionService
 from rail.robotics_world_memory import (
     ActionFreshnessQuery,
@@ -1930,3 +1936,96 @@ def test_company_guidance_abstains_on_coordinated_context_refresh_mid_read(tmp_p
     result = raced.read(request)
     assert result.status == "abstained"
     assert result.procedure is None
+
+
+def test_company_guidance_packet_signed_readers_restart_and_source_invalidation(tmp_path):
+    company, records, facade, _repository, guidance_request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    guidance = facade.read(guidance_request)
+    assert guidance.status == "guidance"
+    exact_refs = tuple(dict.fromkeys((*guidance.company_lineage, *guidance.procedure_lineage)))
+    descriptor = company_guidance_packet_descriptor()
+    authority = AccessContextAuthority({"packet": b"packet-fixture"}, issuer="https://packet.example")
+    source_ids = tuple(dict.fromkeys(ref.resource_id for ref in exact_refs))
+
+    def issue(subject: str, *, actions=("context.read",)):
+        claims = AccessClaims(
+            issuer="https://packet.example", tenant_id="acme", project_id="platform",
+            subject=subject, delegator="packet/admin", delegation_id=f"packet/{subject}",
+            capability_id="krail.company-guidance-packet", capability_version="1.0.0",
+            capability_digest=descriptor.descriptor_digest, actions=actions,
+            source_ids=source_ids, classifications=("internal",),
+            policy_digest="sha256:" + "a" * 64, issued_at=MONDAY,
+            not_before=MONDAY, expires_at=FRIDAY + timedelta(days=1), nonce=f"packet-{subject}",
+        )
+        return authority.issue(claims, key_id="packet")
+
+    service = CompanyGuidancePacketService(
+        lambda _context, _refs: facade, project_path=tmp_path,
+        authority=authority, tenant_id="acme", project_id="platform",
+        capability_descriptor_digest=descriptor.descriptor_digest,
+        current_ref_resolver=lambda ref: ref, clock=lambda: FRIDAY,
+    )
+    context = issue("packet-reader")
+    unsigned = CompanyGuidancePacketCreateRequest(
+        access_context=context,
+        request_binding=authority.issue_packet_request_binding(
+            PacketRequestBinding(
+                access_context_digest=context.context_digest, tenant_id="acme", project_id="platform",
+                capability_id="krail.company-guidance-packet", capability_version="1.0.0",
+                capability_digest=descriptor.descriptor_digest, request_digest="sha256:" + "0" * 64,
+                purpose="company-guidance-followup", scope="service-alpha", issued_at=MONDAY,
+                not_before=MONDAY, expires_at=FRIDAY + timedelta(days=1), nonce="binding-placeholder",
+            ), key_id="packet"
+        ), exact_refs=exact_refs, guidance_request=guidance_request,
+        purpose="company-guidance-followup", scope="service-alpha",
+    )
+    request_digest = service._request_digest(unsigned)
+    binding = authority.issue_packet_request_binding(
+        PacketRequestBinding(
+            access_context_digest=context.context_digest, tenant_id="acme", project_id="platform",
+            capability_id="krail.company-guidance-packet", capability_version="1.0.0",
+            capability_digest=descriptor.descriptor_digest, request_digest=request_digest,
+            purpose="company-guidance-followup", scope="service-alpha", issued_at=MONDAY,
+            not_before=MONDAY, expires_at=FRIDAY + timedelta(days=1), nonce="binding-create",
+        ), key_id="packet"
+    )
+    request = unsigned.model_copy(update={"request_binding": binding})
+    packet = service.create(request)
+    assert packet.packet_digest == packet.packet_id
+    assert packet.exact_lineage_refs == exact_refs
+
+    fresh = issue("packet-reader-fresh")
+    read_binding = authority.issue_packet_request_binding(
+        PacketRequestBinding(
+            access_context_digest=fresh.context_digest, tenant_id="acme", project_id="platform",
+            capability_id="krail.company-guidance-packet", capability_version="1.0.0",
+            capability_digest=descriptor.descriptor_digest, request_digest=packet.request_digest,
+            purpose=packet.purpose, scope=packet.scope, issued_at=MONDAY,
+            not_before=MONDAY, expires_at=FRIDAY + timedelta(days=1), nonce="binding-read",
+        ), key_id="packet"
+    )
+    read_request = CompanyGuidancePacketReadRequest(
+        packet_digest=packet.packet_digest, access_context=fresh, request_binding=read_binding,
+        exact_refs=exact_refs, purpose=packet.purpose, scope=packet.scope,
+    )
+    result = service.read(read_request)
+    assert result.status == "available"
+    assert result.packet == packet
+    assert result.current_authorization_digest == fresh.context_digest
+
+    restarted = CompanyGuidancePacketService(
+        lambda _context, _refs: facade, project_path=tmp_path,
+        authority=authority, tenant_id="acme", project_id="platform",
+        capability_descriptor_digest=descriptor.descriptor_digest,
+        current_ref_resolver=lambda ref: ref, clock=lambda: FRIDAY,
+    )
+    assert restarted.read(read_request).status == "available"
+
+    maint = issue("packet-maintainer", actions=("retention.enforce",))
+    removed = service.invalidate_for_sources(
+        maint, exact_refs=(company.projection.record_ref(records["policy-approved"]),), reason="source-revoked"
+    )
+    assert removed == (packet.packet_digest,)
+    assert restarted.read(read_request).status == "packet_unavailable"

@@ -66,6 +66,14 @@ from rail.verification_evidence import (
     VerificationEvidence,
     VerificationEvidenceRequest,
 )
+from rail.company_guidance_packet import (
+    CAPABILITY_ID as COMPANY_GUIDANCE_PACKET_CAPABILITY_ID,
+    CAPABILITY_VERSION as COMPANY_GUIDANCE_PACKET_CAPABILITY_VERSION,
+    CompanyGuidancePacket,
+    CompanyGuidancePacketCreateRequest,
+    CompanyGuidancePacketReadRequest,
+    CompanyGuidancePacketReadResult,
+)
 from krail.provider.semantic import (
     AssembleCrossSourceEvidenceRequest,
     AssembleCrossSourceEvidenceResult,
@@ -316,6 +324,35 @@ def semantic_operations_descriptor() -> CapabilityDescriptor:
     )
 
 
+def company_guidance_packet_descriptor() -> CapabilityDescriptor:
+    return CapabilityDescriptor.issue(
+        provider="krail.local",
+        capability_id=COMPANY_GUIDANCE_PACKET_CAPABILITY_ID,
+        semantic_version=COMPANY_GUIDANCE_PACKET_CAPABILITY_VERSION,
+        operations=(
+            CapabilityOperation(
+                operation_id="create_company_guidance_packet",
+                input_schema=CompanyGuidancePacketCreateRequest.model_json_schema(),
+                output_schema=CompanyGuidancePacket.model_json_schema(),
+            ),
+            CapabilityOperation(
+                operation_id="read_company_guidance_packet",
+                input_schema=CompanyGuidancePacketReadRequest.model_json_schema(),
+                output_schema=CompanyGuidancePacketReadResult.model_json_schema(),
+            ),
+        ),
+        effects=EffectDeclaration(),
+        limits=(
+            CapabilityLimit(name="max_packet_bytes", value=524_288, unit="utf8-bytes"),
+            CapabilityLimit(name="max_exact_resource_refs", value=256, unit="items"),
+        ),
+        semantic_processing_versions=(
+            SemanticProcessingVersion(component="provider-contract", version="krail.provider.v1"),
+            SemanticProcessingVersion(component="company-guidance-packet", version="krail.company-guidance-packet.v1"),
+        ),
+    )
+
+
 def capability_descriptors() -> tuple[CapabilityDescriptor, ...]:
     return (
         context_brief_descriptor(),
@@ -324,6 +361,7 @@ def capability_descriptors() -> tuple[CapabilityDescriptor, ...]:
         outcome_evidence_descriptor(),
         procedure_explanation_descriptor(),
         semantic_operations_descriptor(),
+        company_guidance_packet_descriptor(),
     )
 
 
@@ -355,6 +393,7 @@ __all__ = [
     "PROCEDURE_EXPLANATION_CAPABILITY_VERSION",
     "LocalCapabilityPublication",
     "authorized_context_packet_descriptor",
+    "company_guidance_packet_descriptor",
     "capability_descriptors",
     "context_brief_descriptor",
     "outcome_evidence_descriptor",

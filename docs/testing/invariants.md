@@ -57,6 +57,21 @@ does not report deletion while cache bytes survive.
 `test_authorized_context_packet_service.py` fault-injects stale cache backup
 restoration and a full durable journal at the packet service boundary.
 
+## K29-REGISTERED-GIT-EVIDENCE — reviewed retained bytes stay canonical
+
+An explicitly configured external Git root may contribute retained bytes only
+after caller-owned signed capture and review decisions bind the exact Git ref,
+capture ID, review ID, and blob digest. Retrieval rechecks the canonical source
+provenance, current signed grants, and retained bytes; a narrower valid grant,
+tampered bytes, altered canonical provenance, unsafe sidecar, or deadline
+failure returns no evidence.
+
+`test_registered_git_evidence.py` and the root provenance/deadline probes
+cover these local bridge boundaries.
+The root capture probes fault-inject delegation revocation and narrower
+request-binding expiry after the lock is acquired; both must deny before any
+sidecar, candidate, or manifest publication.
+
 ## K24-EXPLICIT-BELIEF-INFERENCE — declared uncertainty remains deterministic
 
 Belief values carry explicit uncertainty semantics and are never combined by
@@ -124,3 +139,20 @@ review-evidence, signed reader-revocation, scope, and authority-race regressions
 cannot reuse a reviewed procedure, affected guidance abstains after
 service/policy/evidence invalidation, and a procedure revoked during the final
 company recheck is not returned.
+
+## K30-COMPANY-GUIDANCE-PACKET — negotiated guidance packets retain exact review lineage
+
+The separately negotiated `krail.company-guidance-packet@1.0.0` capability
+publishes an immutable, bounded packet schema. Creation and every read require
+fresh caller-signed capability, tenant/project, action, purpose/scope, and
+exact-resource checks. The packet preserves the original authorization digest;
+a fresh read returns a separate current reauthorization digest and timestamp.
+Only current reviewed procedure, command, environment, evidence, decision,
+owner, and policy refs may enter the packet. Invalidating one source tombstones
+only matching packet files, and restart cannot resurrect them; unavailable
+responses disclose no packet metadata.
+
+`test_company_guidance_packet_signed_readers_restart_and_source_invalidation`
+proves signed creation, deterministic digest, persisted fixture bytes, fresh
+reader reauthorization, disk restart, exact lineage, and source-scoped durable
+tombstoning.

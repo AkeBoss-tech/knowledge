@@ -214,6 +214,7 @@ class CompanyOperationalGuidance(StrictModel):
     policy_rule: str | None = None
     procedure: ProcedureActionableGuidance | None = None
     company_lineage: tuple[ResourceRef, ...] = ()
+    procedure_lineage: tuple[ResourceRef, ...] = ()
 
     @model_validator(mode="after")
     def _shape(self) -> "CompanyOperationalGuidance":
@@ -224,6 +225,7 @@ class CompanyOperationalGuidance(StrictModel):
             and self.policy_rule is not None
             and self.procedure is not None
             and bool(self.company_lineage)
+            and bool(self.procedure_lineage)
         )
         if self.status == "guidance" and not complete:
             raise ValueError("current guidance requires complete company lineage")
@@ -233,6 +235,7 @@ class CompanyOperationalGuidance(StrictModel):
             or self.policy_rule is not None
             or self.procedure is not None
             or self.company_lineage
+            or self.procedure_lineage
         ):
             raise ValueError("abstained guidance cannot disclose company state")
         return self
@@ -983,6 +986,31 @@ class CompanyOperationalGuidanceService:
             return CompanyOperationalGuidance(
                 status="abstained", reason="not-current", service_id=request.service_id
             )
+        try:
+            explanation = self.procedures.explain(
+                request.procedure, authorizer=self.procedure_authorizer
+            )
+        except PermissionError:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        procedure_lineage = tuple(dict.fromkeys(
+            (
+                procedure_after.candidate_ref,
+                procedure_after.reviewed_ref,
+                *explanation.package_refs,
+                *explanation.command_refs,
+                *explanation.environment_refs,
+                *explanation.evidence_refs,
+                *explanation.dependency_refs,
+                *explanation.decision_refs,
+                *explanation.invalidation_refs,
+                *(ref for decision in explanation.decisions for ref in (
+                    decision.reviewer_ref,
+                    *decision.evidence_refs,
+                )),
+            )
+        ))
         return CompanyOperationalGuidance(
             status="guidance",
             reason="current",
@@ -991,6 +1019,7 @@ class CompanyOperationalGuidanceService:
             policy_rule=policy.rule,
             procedure=procedure,
             company_lineage=tuple(dict.fromkeys((*owner_refs, *policy_refs))),
+            procedure_lineage=procedure_lineage,
         )
 
 
