@@ -128,7 +128,15 @@ git diff --check: clean
 
 The accepted lifecycle checkpoint was additionally verified by the root review
 with 29 packet-service and integration tests in 12.75s. The full Knowledge
-suite is rerun before its scoped feature-branch commit.
+suite was rerun at `ffb2765` with:
+
+```text
+PYTHONUSERBASE=/Users/akashdubey/.codex/agent-runtime/opensaddle-20260907/knowledge-python-userbase
+PYTHONPATH=packages/rail-py:/Users/akashdubey/.codex/agent-runtime/opensaddle-20260907/python-overlay
+/opt/homebrew/Caskroom/miniconda/base/bin/python -m pytest -q packages/rail-py/tests
+```
+
+It passed: 921 tests in 81.90s.
 
 The partial-result and missing-current-head regressions were verified against a
 deterministically reconstructed mutation of the reviewed draft, then with the
