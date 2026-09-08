@@ -104,3 +104,23 @@ promotion after restart, and an absent resolver grant must deny cached reads.
 uses the public `SharedKnowledgeWorkspace` journey with real HMAC contexts,
 fault-injected interruption after the durable pending receipt, reviewer
 revocation, restart, fresh re-issuance, and post-cache denial.
+
+## K23-COMPANY-GUIDANCE — reviewed guidance requires current company authority
+
+Operational guidance joins an exact reviewed procedure with the current
+company ownership and policy projections. The read path resolves owner and
+policy from the canonical temporal service under signed readers, rechecks both
+after the procedure read, and abstains without disclosing stale state when any
+service, policy, evidence, or review lineage is revoked. It does not activate
+an environment or accept caller-supplied owner/policy values.
+
+`test_company_guidance_candidate_review_restart_and_current_authority` proves
+verified Core provenance -> candidate review/promotion -> current owner/policy
+-> actionable guidance, then reopening both company and procedure stores with
+identical output and lineage, including a digest of a persisted local
+test-result fixture. The substitution, source-revocation,
+review-evidence, signed reader-revocation, scope, and authority-race regressions in
+`test_domain_extension_initial_proof.py` prove that an unrelated service
+cannot reuse a reviewed procedure, affected guidance abstains after
+service/policy/evidence invalidation, and a procedure revoked during the final
+company recheck is not returned.

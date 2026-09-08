@@ -24,11 +24,18 @@ from rail.extension_registry import (
     describe_operator,
 )
 from rail.procedure_projection import ProjectionWriter, TemporalProjectionService
+from rail.core_provenance import (
+    CoreProvenanceAuthorizer,
+    ProcedureActionableGuidance,
+    ProcedureExplanationRequest,
+    ProcedureExplanationService,
+)
 from rail.temporal_records import (
     TemporalRecord,
     query_temporal_records,
     verify_temporal_record_integrity,
 )
+from rail.hosted.access import InvalidAccessContext
 
 
 COMPANY_EXTENSION_ID = "company.knowledge"
@@ -50,6 +57,10 @@ EFFECTIVE_TIME_QUERY_SCHEMA = "company.effective-time-validation-query.v1"
 EFFECTIVE_TIME_ANSWER_SCHEMA = "company.effective-time-validation.v1"
 POLICY_QUERY_SCHEMA = "company.policy-query.v1"
 POLICY_ANSWER_SCHEMA = "company.policy-answer.v1"
+
+
+class _CompanyGuidanceUnavailable(PermissionError):
+    """A revoked/expired signed reader is reported as a coarse abstention."""
 
 
 class StrictModel(BaseModel):
@@ -172,6 +183,58 @@ class EffectivePolicyAnswer(StrictModel):
             raise ValueError("only an effective answer may disclose a policy")
         if self.status != "effective" and self.evidence_refs:
             raise ValueError("non-effective answers cannot disclose candidate evidence")
+        return self
+
+
+class CompanyOperationalGuidanceRequest(StrictModel):
+    """A bounded request for guidance joined to current company authority."""
+
+    service_id: str = Field(min_length=1, max_length=200)
+    policy_id: str = Field(min_length=1, max_length=200)
+    policy_scope: str = Field(min_length=1, max_length=200)
+    valid_at: datetime
+    known_at: datetime
+    procedure: ProcedureExplanationRequest
+
+    @field_validator("valid_at", "known_at")
+    @classmethod
+    def _timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("guidance query timestamps must include a timezone")
+        return value
+
+
+class CompanyOperationalGuidance(StrictModel):
+    """Reviewed procedure guidance with current owner/policy lineage."""
+
+    status: Literal["guidance", "abstained"]
+    reason: Literal["current", "not-current"]
+    service_id: str
+    owner_team_id: str | None = None
+    policy_rule: str | None = None
+    procedure: ProcedureActionableGuidance | None = None
+    company_lineage: tuple[ResourceRef, ...] = ()
+
+    @model_validator(mode="after")
+    def _shape(self) -> "CompanyOperationalGuidance":
+        complete = (
+            self.status == "guidance"
+            and self.reason == "current"
+            and self.owner_team_id is not None
+            and self.policy_rule is not None
+            and self.procedure is not None
+            and bool(self.company_lineage)
+        )
+        if self.status == "guidance" and not complete:
+            raise ValueError("current guidance requires complete company lineage")
+        if self.status == "abstained" and (
+            self.reason != "not-current"
+            or self.owner_team_id is not None
+            or self.policy_rule is not None
+            or self.procedure is not None
+            or self.company_lineage
+        ):
+            raise ValueError("abstained guidance cannot disclose company state")
         return self
 
 
@@ -727,6 +790,210 @@ class CompanyKnowledgeService:
         return answer
 
 
+class CompanyOperationalGuidanceService:
+    """Join company authority and reviewed procedure reads at one public boundary.
+
+    This service only reads the two existing durable authorities. It does not
+    activate an environment, grant access, or substitute caller-provided owner
+    or policy values for current company records.
+    """
+
+    def __init__(
+        self,
+        company: CompanyKnowledgeService,
+        procedures: ProcedureExplanationService,
+        *,
+        owner_reader: HostedAccessContextAuthorizer,
+        policy_reader: HostedAccessContextAuthorizer,
+        procedure_authorizer: CoreProvenanceAuthorizer,
+    ) -> None:
+        self.company = company
+        self.procedures = procedures
+        self.owner_reader = owner_reader
+        self.policy_reader = policy_reader
+        self.procedure_authorizer = procedure_authorizer
+        self._verify_scope()
+
+    def _verify_scope(self) -> tuple[str, ...]:
+        """Revalidate the live signed identities on every read boundary."""
+
+        procedure_authority = getattr(self.procedure_authorizer, "authority", None)
+        procedure_context = getattr(self.procedure_authorizer, "context", None)
+        procedure_clock = getattr(self.procedure_authorizer, "clock", None)
+        if procedure_authority is None or procedure_context is None or procedure_clock is None:
+            raise TypeError("company guidance requires a signed procedure reader")
+        try:
+            procedure_claims = procedure_authority.verify(
+                procedure_context, as_of=procedure_clock()
+            )
+        except InvalidAccessContext as exc:
+            raise _CompanyGuidanceUnavailable(
+                "company guidance signed reader is unavailable"
+            ) from exc
+        if (
+            self.procedures.tenant_id,
+            self.procedures.project_id,
+        ) != (self.company.tenant_id, self.company.project_id):
+            raise PermissionError("company guidance procedure scope is unavailable")
+        reader_claims = []
+        for reader in (self.owner_reader, self.policy_reader):
+            try:
+                claims = reader.authority.verify(reader.context, as_of=reader.clock())
+            except InvalidAccessContext as exc:
+                raise _CompanyGuidanceUnavailable(
+                    "company guidance signed reader is unavailable"
+                ) from exc
+            reader_claims.append(claims)
+        if any(
+            (claims.tenant_id, claims.project_id, claims.subject)
+            != (
+                procedure_claims.tenant_id,
+                procedure_claims.project_id,
+                procedure_claims.subject,
+            )
+            for claims in reader_claims
+        ):
+            raise PermissionError("company guidance authority scopes do not match")
+        if (procedure_claims.tenant_id, procedure_claims.project_id) != (
+            self.company.tenant_id,
+            self.company.project_id,
+        ):
+            raise PermissionError("company guidance authority scope is unavailable")
+        return tuple(
+            value
+            for reader, claims in (
+                (self.owner_reader, reader_claims[0]),
+                (self.policy_reader, reader_claims[1]),
+            )
+            for value in (
+                claims.tenant_id,
+                claims.project_id,
+                claims.subject,
+                reader.context.context_digest,
+            )
+        ) + (
+            procedure_claims.tenant_id,
+            procedure_claims.project_id,
+            procedure_claims.subject,
+            self.procedure_authorizer.context.context_digest,
+        )
+
+    def read(
+        self, request: CompanyOperationalGuidanceRequest
+    ) -> CompanyOperationalGuidance:
+        try:
+            scope_before = self._verify_scope()
+        except _CompanyGuidanceUnavailable:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+
+        def current_company_state() -> tuple[
+            ServiceOwnershipAnswer,
+            tuple[ResourceRef, ...],
+            EffectivePolicyAnswer,
+            tuple[ResourceRef, ...],
+        ]:
+            owner, owner_refs = self.company.owner(
+                ServiceOwnershipQuery(
+                    service_id=request.service_id,
+                    valid_at=request.valid_at,
+                    known_at=request.known_at,
+                ),
+                reader=self.owner_reader,
+            )
+            policy, policy_refs = self.company.effective_policy(
+                EffectivePolicyQuery(
+                    policy_id=request.policy_id,
+                    scope=request.policy_scope,
+                    valid_at=request.valid_at,
+                    known_at=request.known_at,
+                ),
+                reader=self.policy_reader,
+            )
+            return owner, owner_refs, policy, policy_refs
+
+        owner, owner_refs, policy, policy_refs = current_company_state()
+        try:
+            procedure = self.procedures.actionable_guidance(
+                request.procedure, authorizer=self.procedure_authorizer
+            )
+        except PermissionError:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        # The reviewed procedure must carry the exact current company rows as
+        # reviewed evidence. This prevents a caller from pairing an unrelated
+        # procedure with a different service or policy query.
+        required_company_evidence = {
+            ref.exact_key
+            for ref in (
+                owner.ownership_ref,
+                policy.policy_ref,
+            )
+            if ref is not None
+        }
+        if (
+            owner.status != "owned"
+            or policy.status != "effective"
+            or procedure is None
+            or owner.owner_team_id is None
+            or policy.rule is None
+            or not required_company_evidence.issubset(
+                {ref.exact_key for ref in procedure.evidence_refs}
+            )
+        ):
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+
+        # Re-read after the independent procedure lookup so a source/review
+        # change cannot be hidden by a race between the two authorities.
+        owner_after, owner_refs_after, policy_after, policy_refs_after = (
+            current_company_state()
+        )
+        if (
+            owner_after != owner
+            or policy_after != policy
+            or owner_refs_after != owner_refs
+            or policy_refs_after != policy_refs
+        ):
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        try:
+            procedure_after = self.procedures.actionable_guidance(
+                request.procedure, authorizer=self.procedure_authorizer
+            )
+        except PermissionError:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        try:
+            scope_after = self._verify_scope()
+        except _CompanyGuidanceUnavailable:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        if scope_after != scope_before:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        if procedure_after != procedure:
+            return CompanyOperationalGuidance(
+                status="abstained", reason="not-current", service_id=request.service_id
+            )
+        return CompanyOperationalGuidance(
+            status="guidance",
+            reason="current",
+            service_id=request.service_id,
+            owner_team_id=owner.owner_team_id,
+            policy_rule=policy.rule,
+            procedure=procedure,
+            company_lineage=tuple(dict.fromkeys((*owner_refs, *policy_refs))),
+        )
+
+
 def _company_operator(operator_id: str) -> OperatorDescriptor:
     return next(
         operator
@@ -836,6 +1103,9 @@ __all__ = [
     "COMPANY_OPERATOR_VERSION",
     "COMPANY_OWNERSHIP_QUERY_OPERATOR_ID",
     "COMPANY_POLICY_QUERY_OPERATOR_ID",
+    "CompanyOperationalGuidance",
+    "CompanyOperationalGuidanceRequest",
+    "CompanyOperationalGuidanceService",
     "CompanyKnowledgeService",
     "CompanyPolicyRevision",
     "CompanyService",

@@ -26,7 +26,18 @@ from rail.company_knowledge import (
     ServiceOwnershipAnswer,
     ServiceOwnershipQuery,
     company_knowledge_extension,
+    CompanyOperationalGuidanceRequest,
+    CompanyOperationalGuidanceService,
     register_company_knowledge_extension,
+)
+from rail.core_provenance import (
+    CoreProvenanceRepository,
+    CoreProvenanceService,
+    ProcedureExplanationRequest,
+    ProcedureExplanationService,
+    ProcedureReviewService,
+    create_core_provenance_receipt,
+    procedure_record_ref,
 )
 from rail.extension_registry import DomainExtensionRegistry, verify_invocation_integrity
 from rail.hosted.access import AccessClaims, AccessContextAuthority, MemoryRevocationRegistry
@@ -1508,6 +1519,7 @@ builtins.__import__ = guarded
 import rail.extension_registry
 assert 'rail.robotics_world_memory' not in sys.modules
 assert 'rail.company_knowledge' not in sys.modules
+
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -1516,3 +1528,405 @@ assert 'rail.company_knowledge' not in sys.modules
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+class _GuidanceAllow:
+    def authorize(self, ref, *, at=None):
+        return None
+
+
+class _GuidanceTrust:
+    def verify(self, receipt):
+        return None
+
+
+class _GuidanceReview:
+    def authorize_review(self, candidate_digest, reviewer_ref, evidence_refs, *, lineage_refs=(), at):
+        return None
+
+
+class _GuidanceInvalidator:
+    def authorize_invalidation(self, event_id, changed_ref, event_digest, *, at):
+        return None
+
+
+def _signed_procedure_reader(candidate, reviewed, evidence, test_artifact):
+    decision = reviewed.decision
+    decision_ref = ResourceRef(
+        authority="krail://procedural-memory",
+        resource_type="procedure-review",
+        resource_id=decision.decision_id,
+        version=decision.schema_version,
+        digest=decision.decision_digest,
+    )
+    refs = tuple(
+        dict.fromkeys(
+            (
+                procedure_record_ref(candidate.record),
+                procedure_record_ref(reviewed.promoted_record),
+                *candidate.record.command_refs,
+                *candidate.record.environment_refs,
+                *reviewed.promoted_record.command_refs,
+                *reviewed.promoted_record.environment_refs,
+                *reviewed.promoted_record.test_evidence_refs,
+                decision.reviewer_ref,
+                reviewed.promoted_record.review_ref,
+                decision_ref,
+            )
+        )
+    )
+    authority = AccessContextAuthority(
+        {"procedure-reader": b"company-procedure-reader"},
+        issuer="https://control.example.test",
+        revocations=MemoryRevocationRegistry(),
+    )
+    claims = AccessClaims(
+        issuer="https://control.example.test",
+        tenant_id="acme",
+        project_id="platform",
+        subject="reader/company-knowledge",
+        delegator="user/company-admin",
+        delegation_id="delegation/company-procedure",
+        capability_id="krail.procedure-explanation",
+        capability_version="1.1.0",
+        capability_digest="sha256:" + "e" * 64,
+        actions=("context.read",),
+        source_ids=tuple(dict.fromkeys(ref.resource_id for ref in refs)),
+        classifications=("internal",),
+        policy_digest="sha256:" + "f" * 64,
+        issued_at=MONDAY,
+        not_before=MONDAY,
+        expires_at=FRIDAY + timedelta(days=1),
+        nonce="nonce/company-procedure",
+    )
+    context = authority.issue(claims, key_id="procedure-reader")
+    return HostedAccessContextAuthorizer(
+        authority, context, exact_refs=refs, clock=lambda: FRIDAY
+    )
+
+
+class _ArmingReader:
+    def __init__(self, delegate, repository, changed_ref):
+        self._delegate = delegate
+        self._repository = repository
+        self._changed_ref = changed_ref
+        self.armed = False
+        self._revoked = False
+
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
+
+    def authorize(self, ref, *, at=None):
+        if self.armed and not self._revoked:
+            self._repository.record_invalidation(
+                event_id="invalidate:company-guidance-race",
+                changed_ref=self._changed_ref,
+                reason="review revoked during company recheck",
+                at=FRIDAY,
+                authorizer=_GuidanceInvalidator(),
+            )
+            self._revoked = True
+        return self._delegate.authorize(ref, at=at)
+
+
+class _ArmingProcedure:
+    def __init__(self, delegate, reader):
+        self._delegate = delegate
+        self._reader = reader
+
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
+
+    def actionable_guidance(self, request, *, authorizer):
+        result = self._delegate.actionable_guidance(request, authorizer=authorizer)
+        self._reader.armed = True
+        return result
+
+
+class _CoordinatedRefreshProcedure:
+    def __init__(self, delegate, readers):
+        self._delegate = delegate
+        self._readers = readers
+        self._counter = 0
+
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
+
+    def actionable_guidance(self, request, *, authorizer):
+        result = self._delegate.actionable_guidance(request, authorizer=authorizer)
+        self._counter += 1
+        for reader in self._readers:
+            current = reader.context.claims
+            claims = current.model_copy(
+                update={"nonce": f"coordinated-refresh-{self._counter}-{current.subject}"}
+            )
+            reader.context = reader.authority.issue(claims, key_id=reader.context.key_id)
+        return result
+
+
+def _company_guidance_fixture(tmp_path):
+    company, records = _company_fixture(tmp_path / "company-guidance.json")
+    refs = _all_record_refs(company, records.values())
+    _registry, _descriptor, readers, _revocations = _registered_company(company, refs)
+    repository = CoreProvenanceRepository(
+        tmp_path / "procedures.json", tenant_id="acme", project_id="platform"
+    )
+    source = records["service-alpha"].source_refs[0]
+    command = source.model_copy(
+        update={
+            "authority": "opensaddle://core",
+            "resource_type": "command",
+            "resource_id": "opensaddle/command/review",
+        }
+    )
+    environment = source.model_copy(
+        update={
+            "authority": "opensaddle://core",
+            "resource_type": "environment",
+            "resource_id": "opensaddle/environment-revision/review",
+        }
+    )
+    receipt = create_core_provenance_receipt(
+        receipt_id="receipt:company-guidance",
+        command_ref=command,
+        environment_ref=environment,
+        observed_at=FRIDAY,
+    )
+    candidate = CoreProvenanceService(
+        repository=repository, clock=lambda: FRIDAY
+    ).ingest(receipt, authorizer=_GuidanceAllow(), trust=_GuidanceTrust())
+    evidence = company.projection.record_ref(records["policy-approved"])
+    ownership_evidence = company.projection.record_ref(records["alpha-transfer"])
+    test_artifact_path = tmp_path / "artifacts" / "company-guidance-test.json"
+    test_artifact_path.parent.mkdir()
+    test_artifact_bytes = b'{"status":"passed","checks":["owner","policy"]}\n'
+    test_artifact_path.write_bytes(test_artifact_bytes)
+    test_artifact = ResourceRef(
+        authority="opensaddle://core",
+        resource_type="test-result",
+        resource_id=str(test_artifact_path.relative_to(tmp_path)),
+        version="1",
+        digest="sha256:" + sha256(test_artifact_bytes).hexdigest(),
+    )
+    reviewed = ProcedureReviewService(
+        repository=repository, clock=lambda: FRIDAY
+    ).review(
+        candidate.record.record_digest,
+        decision_id="review:company-guidance",
+        reviewer_ref=records["team-red"].source_refs[0],
+        evidence_refs=(ownership_evidence, evidence, test_artifact),
+        accepted=True,
+        authorizer=_GuidanceAllow(),
+        review_authorizer=_GuidanceReview(),
+    )
+    assert reviewed.promoted_record is not None
+    procedure_reader = _signed_procedure_reader(
+        candidate, reviewed, evidence, test_artifact
+    )
+    request = CompanyOperationalGuidanceRequest(
+        service_id="service-alpha",
+        policy_id="deploy-policy",
+        policy_scope="production",
+        valid_at=FRIDAY,
+        known_at=FRIDAY,
+        procedure=ProcedureExplanationRequest(
+            candidate_digest=candidate.record.record_digest
+        ),
+    )
+    facade = CompanyOperationalGuidanceService(
+        company,
+        ProcedureExplanationService(repository=repository, clock=lambda: FRIDAY),
+        owner_reader=readers[COMPANY_OWNERSHIP_QUERY_OPERATOR_ID],
+        policy_reader=readers[COMPANY_POLICY_QUERY_OPERATOR_ID],
+        procedure_authorizer=procedure_reader,
+    )
+    return company, records, facade, repository, request, reviewed, evidence, test_artifact
+
+
+def test_company_guidance_candidate_review_restart_and_current_authority(tmp_path):
+    company, records, facade, repository, request, reviewed, _evidence, test_artifact = _company_guidance_fixture(tmp_path)
+    result = facade.read(request)
+    assert result.status == "guidance"
+    assert result.owner_team_id == "team-blue"
+    assert result.policy_rule == "Two reviewers are required."
+    assert result.procedure is not None
+    assert result.procedure.reviewed_digest == reviewed.promoted_record.record_digest
+    assert test_artifact in result.procedure.evidence_refs
+    assert company.projection.record_ref(records["alpha-transfer"]) in result.company_lineage
+
+    restarted_projection = TemporalProjectionService(
+        str(company.projection.store.path),
+        tenant_id="acme",
+        project_id="platform",
+        clock=lambda: FRIDAY,
+    )
+    restarted_company = CompanyKnowledgeService(restarted_projection)
+    refs = _all_record_refs(restarted_company, records.values())
+    _registry, _descriptor, readers, _revocations = _registered_company(restarted_company, refs)
+    restarted = CompanyOperationalGuidanceService(
+        restarted_company,
+        ProcedureExplanationService(
+            repository=CoreProvenanceRepository(
+                str(repository.store.path),
+                tenant_id="acme",
+                project_id="platform",
+            ),
+            clock=lambda: FRIDAY,
+        ),
+        owner_reader=readers[COMPANY_OWNERSHIP_QUERY_OPERATOR_ID],
+        policy_reader=readers[COMPANY_POLICY_QUERY_OPERATOR_ID],
+        procedure_authorizer=facade.procedure_authorizer,
+    ).read(request)
+    assert restarted == result
+
+
+def test_company_guidance_rejects_cross_service_procedure_substitution(tmp_path):
+    _company, _records, facade, _repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    substituted = facade.read(request.model_copy(update={"service_id": "service-beta"}))
+    assert substituted.status == "abstained"
+    assert substituted.procedure is None
+
+
+def test_company_guidance_rejects_mismatched_signed_reader_scope(tmp_path):
+    company, records, facade, _repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    reader = facade.owner_reader
+    bad_claims = reader.context.claims.model_copy(
+        update={"project_id": "other-project", "nonce": "mismatched-scope"}
+    )
+    bad_context = reader.authority.issue(bad_claims, key_id="reader")
+    bad_reader = HostedAccessContextAuthorizer(
+        reader.authority,
+        bad_context,
+        exact_refs=_all_record_refs(company, records.values()),
+        clock=lambda: FRIDAY,
+    )
+    with pytest.raises(PermissionError, match="authority scopes do not match"):
+        CompanyOperationalGuidanceService(
+            company,
+            facade.procedures,
+            owner_reader=bad_reader,
+            policy_reader=facade.policy_reader,
+            procedure_authorizer=facade.procedure_authorizer,
+        )
+
+
+def test_company_guidance_rechecks_refreshed_subject_scope(tmp_path):
+    company, records, facade, _repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    reader = facade.owner_reader
+    swapped_claims = reader.context.claims.model_copy(
+        update={"subject": "reader/other-user", "nonce": "subject-swap"}
+    )
+    reader.context = reader.authority.issue(swapped_claims, key_id="reader")
+    with pytest.raises(PermissionError, match="authority scopes do not match"):
+        facade.read(request)
+
+
+def test_company_guidance_rejects_procedure_repository_scope_mismatch(tmp_path):
+    company, records, facade, repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    wrong_repository = CoreProvenanceRepository(
+        str(repository.store.path), tenant_id="other-company", project_id="platform"
+    )
+    with pytest.raises(PermissionError, match="procedure scope is unavailable"):
+        CompanyOperationalGuidanceService(
+            company,
+            ProcedureExplanationService(repository=wrong_repository, clock=lambda: FRIDAY),
+            owner_reader=facade.owner_reader,
+            policy_reader=facade.policy_reader,
+            procedure_authorizer=facade.procedure_authorizer,
+        )
+
+
+@pytest.mark.parametrize("changed", ["service", "policy"])
+def test_company_guidance_source_revocation_abstains_without_substituting_state(tmp_path, changed):
+    company, records, facade, _repository, request, _reviewed, _evidence, _artifact = _company_guidance_fixture(tmp_path)
+    changed_ref = (
+        records["service-alpha"].source_refs[0]
+        if changed == "service"
+        else records["policy-approved"].source_refs[0]
+    )
+    company.projection.tombstone(
+        changed_ref,
+        event_id=f"revoke:{changed}",
+        reason="source revoked",
+        effective_at=FRIDAY,
+        recorded_at=FRIDAY,
+        authorizer=_GuidanceInvalidator(),
+    )
+    result = facade.read(request)
+    assert result.status == "abstained"
+    assert result.owner_team_id is None
+    assert result.policy_rule is None
+    assert result.procedure is None
+
+
+def test_company_guidance_review_evidence_revocation_abstains(tmp_path):
+    company, _records, facade, repository, request, _reviewed, evidence, _artifact = _company_guidance_fixture(tmp_path)
+    repository.record_invalidation(
+        event_id="invalidate:company-guidance",
+        changed_ref=evidence,
+        reason="verified evidence replaced",
+        at=FRIDAY,
+        authorizer=_GuidanceInvalidator(),
+    )
+    result = facade.read(request)
+    assert result.status == "abstained"
+    assert result.procedure is None
+
+
+def test_company_guidance_signed_procedure_context_revocation_abstains(tmp_path):
+    _company, _records, facade, _repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    facade.procedure_authorizer.authority.revocations.revoke_context(
+        facade.procedure_authorizer.context.context_digest, revoked_at=FRIDAY
+    )
+    result = facade.read(request)
+    assert result.status == "abstained"
+    assert result.procedure is None
+
+
+def test_company_guidance_rechecks_procedure_after_company_authority_race(tmp_path):
+    company, _records, facade, repository, request, _reviewed, evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    policy_reader = _ArmingReader(
+        facade.policy_reader, repository, evidence
+    )
+    raced = CompanyOperationalGuidanceService(
+        company,
+        _ArmingProcedure(facade.procedures, policy_reader),
+        owner_reader=facade.owner_reader,
+        policy_reader=policy_reader,
+        procedure_authorizer=facade.procedure_authorizer,
+    )
+    result = raced.read(request)
+    assert result.status == "abstained"
+    assert result.procedure is None
+
+
+def test_company_guidance_abstains_on_coordinated_context_refresh_mid_read(tmp_path):
+    company, _records, facade, _repository, request, _reviewed, _evidence, _artifact = (
+        _company_guidance_fixture(tmp_path)
+    )
+    refreshed = _CoordinatedRefreshProcedure(
+        facade.procedures,
+        (facade.owner_reader, facade.policy_reader, facade.procedure_authorizer),
+    )
+    raced = CompanyOperationalGuidanceService(
+        company,
+        refreshed,
+        owner_reader=facade.owner_reader,
+        policy_reader=facade.policy_reader,
+        procedure_authorizer=facade.procedure_authorizer,
+    )
+    result = raced.read(request)
+    assert result.status == "abstained"
+    assert result.procedure is None
