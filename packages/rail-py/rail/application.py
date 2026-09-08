@@ -272,6 +272,7 @@ class KnowledgeApplicationService:
         project_id: str,
         clock=None,
         current_ref_resolver=None,
+        packet_retention_until=None,
     ):
         """Inject the caller-owned verifier at the application composition root."""
 
@@ -289,6 +290,7 @@ class KnowledgeApplicationService:
             capability_descriptor_digest=descriptor.descriptor_digest,
             clock=clock,
             current_ref_resolver=current_ref_resolver or self.provider._ref,
+            packet_retention_until=packet_retention_until,
         )
         return self.authorized_context_packets
 

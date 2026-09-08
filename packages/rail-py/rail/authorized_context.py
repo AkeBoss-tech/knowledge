@@ -11,6 +11,8 @@ import hashlib
 import json
 import os
 import tempfile
+import fcntl
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Callable, Literal, Protocol
@@ -43,6 +45,8 @@ AUTHORIZED_CONTEXT_PACKET_REQUEST_VERSION = "krail.authorized-context-packet-req
 AUTHORIZED_CONTEXT_PACKET_READ_VERSION = "krail.authorized-context-packet-read.v1"
 MAX_AUTHORIZED_CONTEXT_PACKET_BYTES = 524_288
 MAX_AUTHORIZED_CONTEXT_TOKENS = 32_768
+MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES = 1_024
+MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONE_BYTES = 1_048_576
 
 
 def _digest(value: object) -> str:
@@ -268,6 +272,23 @@ class AuthorizedContextPacketReadResult(BaseModel):
         return self
 
 
+class AuthorizedContextPacketTombstone(BaseModel):
+    """Content-free durable denial for one removed local cache entry."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    packet_digest: Digest
+    reason: Literal["source-deleted", "source-revoked", "retention-expired"]
+    occurred_at: datetime
+    decision_digest: Digest
+
+    @field_validator("occurred_at")
+    @classmethod
+    def _timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must include a timezone")
+        return value
+
+
 def authorized_context_packet_request_digest(
     *,
     exact_refs: tuple[ResourceRef, ...],
@@ -307,17 +328,176 @@ class AuthorizedContextPacketService:
         capability_descriptor_digest: str,
         current_ref_resolver: Callable[[str], ResourceRef],
         clock: Callable[[], datetime] | None = None,
+        packet_retention_until: Callable[[SharedAuthorizedContextPacket], datetime | None] | None = None,
     ) -> None:
         self.context_briefs = context_briefs
         self.provider = context_briefs.provider
         self.project_path = Path(project_path).resolve()
         self.packet_path = self.project_path / ".krail" / "authorized-context-packets"
+        self.tombstone_path = self.project_path / ".krail" / "authorized-context-packet-tombstones.json"
         self.authority = authority
         self.tenant_id = tenant_id
         self.project_id = project_id
         self.capability_descriptor_digest = capability_descriptor_digest
         self.clock = clock or (lambda: datetime.now(UTC))
         self.current_ref_resolver = current_ref_resolver
+        self.packet_retention_until = packet_retention_until
+
+    def _tombstones(self) -> dict[str, AuthorizedContextPacketTombstone]:
+        try:
+            with self.tombstone_path.open("rb") as handle:
+                raw = handle.read(MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONE_BYTES + 1)
+            if len(raw) > MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONE_BYTES:
+                raise ValueError("packet tombstone journal exceeds byte limit")
+            payload = json.loads(raw)
+            if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+                raise ValueError("invalid packet tombstone journal")
+            if payload.get("schema_version") != "krail.authorized-context-packet-tombstones.v1":
+                raise ValueError("unknown packet tombstone schema")
+            entries = {
+                item["packet_digest"]: AuthorizedContextPacketTombstone.model_validate(item)
+                for item in payload["entries"]
+            }
+            if len(entries) != len(payload["entries"]) or len(entries) > MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES:
+                raise ValueError("invalid packet tombstone journal")
+            return entries
+        except FileNotFoundError:
+            return {}
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError("invalid packet tombstone journal") from exc
+
+    @contextmanager
+    def _lifecycle_lock(self):
+        self.tombstone_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = self.tombstone_path.with_suffix(".lock")
+        with lock.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _load_packet(self, path: Path) -> SharedAuthorizedContextPacket:
+        with path.open("rb") as handle:
+            payload = handle.read(MAX_AUTHORIZED_CONTEXT_PACKET_BYTES + 1)
+        if len(payload) > MAX_AUTHORIZED_CONTEXT_PACKET_BYTES:
+            raise ValueError("authorized context packet exceeds byte limit")
+        return SharedAuthorizedContextPacket.model_validate_json(payload)
+
+    def _persist_tombstones(self, entries: dict[str, AuthorizedContextPacketTombstone]) -> None:
+        if len(entries) > MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES:
+            raise PermissionError("authorized context packet retention is unavailable")
+        self.tombstone_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = _canonical({
+            "schema_version": "krail.authorized-context-packet-tombstones.v1",
+            "entries": [entries[key].model_dump(mode="json") for key in sorted(entries)],
+        })
+        descriptor, temporary = tempfile.mkstemp(dir=self.tombstone_path.parent, prefix=".authorized-context-packet-tombstones.")
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.tombstone_path)
+            directory = os.open(self.tombstone_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    def _maintenance_claims(self, access_context: SignedAccessContext, refs: tuple[ResourceRef, ...] = ()) -> None:
+        claims = self.authority.verify(access_context, as_of=self.clock())
+        if (
+            (claims.tenant_id, claims.project_id) != (self.tenant_id, self.project_id)
+            or "retention.enforce" not in claims.actions
+            or claims.capability_id != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID
+            or claims.capability_version != AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION
+            or claims.capability_digest != self.capability_descriptor_digest
+            or claims.source_ids == ("*",)
+            or len({ref.exact_key for ref in refs}) != len(refs)
+            or any(ref.resource_id not in claims.source_ids for ref in refs)
+        ):
+            raise PermissionError("authorized context packet retention is unavailable")
+
+    def invalidate_for_sources(
+        self,
+        access_context: SignedAccessContext,
+        *,
+        exact_refs: tuple[ResourceRef, ...],
+        reason: Literal["source-deleted", "source-revoked", "retention-expired"],
+    ) -> tuple[str, ...]:
+        """Remove matching service-owned cache entries after a live caller decision.
+
+        ``reason`` describes an already-authorized source lifecycle event; the
+        signed context and injected clock, rather than that value, authorize it.
+        """
+        self._maintenance_claims(access_context, exact_refs)
+        target_keys = {ref.exact_key for ref in exact_refs}
+        with self._lifecycle_lock():
+            self._maintenance_claims(access_context, exact_refs)
+            candidates: list[SharedAuthorizedContextPacket] = []
+            for path in self.packet_path.glob("*.json") if self.packet_path.is_dir() else ():
+                try:
+                    packet = self._load_packet(path)
+                except (OSError, ValueError):
+                    continue
+                if any(ref.exact_key in target_keys for ref in packet.exact_evidence_refs):
+                    candidates.append(packet)
+            self._maintenance_claims(access_context, exact_refs)
+            return self._remove_packets(access_context, candidates, reason=reason)
+
+    def _remove_packets(
+        self,
+        access_context: SignedAccessContext,
+        candidates: list[SharedAuthorizedContextPacket],
+        *,
+        reason: Literal["source-deleted", "source-revoked", "retention-expired"],
+    ) -> tuple[str, ...]:
+        """Journal first, then remove exactly the selected cache files."""
+        entries = self._tombstones()
+        new = [packet for packet in candidates if packet.packet_digest not in entries]
+        if len(entries) + len(new) > MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES:
+            raise PermissionError("authorized context packet retention is unavailable")
+        now = self.clock()
+        for packet in new:
+            entries[packet.packet_digest] = AuthorizedContextPacketTombstone(
+                packet_digest=packet.packet_digest,
+                reason=reason,
+                occurred_at=now,
+                decision_digest=_digest({"packet_digest": packet.packet_digest, "reason": reason, "occurred_at": now.isoformat(), "authorization_digest": access_context.context_digest}),
+            )
+        self._persist_tombstones(entries)
+        for packet in candidates:
+            try:
+                self._packet_file(packet.packet_digest).unlink(missing_ok=True)
+            except OSError as exc:
+                raise PermissionError("authorized context packet retention is incomplete") from exc
+        return tuple(sorted(packet.packet_digest for packet in candidates))
+
+    def enforce_retention(self, access_context: SignedAccessContext) -> tuple[str, ...]:
+        """Apply an explicitly injected policy using the service clock only."""
+        self._maintenance_claims(access_context)
+        if self.packet_retention_until is None:
+            raise PermissionError("authorized context packet retention is unavailable")
+        packets: list[SharedAuthorizedContextPacket] = []
+        for path in self.packet_path.glob("*.json") if self.packet_path.is_dir() else ():
+            try:
+                packet = self._load_packet(path)
+            except (OSError, ValueError):
+                continue
+            until = self.packet_retention_until(packet)
+            if until is not None and until <= self.clock():
+                packets.append(packet)
+        refs = tuple(
+            {ref.exact_key: ref for packet in packets for ref in packet.exact_evidence_refs}.values()
+        )
+        if not refs:
+            return ()
+        with self._lifecycle_lock():
+            self._maintenance_claims(access_context, refs)
+            return self._remove_packets(access_context, packets, reason="retention-expired")
 
     def _authorizer(
         self,
@@ -378,6 +558,18 @@ class AuthorizedContextPacketService:
         return self.packet_path / f"{digest.removeprefix('sha256:')}.json"
 
     def _persist(self, packet: SharedAuthorizedContextPacket) -> None:
+        with self._lifecycle_lock():
+            self._persist_locked(packet)
+
+    def _persist_locked(self, packet: SharedAuthorizedContextPacket) -> None:
+        if packet.packet_digest in self._tombstones():
+            raise PermissionError("authorized context packet access denied")
+        if (
+            self.packet_retention_until is not None
+            and (until := self.packet_retention_until(packet)) is not None
+            and until <= self.clock()
+        ):
+            raise PermissionError("authorized context packet access denied")
         payload = _canonical(packet.model_dump(mode="json"))
         if len(payload) > MAX_AUTHORIZED_CONTEXT_PACKET_BYTES:
             raise ValueError("authorized context packet exceeds byte limit")
@@ -480,16 +672,17 @@ class AuthorizedContextPacketService:
             **body,
         )
         try:
-            self._persist(packet)
-            self._verify_exact_resources(evidence_refs, authorizer)
-            self._authorizer(
-                access_context=request.access_context,
-                request_binding=request.request_binding,
-                exact_refs=request.exact_refs,
-                request_digest=request_digest,
-                purpose=request.purpose,
-                scope=request.scope,
-            )
+            with self._lifecycle_lock():
+                self._verify_exact_resources(evidence_refs, authorizer)
+                self._authorizer(
+                    access_context=request.access_context,
+                    request_binding=request.request_binding,
+                    exact_refs=request.exact_refs,
+                    request_digest=request_digest,
+                    purpose=request.purpose,
+                    scope=request.scope,
+                )
+                self._persist_locked(packet)
         except (LookupError, PermissionError, ValueError) as exc:
             raise PermissionError("authorized context packet access denied") from exc
         return packet
@@ -501,16 +694,19 @@ class AuthorizedContextPacketService:
             status="context_packet_unavailable"
         )
         try:
-            with self._packet_file(request.packet_digest).open("rb") as handle:
-                payload = handle.read(MAX_AUTHORIZED_CONTEXT_PACKET_BYTES + 1)
-            if len(payload) > MAX_AUTHORIZED_CONTEXT_PACKET_BYTES:
-                return unavailable
-            packet = SharedAuthorizedContextPacket.model_validate_json(payload)
+            if request.packet_digest in self._tombstones(): return unavailable
+            packet = self._load_packet(self._packet_file(request.packet_digest))
             if (
                 packet.packet_digest != request.packet_digest
                 or packet.context.evidence.query != request.query
                 or packet.purpose != request.purpose
                 or packet.scope != request.scope
+            ):
+                return unavailable
+            if (
+                self.packet_retention_until is not None
+                and (until := self.packet_retention_until(packet)) is not None
+                and until <= self.clock()
             ):
                 return unavailable
             authorizer = self._authorizer(
@@ -553,6 +749,13 @@ class AuthorizedContextPacketService:
                 MAX_AUTHORIZED_CONTEXT_PACKET_BYTES + 8192
             ):
                 return unavailable
+            with self._lifecycle_lock():
+                if request.packet_digest in self._tombstones() or (
+                    self.packet_retention_until is not None
+                    and (until := self.packet_retention_until(packet)) is not None
+                    and until <= self.clock()
+                ):
+                    return unavailable
             return result
         except (LookupError, OSError, PermissionError, ValueError):
             return unavailable

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from krail.provider.v1 import GetResourceRequest
+from krail.provider.v1 import GetResourceRequest, ResourceRef
 from rail.authorized_context import (
     AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID,
     AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION,
+    MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES,
     MAX_AUTHORIZED_CONTEXT_PACKET_BYTES,
+    AuthorizedContextPacketTombstone,
     AuthorizedContextPacketCreateRequest,
     AuthorizedContextPacketReadRequest,
     AuthorizedContextPacketReadResult,
@@ -24,6 +27,7 @@ from rail.hosted.access import (
     AccessContextAuthority,
     MemoryRevocationRegistry,
     PacketRequestBinding,
+    SignedAccessContext,
 )
 from rail.local import LocalEngine
 from rail.project import Project
@@ -33,6 +37,28 @@ NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 PURPOSE = "grounded coding run R"
 SCOPE = "project-a"
 POLICY_DIGEST = "sha256:" + "d" * 64
+
+
+def _invalidate_packet_cache_process(root, access_context_json, refs_json, ready, start, result):
+    """Subprocess adapter used only to exercise the real local lifecycle lock."""
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project = Project(slug="shared-packet", backend=LocalEngine(project_path=root))
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    ready.put(True)
+    start.wait(10)
+    try:
+        service = project._backend.knowledge.application.authorized_context_packets
+        result.put(("ok", service.invalidate_for_sources(
+            SignedAccessContext.model_validate_json(access_context_json),
+            exact_refs=tuple(ResourceRef.model_validate(item) for item in refs_json),
+            reason="source-deleted",
+        )))
+    except Exception as exc:  # surfaced in parent assertion, never silently ignored
+        result.put(("error", repr(exc)))
 
 
 def _project(tmp_path: Path):
@@ -613,6 +639,285 @@ def test_create_denies_current_head_loss_at_final_release_boundary(tmp_path):
         project.provider.create_authorized_context_packet(
             _create_request(refs, context_request, context, binding)
         )
+
+
+def test_source_lifecycle_invalidation_is_authorized_persistent_and_non_resurrecting(tmp_path):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    current = [NOW]
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: current[0]
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    service = project._backend.knowledge.application.authorized_context_packets
+    with pytest.raises(PermissionError, match="retention is unavailable"):
+        service.invalidate_for_sources(reader, exact_refs=(refs[2],), reason="source-deleted")
+    maintainer, _ = _signed_request(
+        authority, descriptor, (refs[2],), request, nonce="maintainer", actions=("retention.enforce",)
+    )
+    assert service.invalidate_for_sources(
+        maintainer, exact_refs=(refs[2],), reason="source-deleted"
+    ) == (packet.packet_digest,)
+    assert not (
+        root / ".krail" / "authorized-context-packets" / f"{packet.packet_digest.removeprefix('sha256:')}.json"
+    ).exists()
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+    with pytest.raises(PermissionError, match="access denied"):
+        project.provider.create_authorized_context_packet(
+            _create_request(refs, request, reader, binding)
+        )
+    restarted = Project(slug="shared-packet", backend=LocalEngine(project_path=root))
+    restarted.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: current[0]
+    )
+    assert restarted.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+
+
+def test_explicit_packet_ttl_uses_service_clock_and_needs_retention_authority(tmp_path):
+    _root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    current = [NOW]
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: current[0],
+        packet_retention_until=lambda _packet: NOW + timedelta(minutes=1),
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="ttl-reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    maintainer, _ = _signed_request(
+        authority, descriptor, refs, request, nonce="ttl-maintainer", actions=("retention.enforce",)
+    )
+    service = project._backend.knowledge.application.authorized_context_packets
+    assert service.enforce_retention(maintainer) == ()
+    current[0] += timedelta(minutes=2)
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+    assert service.enforce_retention(maintainer) == (packet.packet_digest,)
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+
+
+def test_tombstoned_packet_stays_unavailable_when_old_cache_bytes_are_restored(tmp_path):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="restore-reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    path = root / ".krail" / "authorized-context-packets" / f"{packet.packet_digest.removeprefix('sha256:')}.json"
+    saved = path.read_bytes()
+    maintainer, _ = _signed_request(
+        authority, descriptor, (refs[2],), request, nonce="restore-maintainer", actions=("retention.enforce",)
+    )
+    project._backend.knowledge.application.authorized_context_packets.invalidate_for_sources(
+        maintainer, exact_refs=(refs[2],), reason="source-deleted"
+    )
+    path.write_bytes(saved)  # deterministic stale-backup fault injection
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+
+
+def test_full_tombstone_journal_fails_closed_without_claiming_cache_deletion(tmp_path):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="full-reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    path = root / ".krail" / "authorized-context-packets" / f"{packet.packet_digest.removeprefix('sha256:')}.json"
+    saved = path.read_bytes()
+    service = project._backend.knowledge.application.authorized_context_packets
+    service._persist_tombstones({  # deterministic durable-journal capacity fault injection
+        f"sha256:{index:064x}": AuthorizedContextPacketTombstone(
+            packet_digest=f"sha256:{index:064x}", reason="source-deleted", occurred_at=NOW,
+            decision_digest="sha256:" + "e" * 64,
+        )
+        for index in range(MAX_AUTHORIZED_CONTEXT_PACKET_TOMBSTONES)
+    })
+    maintainer, _ = _signed_request(
+        authority, descriptor, (refs[2],), request, nonce="full-maintainer", actions=("retention.enforce",)
+    )
+    with pytest.raises(PermissionError, match="retention is unavailable"):
+        service.invalidate_for_sources(maintainer, exact_refs=(refs[2],), reason="source-deleted")
+    assert path.read_bytes() == saved
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "available"
+
+
+def test_corrupt_durable_tombstone_journal_denies_packet_at_public_read_boundary(tmp_path):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="corrupt-reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    (root / ".krail" / "authorized-context-packet-tombstones.json").write_text(
+        '{"schema_version":"krail.authorized-context-packet-tombstones.v1","entries":null}',
+        encoding="utf-8",
+    )  # deterministic durable-state corruption fault injection
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+
+
+def test_two_process_source_invalidations_do_not_lose_durable_tombstones(tmp_path):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="race-reader")
+    wide = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    narrow_context, narrow_binding = _signed_request(
+        authority, descriptor, refs[:2], request, nonce="race-narrow", purpose="narrow task"
+    )
+    narrow = project.provider.create_authorized_context_packet(
+        _create_request(refs[:2], request, narrow_context, narrow_binding, purpose="narrow task")
+    )
+    maintainer, _ = _signed_request(
+        authority, descriptor, refs, request, nonce="race-maintainer", actions=("retention.enforce",)
+    )
+    context = multiprocessing.get_context("fork")
+    ready, start, result = context.Queue(), context.Event(), context.Queue()
+    processes = [
+        context.Process(target=_invalidate_packet_cache_process, args=(str(root), maintainer.model_dump_json(), [ref.model_dump(mode="json") for ref in target], ready, start, result))
+        for target in ((refs[2],), (refs[0],))
+    ]
+    for process in processes: process.start()
+    assert ready.get(timeout=10) and ready.get(timeout=10)
+    start.set()
+    outcomes = [result.get(timeout=10) for _ in processes]
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+    assert all(status == "ok" for status, _value in outcomes), outcomes
+    restarted = Project(slug="shared-packet", backend=LocalEngine(project_path=root))
+    restarted.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    assert restarted.provider.read_authorized_context_packet(
+        _read_request(wide, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+    assert restarted.provider.read_authorized_context_packet(
+        _read_request(narrow, refs[:2], narrow_context, narrow_binding, purpose="narrow task")
+    ).status == "context_packet_unavailable"
+
+
+def test_inflight_read_cannot_release_packet_after_invalidation_commits(tmp_path, monkeypatch):
+    _root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test"
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="inflight-reader")
+    packet = project.provider.create_authorized_context_packet(
+        _create_request(refs, request, reader, binding)
+    )
+    maintainer, _ = _signed_request(
+        authority, descriptor, (refs[2],), request, nonce="inflight-maintainer", actions=("retention.enforce",)
+    )
+    service = project._backend.knowledge.application.authorized_context_packets
+    original_verify = authority.verify
+    calls, invalidated = [0], [False]
+
+    def verify_then_invalidate(context, *, as_of):
+        claims = original_verify(context, as_of=as_of)
+        if context == reader:
+            calls[0] += 1
+            # Read's eighth verification is the final exact-resource check,
+            # immediately before receipt construction and locked release.
+            if calls[0] == 8 and not invalidated[0]:
+                invalidated[0] = True
+                service.invalidate_for_sources(
+                    maintainer, exact_refs=(refs[2],), reason="source-deleted"
+                )
+        return claims
+
+    monkeypatch.setattr(authority, "verify", verify_then_invalidate)
+    assert project.provider.read_authorized_context_packet(
+        _read_request(packet, refs, reader, binding)
+    ).status == "context_packet_unavailable"
+    assert invalidated == [True]
+
+
+def test_inflight_create_does_not_publish_after_source_authority_revocation(tmp_path, monkeypatch):
+    root, project, refs = _project(tmp_path)
+    descriptor = authorized_context_packet_descriptor()
+    revocations = MemoryRevocationRegistry()
+    authority = AccessContextAuthority(
+        {"core": b"core-owned-packet-key"}, issuer="https://control.example.test", revocations=revocations
+    )
+    project.configure_authorized_context_packets(
+        authority, tenant_id="tenant-a", project_id="project-a", clock=lambda: NOW
+    )
+    request = _context_request(refs)
+    reader, binding = _signed_request(authority, descriptor, refs, request, nonce="inflight-create")
+    original_verify, calls = authority.verify, [0]
+
+    def revoke_before_publish_verify(context, *, as_of):
+        calls[0] += 1
+        if context == reader and calls[0] == 9:
+            revocations.revoke_context(reader.context_digest, revoked_at=NOW)
+        return original_verify(context, as_of=as_of)
+
+    monkeypatch.setattr(authority, "verify", revoke_before_publish_verify)
+    with pytest.raises(PermissionError, match="authorized context packet access denied"):
+        project.provider.create_authorized_context_packet(
+            _create_request(refs, request, reader, binding)
+        )
+    cache = root / ".krail" / "authorized-context-packets"
+    assert not cache.exists() or not tuple(cache.glob("*.json"))
 
 
 def test_packet_capability_is_new_read_only_negotiated_surface(tmp_path):

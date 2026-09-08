@@ -97,6 +97,7 @@ class Project:
         project_id: str,
         clock=None,
         current_ref_resolver=None,
+        packet_retention_until=None,
     ):
         """Compose packet operations with a caller-owned authority and scope."""
         if not hasattr(self._backend, "knowledge"):
@@ -107,6 +108,7 @@ class Project:
             project_id=project_id,
             clock=clock,
             current_ref_resolver=current_ref_resolver,
+            packet_retention_until=packet_retention_until,
         )
 
     def assemble_verification_evidence(self, request):

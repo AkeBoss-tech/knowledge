@@ -41,6 +41,47 @@ system. The content-addressed packet file is internal derived cache bookkeeping;
 it cannot change source truth or grant access and can be recreated from the
 same authorized exact inputs.
 
+## Local derived-cache lifecycle
+
+The packet directory is ignored local derived state, not a hosted capture,
+object-store object, or shared-knowledge Git bundle.  It is therefore managed
+only through the packet service's local lifecycle seam, outside the published
+read-only provider capability.  A caller must present a currently valid signed
+`AccessContextAuthority` context scoped to the configured tenant, project, and
+every exact affected source, with the existing `retention.enforce` action.
+KRAIL uses its injected clock; a supplied reason or timestamp cannot authorize
+or advance maintenance.
+
+`invalidate_for_sources` removes matching cache files for a caller-authorized
+`source-deleted`, `source-revoked`, or `retention-expired` event.  The durable,
+bounded (1,024-entry) tombstone journal retains only packet digest, reason,
+time, and a decision digest.  It has no source IDs, excerpts, lineage, counts,
+or packet content.  The journal is checked before cache write and read, so a
+removed packet remains unavailable across a restart and cannot be rewritten
+from the same inputs.  If its capacity or journal validation is unavailable,
+maintenance fails closed rather than compacting away a denial.
+Journal update plus cache unlink and cache publication use one service-owned
+interprocess lock. A cache deletion that fails after its tombstone is durable
+returns an explicit incomplete maintenance failure; readers still deny the
+tombstoned packet. Packet reads recheck tombstone and TTL at their final
+release boundary.
+The linearization point for a successful cache read is that final locked
+tombstone/TTL check: an invalidation committed before it returns the coarse
+unavailable result, even if the packet bytes and every earlier authorization
+check had succeeded.
+The lock uses POSIX `flock` on a local service-owned filesystem. This proof
+does not claim equivalent behavior on filesystems without reliable POSIX file
+locking or across independently managed cache directories.
+
+Age expiry is disabled unless the caller explicitly injects a packet retention
+policy at the same composition root.  `enforce_retention` reuses the signed
+maintenance context and service clock.  It makes no hosted service, backup, or
+physical-erasure claim: Git history, Git bundles and external clones, OS or
+provider backups, and an unconfigured hosted object store may retain earlier
+content.  Core must connect its authoritative source deletion, revocation, and
+expiry decisions to this local invalidation seam; a live packet read already
+rechecks grants and current exact source heads.
+
 An existing packet read accepts a fresh caller delegation but retains the
 packet's original `authorization_digest`. A separate bounded reauthorization
 receipt reports the new decision. Every read validates the stored bytes and
@@ -85,12 +126,19 @@ compileall: clean
 git diff --check: clean
 ```
 
+The accepted lifecycle checkpoint was additionally verified by the root review
+with 29 packet-service and integration tests in 12.75s. The full Knowledge
+suite is rerun before its scoped feature-branch commit.
+
 The partial-result and missing-current-head regressions were verified against a
 deterministically reconstructed mutation of the reviewed draft, then with the
 identical permanent assertions against the repaired source. This is mutation
 evidence, not a claim that an original pre-edit source snapshot was captured.
 
 ## Acceptance boundary
+
+Local maintenance is caller-authorized cache cleanup only. It does not replace
+the caller's source revocation authority or make a source lifecycle decision.
 
 This completes the cohesive Knowledge provider side of #25. Full #25 remains
 open until Core's coding Run and Interface's Run Inspector both consume the

@@ -44,3 +44,15 @@ canonical-context budget enforcement, and read-only capability publication.
   packet even while the exact old resource remains retrievable for provenance.
 - Revocation is controlled by the authority supplied by the caller and packet
   denial uses the metadata-free unavailable union.
+
+## K25-PACKET-CACHE-RETENTION — removed local packets do not reappear
+
+Only a current caller-owned signed context scoped to the configured packet
+capability, tenant/project, and exact source with `retention.enforce` may
+remove a local derived packet. A configured packet TTL denies access before a
+maintenance pass. After a tombstone is durable, restoring stale cache bytes or
+restarting cannot return the packet. A full tombstone journal fails closed and
+does not report deletion while cache bytes survive.
+
+`test_authorized_context_packet_service.py` fault-injects stale cache backup
+restoration and a full durable journal at the packet service boundary.
