@@ -33,3 +33,14 @@ opaque omission, original-context expiry followed by a fresh wide grant,
 fresh-grant narrowing, revocation, retained historical source bytes after the
 current source head advances, tamper, restart, request substitution, full
 canonical-context budget enforcement, and read-only capability publication.
+
+## Shared packet integration fixture
+
+- The local integration bootstrap composes the published packet operations on
+  the real `Project.provider`; it does not substitute a summary helper.
+- Every fixture evidence ref has an explicit tenant/project-scoped Core source
+  identity, immutable version, digest, and classification binding.
+- Advancing a caller-controlled current source head invalidates the cached
+  packet even while the exact old resource remains retrievable for provenance.
+- Revocation is controlled by the authority supplied by the caller and packet
+  denial uses the metadata-free unavailable union.

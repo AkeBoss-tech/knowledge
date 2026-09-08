@@ -89,6 +89,26 @@ class Project:
         """Check version/digest compatibility without granting authorization."""
         return self.provider.negotiate_capability(request)
 
+    def configure_authorized_context_packets(
+        self,
+        authority,
+        *,
+        tenant_id: str,
+        project_id: str,
+        clock=None,
+        current_ref_resolver=None,
+    ):
+        """Compose packet operations with a caller-owned authority and scope."""
+        if not hasattr(self._backend, "knowledge"):
+            raise RuntimeError("authorized context packets require a local KRAIL provider")
+        return self._backend.knowledge.application.configure_authorized_context_packets(
+            authority,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            clock=clock,
+            current_ref_resolver=current_ref_resolver,
+        )
+
     def assemble_verification_evidence(self, request):
         """Assemble verification evidence through the shared application service."""
         return self.provider.assemble_verification_evidence(request)
