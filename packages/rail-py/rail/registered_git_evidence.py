@@ -34,9 +34,24 @@ class RetainedEvidence:
     content: bytes
     source_ref: ResourceRef
 
+@dataclass(frozen=True)
+class CapturedEvidenceMetadata:
+    capture_id: str
+    review_id: str
+    commit: str
+    path: str
+    content_digest: str
+    captured_at: datetime
+    reviewed_at: datetime | None
+    source_ref: ResourceRef
+
+
 class RegisteredGitEvidenceBridge:
     """Signed, explicit bridge; construction never creates or mutates state."""
-    def __init__(self, source_repo: str | Path, state_root: str | Path, *, authority: AccessContextAuthority, context_for: Callable[[str, str, ResourceRef], tuple[SignedAccessContext, SignedPacketRequestBinding] | None], tenant_id: str, project_id: str, capability_id: str, capability_version: str, capability_digest: str, clock: Callable[[], datetime]) -> None:
+    def __init__(self, source_repo: str | Path, state_root: str | Path, *, authority: AccessContextAuthority, context_for: Callable[[str, str, ResourceRef], tuple[SignedAccessContext, SignedPacketRequestBinding] | None] | None = None, context_for_request: Callable[[str, str, ResourceRef, str], tuple[SignedAccessContext, SignedPacketRequestBinding] | None] | None = None, tenant_id: str, project_id: str, capability_id: str, capability_version: str, capability_digest: str, clock: Callable[[], datetime]) -> None:
+        if (context_for is None) == (context_for_request is None):
+            raise ValueError("provide exactly one signed context resolver")
+        self.context_for_request = context_for_request
         self.source_repo = Path(source_repo).resolve(strict=True); self.state_root = Path(state_root).resolve()
         self.authority, self.context_for, self.clock = authority, context_for, clock
         self.tenant_id, self.project_id = tenant_id, project_id; self.capability_id, self.capability_version, self.capability_digest = capability_id, capability_version, capability_digest
@@ -48,7 +63,7 @@ class RegisteredGitEvidenceBridge:
     def _request_digest(self, action: str, ref: ResourceRef, target: str) -> str:
         return registered_git_evidence_request_digest(action,ref,target,self.state_root)
     def _authorize(self, action: str, ref: ResourceRef, subject: str, target: str) -> tuple[SignedAccessContext, SignedPacketRequestBinding]:
-        pair = self.context_for(subject, action, ref)
+        pair = self.context_for_request(subject, action, ref, target) if self.context_for_request is not None else self.context_for(subject, action, ref)
         if pair is None: raise PermissionError("evidence unavailable")
         context, signed = pair
         try:
@@ -133,8 +148,52 @@ class RegisteredGitEvidenceBridge:
             ResearchIntegrityRepo(self.state_root).upsert_source_candidate(candidate)
             now=self.clock(); manifest=self._read_manifest(); manifest[capture_id]={"commit":commit,"path":path,"digest":digest,"blob":candidate.url_or_path,"captured_at":now.isoformat()}; self._write_manifest(manifest)
         return RetainedEvidence(capture_id,"",commit,path,digest,now,now,content,ref)
-    def review(self, *, user_id: str, capture_id: str, review_id: str) -> RetainedEvidence:
-        if not _ID.fullmatch(review_id): raise ValueError("invalid review id")
+    def inspect(self, *, user_id: str, capture_id: str) -> RetainedEvidence:
+        """Inspect exact captured bytes under a signed read, without promotion.
+
+        An empty review_id means never reviewed; reviewed_at then retains the
+        legacy RetainedEvidence capture timestamp, not a review assertion.
+        """
+        if not _ID.fullmatch(capture_id):
+            raise ValueError("invalid capture id")
+        record = self._read_manifest().get(capture_id)
+        if not record:
+            raise PermissionError("evidence unavailable")
+        ref = self._ref(record["commit"], record["path"], record["digest"])
+        context, binding = self._authorize("capture.read", ref, user_id, "inspect:" + capture_id)
+        content = self._read_local_bounded(self._sidecar(record), _MAX_BLOB_BYTES)
+        if self._digest(content) != ref.digest:
+            raise PermissionError("evidence unavailable")
+        captured = datetime.fromisoformat(record["captured_at"])
+        result = RetainedEvidence(capture_id, record.get("review_id", ""), record["commit"], record["path"], record["digest"], captured, datetime.fromisoformat(record.get("reviewed_at", record["captured_at"])), content, ref)
+        if self._read_manifest().get(capture_id) != record:
+            raise PermissionError("evidence unavailable")
+        self.authority.verify(context, as_of=self.clock())
+        self.authority.verify_packet_request_binding(binding, access_context=context, as_of=self.clock())
+        self._authorize("capture.read", ref, user_id, "inspect:" + capture_id)
+        return result
+
+    def list_captures(self, *, user_id: str, limit: int = 100) -> tuple[CapturedEvidenceMetadata, ...]:
+        """Return bounded individually authorized metadata; no hidden totals."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("capture list limit must be 1..100")
+        result = []
+        for capture_id in sorted(self._read_manifest()):
+            if len(result) == limit:
+                break
+            try:
+                evidence = self.inspect(user_id=user_id, capture_id=capture_id)
+            except PermissionError:
+                continue
+            result.append(CapturedEvidenceMetadata(evidence.capture_id, evidence.review_id, evidence.commit, evidence.path, evidence.content_digest, evidence.captured_at, evidence.reviewed_at if evidence.review_id else None, evidence.source_ref))
+        # Recheck every disclosed ref after the last read; a later revocation
+        # cannot release an earlier item's metadata from this list.
+        for item in result:
+            self._authorize("capture.read", item.source_ref, user_id, "inspect:" + item.capture_id)
+        return tuple(result)
+
+    def review(self, *, user_id: str, capture_id: str, review_id: str, expected_content_digest: str | None = None) -> RetainedEvidence:
+        if not _ID.fullmatch(review_id) or not _ID.fullmatch(capture_id): raise ValueError("invalid review or capture id")
         with self._locked_manifest():
             record=self._read_manifest().get(capture_id); repo=ResearchIntegrityRepo(self.state_root)
             if not record: raise PermissionError("evidence unavailable")
@@ -142,20 +201,36 @@ class RegisteredGitEvidenceBridge:
             if self._digest(content)!=record["digest"]: raise PermissionError("evidence unavailable")
             target=f"review:{capture_id}:{review_id}:{record['digest']}"
             context,_signed=self._authorize("shared_knowledge.review",ref,user_id,target)
+            if expected_content_digest is not None and expected_content_digest != record["digest"]:
+                raise ValueError("review content digest changed")
+            if record.get("review_id"):
+                if record["review_id"] != review_id:
+                    raise ValueError("capture already has a different review identity")
+                self._reviewed_source(capture_id, record)
+                self.authority.verify(context, as_of=self.clock())
+                self.authority.verify_packet_request_binding(_signed, access_context=context, as_of=self.clock())
+                self._authorize("shared_knowledge.review", ref, user_id, target)
+                return RetainedEvidence(capture_id, review_id, record["commit"], record["path"], record["digest"], datetime.fromisoformat(record["captured_at"]), datetime.fromisoformat(record["reviewed_at"]), content, ref)
             # The same context is checked after lock acquisition, immediately
             # before every canonical and manifest publication.
             self.authority.verify(context, as_of=self.clock())
+            self.authority.verify_packet_request_binding(_signed,access_context=context,as_of=self.clock())
             promoted=repo.promote_source_candidate("registered:"+capture_id,source_type="document",title=record["path"],origin=f"git:{record['commit']}:{record['path']}",access_method="signed-git-blob",freshness_status="fresh",quality_status="validated",provenance={"path":record["blob"],"gitCommit":record["commit"],"gitPath":record["path"],"retainedBlobDigest":record["digest"],"reviewId":review_id,"reviewer":user_id,"reviewedAt":self.clock().isoformat(),"signedContextDigest":context.context_digest,"captureId":capture_id})
             source_key=promoted["source"]["source_key"]
             repo.update_source(source_key, admissibility_status="observed", quality_status="validated")
             now=self.clock(); record.update(review_id=review_id,reviewed_at=now.isoformat(),source_key=source_key); m=self._read_manifest(); m[capture_id]=record; self._write_manifest(m)
         return RetainedEvidence(capture_id,review_id,record["commit"],record["path"],record["digest"],datetime.fromisoformat(record["captured_at"]),now,content,ref)
-    def retrieve(self, *, user_id: str, capture_id: str, at: datetime | None = None) -> RetainedEvidence:
-        record=self._read_manifest().get(capture_id); repo=ResearchIntegrityRepo(self.state_root)
-        if not record or not record.get("source_key"): raise PermissionError("evidence unavailable")
+    def _reviewed_source(self, capture_id: str, record: dict):
+        repo = ResearchIntegrityRepo(self.state_root)
         source=next((x for x in repo.load_sources() if x.source_key==record["source_key"]),None)
         provenance=source.provenance if source else {}
         if source is None or source.quality_status!="validated" or source.freshness_status not in {"fresh"} or source.admissibility_status in {"blocked","inadmissible"} or any(provenance.get(key)!=value for key,value in {"captureId":capture_id,"path":record["blob"],"gitCommit":record["commit"],"gitPath":record["path"],"retainedBlobDigest":record["digest"],"reviewId":record.get("review_id")}.items()): raise PermissionError("evidence unavailable")
+        return source
+
+    def retrieve(self, *, user_id: str, capture_id: str, at: datetime | None = None) -> RetainedEvidence:
+        record=self._read_manifest().get(capture_id); repo=ResearchIntegrityRepo(self.state_root)
+        if not record or not record.get("source_key"): raise PermissionError("evidence unavailable")
+        source = self._reviewed_source(capture_id, record)
         content=self._read_local_bounded(self._sidecar(record),_MAX_BLOB_BYTES); ref=self._ref(record["commit"],record["path"],record["digest"])
         if self._digest(content)!=record["digest"]: raise PermissionError("evidence unavailable")
         self._authorize("capture.read",ref,user_id,"retrieve:"+capture_id); self._authorize("shared_knowledge.read",ref,user_id,"retrieve:"+capture_id)
