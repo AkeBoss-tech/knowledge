@@ -120,6 +120,21 @@ uses the public `SharedKnowledgeWorkspace` journey with real HMAC contexts,
 fault-injected interruption after the durable pending receipt, reviewer
 revocation, restart, fresh re-issuance, and post-cache denial.
 
+## K29-HOSTED-READ-RELEASE — hosted reads recheck current authority after I/O
+
+A signed source grant must still be valid immediately before the hosted facade
+releases capture bytes or a scoped metadata page and cursor. Object and metadata
+adapters may block after the initial decision; revocation or expiry during that
+work denies the result with the same opaque `AccessDenied` surface. A successful
+read still records one allowed audit event, while a raced denial records no
+source names or body in the audit ledger.
+
+`test_hosted_reader_rechecks_current_authority_after_adapter_io` exercises
+both public read and list operations with a narrow second user. It injects
+revocation or clock expiry inside the owning object/metadata adapter, after the
+first authorization and before the facade return. All four cases failed with
+returned data before the repair and pass with final release checks.
+
 ## K23-COMPANY-GUIDANCE — reviewed guidance requires current company authority
 
 Operational guidance joins an exact reviewed procedure with the current
