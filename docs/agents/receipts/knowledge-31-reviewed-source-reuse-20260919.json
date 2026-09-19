@@ -1,0 +1,28 @@
+{
+  "schema_version": "krail.reviewed-source-reuse-receipt.v1",
+  "captured_at_utc": "2026-09-19T15:54:17Z",
+  "core_commit": "2f80acb96aa28c161c0092575c6f36536aa98f5f",
+  "knowledge_commit": "ba98652b3199b009b3e8c6475f55c290aa446565",
+  "python": "3.13.12",
+  "wheel_sha256": {
+    "opensaddle-1.2.0rc5-py3-none-any.whl": "5c5b51e3181d4542cda22f6fe482d6fa6f4f22d30cb6373c363363414f5ae47b",
+    "krail-1.2.0rc2-py3-none-any.whl": "3a2e23d24156031581dd177e65171cd73c8e92eb20f9caa089fbf3008cc0e64d"
+  },
+  "dependency_check": "uv pip check: 39 compatible packages",
+  "imports": "Both packages resolved under the fresh virtual environment site-packages; no checkout or archived source imports",
+  "qualification_command": "env -u PYTHONPATH PYTHONNOUSERSITE=1 <venv>/bin/python scripts/qualify_reviewed_source_reuse.py --forbid-import-root <core-checkout> --forbid-import-root <knowledge-checkout> --receipt <fresh-output.json>",
+  "public_boundary": "separate script process -> loopback Uvicorn Core API -> installed KRAIL packet service and retained-evidence state",
+  "project_count": 2,
+  "reviewed_resource_reused_in_distinct_runs": true,
+  "run_count": 2,
+  "wrong_project_reviewed_source_denied": true,
+  "same_project_unreviewed_capture_denied": true,
+  "completed_run_result_and_provenance_available_after_first_core_reopen": true,
+  "withdrawal_denied_packets_and_protected_artifact_bytes_before_and_after_second_core_reopen": true,
+  "no_third_run_on_replay_after_withdrawal": true,
+  "core_loopback_restart_count": 2,
+  "core_owning_tests": "10 passed: tests/test_agent_memory.py tests/test_personal_knowledge.py",
+  "provider_model_execution": false,
+  "provider_retained_context_revoked": false,
+  "limits": "Synthetic deterministic worker result; fresh Core/KRAIL app and listener recomposition in one qualification process, not a separate OS-process crash test or paid-provider turn. Already delivered provider context cannot be erased by withdrawal."
+}
