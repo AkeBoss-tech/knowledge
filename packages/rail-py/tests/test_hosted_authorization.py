@@ -327,6 +327,68 @@ def test_read_is_bound_to_the_exact_revision_that_was_authorized(monkeypatch):
     assert current_content == b"restricted-v2"
 
 
+@pytest.mark.parametrize("operation", ["read", "list"])
+@pytest.mark.parametrize("authority_change", ["revoked", "expired"])
+def test_hosted_reader_rechecks_current_authority_after_adapter_io(
+    operation, authority_change, monkeypatch
+):
+    """A slow object or metadata adapter must not release stale authorized data."""
+    revocations = MemoryRevocationRegistry()
+    now = [NOW]
+    service, authority, audit = governed(
+        revocations=revocations, clock=lambda: now[0]
+    )
+    admin = issue(authority)
+    visible = capture(service, admin, "visible", content=b"visible-body")
+    capture(service, admin, "hidden", source="slack", content=b"private-body")
+    reader = issue(
+        authority,
+        claims(
+            actions=("capture.read", "capture.list"),
+            sources=("github",),
+            classifications=("internal",),
+            expires_at=NOW + timedelta(seconds=1),
+            nonce=f"release-race-{operation}-{authority_change}",
+        ),
+    )
+    assert service.read_capture(reader, visible.capture_id)[1] == b"visible-body"
+    assert [item.capture_id for item in service.list_captures(reader).items] == ["visible"]
+
+    def change_authority() -> None:
+        if authority_change == "revoked":
+            revocations.revoke_context(reader.context_digest, revoked_at=NOW)
+        else:
+            now[0] = NOW + timedelta(seconds=2)
+
+    if operation == "read":
+        original = service.repository.objects.get
+
+        def get_then_change(key):
+            value = original(key)
+            change_authority()
+            return value
+
+        monkeypatch.setattr(service.repository.objects, "get", get_then_change)
+        release = lambda: service.read_capture(reader, visible.capture_id)
+    else:
+        original = service.repository.metadata.list_authorized_captures
+
+        def list_then_change(*args, **kwargs):
+            rows = original(*args, **kwargs)
+            change_authority()
+            return rows
+
+        monkeypatch.setattr(
+            service.repository.metadata, "list_authorized_captures", list_then_change
+        )
+        release = lambda: service.list_captures(reader)
+
+    with pytest.raises(AccessDenied, match="^access denied$"):
+        release()
+    assert audit.events[-1].decision == "denied"
+    assert audit.events[-1].target_digest.startswith("sha256:")
+
+
 def test_update_authorizes_both_current_and_proposed_policy_scope():
     service, authority, _ = governed()
     admin = issue(authority)

@@ -504,6 +504,7 @@ class GovernedHostedRepository:
         classification: str,
         target: str,
         require_unrestricted: bool = False,
+        record_allowed: bool = True,
     ) -> AccessClaims:
         now = self.clock()
         try:
@@ -570,15 +571,16 @@ class GovernedHostedRepository:
                 # oracle because an allowed existing target exposes the outage.
                 raise
             raise AccessDenied()
-        self._record_audit(
-            context_digest=context.context_digest,
-            claims=claims,
-            action=action,
-            target=target,
-            decision="allowed",
-            reason_code="capability-allowed",
-            occurred_at=now,
-        )
+        if record_allowed:
+            self._record_audit(
+                context_digest=context.context_digest,
+                claims=claims,
+                action=action,
+                target=target,
+                decision="allowed",
+                reason_code="capability-allowed",
+                occurred_at=now,
+            )
         return claims
 
     def _preauthorize_context_scope_action(
@@ -713,7 +715,18 @@ class GovernedHostedRepository:
             classification=capture.classification or "*",
             target=capture_id,
         )
-        return self.repository.read_capture_record(capture)
+        result = self.repository.read_capture_record(capture)
+        # The immutable object can be slow to fetch. A revoked or expired
+        # reader must not receive bytes after that I/O completes.
+        self._authorize(
+            context,
+            "capture.read",
+            source_id=capture.source_id or "*",
+            classification=capture.classification or "*",
+            target=capture_id,
+            record_allowed=False,
+        )
+        return result
 
     def erase(
         self,
@@ -847,6 +860,16 @@ class GovernedHostedRepository:
                     "offset": next_offset,
                 }
             )
+        # Authorization may change while an adapter materializes the bounded
+        # metadata page. Recheck before releasing its names or cursor.
+        self._authorize(
+            context,
+            "capture.list",
+            source_id="*",
+            classification="*",
+            target="capture-page",
+            record_allowed=False,
+        )
         return CapturePage(
             items=tuple(page),
             next_cursor=next_cursor,

@@ -1,0 +1,19 @@
+{
+  "schema_version": "krail.hosted-read-release-regression.v1",
+  "baseline_commit": "ce6e60f564de23b0e66c3b308ae4e72d21c42251",
+  "tested_source_tree": "ba935e45b0851629447895671a1ddc9d09ae6f39",
+  "invariant": "K29-HOSTED-READ-RELEASE",
+  "public_boundary": "GovernedHostedRepository.read_capture/list_captures",
+  "before": "Four read/list \u00d7 revocation/expiry cases failed DID NOT RAISE AccessDenied before repair",
+  "after": {
+    "owning_tests": 40,
+    "parent_recheck_tests": 40,
+    "hosted_adjacent_tests": 68,
+    "packet_shared_knowledge_adjacent_tests": 45
+  },
+  "independent_review": "Root inspected final authority check and public tests; no actionable issue",
+  "limits": [
+    "Adapter-boundary fault injection; no live multi-tenant deployment claim",
+    "Final authority check cannot retract already-delivered bytes or contain direct object-store access"
+  ]
+}
