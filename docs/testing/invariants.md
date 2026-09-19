@@ -72,6 +72,21 @@ The root capture probes fault-inject delegation revocation and narrower
 request-binding expiry after the lock is acquired; both must deny before any
 sidecar, candidate, or manifest publication.
 
+## K29-HISTORICAL-CAPTURE — offline archive inspection never grants authority
+
+A trusted local restore caller may name one registered Git capture in a stopped,
+verified archive and obtain its bounded retained bytes only when the fixed
+manifest record, exact sidecar path, and SHA-256 digest agree. The reader rejects
+linked or oversized files, unsafe IDs and paths, malformed provenance, and a
+different caller-supplied expected digest without writing to the archive. An
+old review ID remains historical metadata: the result explicitly attests no
+current source authority or fresh semantic review. Core must independently
+verify the snapshot and selected current Git blob before enrollment.
+
+`test_historical_registered_git_evidence.py` creates a real capture through the
+signed public bridge, revokes the old grant, then checks successful offline
+inspection and archive mutation/escape denials at the public verifier boundary.
+
 ## K24-EXPLICIT-BELIEF-INFERENCE — declared uncertainty remains deterministic
 
 Belief values carry explicit uncertainty semantics and are never combined by

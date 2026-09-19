@@ -35,3 +35,21 @@ This is not end-to-end Core packet or Interface evidence. It does not deploy a
 connector, hosted store, or background synchronization service. The concurrency
 journey uses local threads and does not stress independent processes or crash
 recovery. Git history, clones, and backups can retain earlier bytes.
+
+## Stopped-archive verifier
+
+`inspect_historical_registered_git_capture(state_root=..., capture_id=...,
+expected_content_digest=...)` is a separate, read-only trusted-local contract.
+It reads one explicitly named record from the fixed registered-evidence
+manifest and its exact retained sidecar, with bounded regular-file reads and
+no symlink traversal. It verifies both the archive digest and an optional
+caller-supplied exact SHA-256 digest. Its historical commit, path and review
+labels are untrusted provenance, and its result states that current authority
+and fresh semantic review are **not** attested. It neither uses an old signer
+nor reads keys/configuration, runs Git, accesses the network or writes files.
+
+For personal restore, Core must first verify the stopped snapshot under its
+lock, explicitly select and hash a current committed Git blob, pass that digest
+to this reader, then obtain independent current source authority and a new
+review in the fresh installation. Byte equality with the archive alone cannot
+release a quarantined runtime.
