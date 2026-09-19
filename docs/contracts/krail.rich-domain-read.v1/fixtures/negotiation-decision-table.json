@@ -1,0 +1,6 @@
+[
+  {"name": "matching-major-digest-and-operations", "consumer_version": "1.0.0", "expected_descriptor_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "requested_operations": ["spatial_query", "asset_metadata"], "compatible": true, "operations": ["asset_metadata", "spatial_query"], "diagnostic": "compatible"},
+  {"name": "wrong-major", "consumer_version": "2.0.0", "expected_descriptor_digest": null, "requested_operations": ["asset_metadata"], "compatible": false, "operations": [], "diagnostic": "consumer version is outside the advertised compatibility range"},
+  {"name": "wrong-digest", "consumer_version": "1.0.0", "expected_descriptor_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "requested_operations": ["asset_metadata"], "compatible": false, "operations": [], "diagnostic": "expected descriptor digest does not match published descriptor"},
+  {"name": "unknown-operation", "consumer_version": "1.0.0", "expected_descriptor_digest": null, "requested_operations": ["subscription"], "compatible": false, "operations": [], "diagnostic": "requested operation is not advertised"}
+]

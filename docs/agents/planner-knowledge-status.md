@@ -1,5 +1,105 @@
 # Knowledge planner status
 
+## #19 feature branch: temporal tabletop world-memory hardening (2026-09-07)
+
+- `TabletopWorldMemory` ingests immutable observation and estimate envelopes
+  through the existing `TemporalProjectionService` canonical history and
+  refreshes a second open reader before each query. Pre-projection
+  `robotics_world_record` rows migrate idempotently by their original digest,
+  timestamps, and exact refs; a conflicting existing temporal row fails
+  closed. Physical observation time (`valid_from`) stays separate from the
+  trusted ingestion clock (`recorded_at`), so a late observation is absent from
+  a historical `known_at` query until it arrives without changing its original
+  effective time.
+- Location answers distinguish last observed, current estimated, expired
+  estimate (`stale`), and unknown current location. Authorized stale and
+  last-seen answers retain exact source and canonical-record evidence;
+  unauthorized callers fail before any status, evidence, class count, or scene
+  reference is exposed. Scene construction and class ambiguity recheck every
+  exact source and record ref immediately before return.
+- The deterministic tabletop episode has two same-class cups, an occlusion and
+  unseen move, a bounded-expiry estimate, later reobservation with a new map
+  revision, and an hour-boundary-safe timeline. Class lookup filters both
+  future and unauthorized objects before deciding ambiguity, and scene records
+  must belong to one exact world.
+- Scene snapshots and episodes are now distinct canonical records, each with
+  explicit world, session, exact evidence, valid time, and recorded time.
+  Snapshots store only exact object-record refs, so the unchanged right cup is
+  structurally shared across opening, occlusion, and reobservation snapshots;
+  episodes store exact snapshot refs rather than copies. Reopened
+  `scene_at`, `episode_at`, and `object_history` queries enforce valid/known
+  cutoffs plus source authorization before returning a record or reference.
+  Writes authorize caller-supplied evidence and transitive refs before the
+  transaction, then recheck inside it before commit; a failed final local
+  authorization check aborts that store transaction before a scene or episode
+  row is published. Hosted publication also requires the signed
+  `projection.write` grant for that exact content-bound output ref. Appearance
+  and candidate envelopes use the same signed temporal projection writer. RFC8785
+  digests include complete exact refs and
+  object/scene membership. A scene cannot predate a constituent record; an
+  incomplete episode appears only with constituents visible at the query time,
+  while a completed aggregate requires explicit `completed_at`.
+- Immutable appearance observations now use typed temporal envelopes in the same
+  canonical projection store. They retain exact original asset, optional crop
+  and mask, source observation, viewpoint/context, descriptor model/version,
+  quality and occlusion metadata without storing image bytes. An object query
+  returns a deterministic bounded gallery of at most eight authorized records.
+  Expiring identity-candidate envelopes name one appearance and two or more
+  exact object-record refs plus their evidence; candidates are never an object
+  merge. Gallery and candidate reads survive reopen/rebuild and filter both
+  effective and known time before authorizing every returned dependency.
+- Places/regions and support, containment, or attachment relations are also
+  typed temporal envelopes with exact evidence and endpoints. Regions carry
+  metres, one frame, and one map revision. `objects_in_region` uses only that
+  exact frame/revision; it abstains on a frame or map mismatch and returns
+  `stale` instead of a membership assertion for an expired or invalidated
+  estimate. The tabletop fixture now includes a left-table region and a
+  support relation, and persists/reopens the region query.
+- Identity resolution is an explicit reviewed temporal envelope bound to one
+  exact candidate and one listed object ref; it preserves the ambiguous
+  candidate and raw observations. `action_freshness` returns usable,
+  needs-refresh, or unknown only for the exact requested object/frame/map and
+  optional region evidence. Region-source invalidation makes both membership
+  and region-bound action readiness stale after its effective/known cutoff.
+- Estimates require an explicit future expiry and include their exact map
+  revision ref. The existing projection materializes their current state:
+  invalidating either an exact source or map ref writes the projection's
+  immutable, effective/recorded-time invalidation event and durably dirties
+  only its dependent estimate. Registry lookup reports it stale only once that
+  event is visible; a historical recompute preserves future dirty work and a
+  current recompute/rebuild derives the same stale state after restart.
+  Immutable observations and an unrelated world's projected row remain
+  unchanged.
+- The projection engine now has a domain-neutral immutable exact-ref alias
+  facility. The robotics pack verifies the full public world-record handle
+  against a stored robotics temporal envelope before registering its canonical
+  parent alias; it never rewrites the original record. Reopen repairs alias
+  edges for older persisted canonical rows, allowing source -> observation ->
+  recalibration invalidation to reach the estimate immediately and after
+  recompute/rebuild, while historical cutoffs remain current.
+- Hosted composition uses signed `AccessClaims`, not a local fallback. Its
+  robotics capability digest deterministically binds tenant, project, world,
+  and every exact scoped ref; separately signed `context.read`,
+  `projection.write`, and `procedure.invalidate` adapters check that binding
+  at an injected live clock. Hosted world-memory rejects an adapter from
+  another scope, a local fake, a reader substituted at call time, read-only
+  writes, expired/revoked contexts, and tampered signatures.
+- The real trusted-local registry dispatch registers the world-memory lookup as
+  explicitly nondeterministic because it reads a mutable canonical snapshot.
+  Handlers may return the reserved `HANDLER_LINEAGE_REFS` channel; dispatch
+  removes it from output, authorizes it, and binds every exact consumed ref
+  into the immutable invocation lineage. Denied or malformed added refs fail
+  closed. This does not make a mutable lookup replayable without the matching
+  canonical snapshot.
+- Verification on `codex/roadmap-knowledge-followup`:
+  `/private/tmp/krail-temporal.zSLchI/bin/python -m pytest -q packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_robotics_hosted_authorization.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedure_projection.py packages/rail-py/tests/test_core_provenance.py packages/rail-py/tests/test_authorized_context.py packages/rail-py/tests/test_hosted_authorization.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_temporal_records.py packages/rail-py/tests/test_capability_publication.py --tb=short`
+  reports `159 passed`; compileall and `git diff --check` pass.
+- Remaining #19 boundary: the signed hosted adapters are local-contract proof,
+  not a deployed control-plane integration. Prediction/action-outcome records (not needed for this tabletop fixture);
+  camera/perception ingestion; ROS transport; binary asset store;
+  live robot control, identity merge, spatial indexes, and a general
+  world-model engine remain outside this bounded #19 slice.
+
 ## Current authoritative slice: durable procedure freshness projection (2026-09-07)
 
 - Added immutable `procedure_invalidation` events and rebuildable

@@ -1,0 +1,94 @@
+{
+  "command": "benchmark_robotics_spatial_projection.py --objects {16,32} --observations 3 --scenes 2 --repeats 5",
+  "date": "2026-09-07",
+  "scales": [
+    {
+      "fixture": {
+        "appearance_records": 16,
+        "embedded_asset_bytes": 0,
+        "external_asset_refs": 16,
+        "objects": 16,
+        "observations_per_object": 3,
+        "scene_snapshots": 2
+      },
+      "incremental_move": {
+        "history_rows_read": 4,
+        "index_rows_touched": 2,
+        "ms": 33.5367
+      },
+      "public_authorized_region_query": {
+        "p50_ms": 8.7061,
+        "p95_ms": 9.0675
+      },
+      "public_authorized_region_query_forced_refresh": {
+        "p50_ms": 14.8172,
+        "p95_ms": 14.8257
+      },
+      "raw_grid_candidate_query": {
+        "p50_ms": 0.01,
+        "p95_ms": 0.0152
+      },
+      "reads": {
+        "canonical_rows_refreshed": 48,
+        "exact_candidate_rows": 4,
+        "history_rows_selected": 4,
+        "public_hits": 4,
+        "raw_candidate_rows": 5,
+        "raw_cells": 24
+      },
+      "rebuild": {
+        "history_rows_read": 48,
+        "index_rows_touched": 16,
+        "ms": 8.0863
+      },
+      "runtime": {
+        "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+        "python": "3.13.12"
+      }
+    },
+    {
+      "fixture": {
+        "appearance_records": 32,
+        "embedded_asset_bytes": 0,
+        "external_asset_refs": 32,
+        "objects": 32,
+        "observations_per_object": 3,
+        "scene_snapshots": 2
+      },
+      "incremental_move": {
+        "history_rows_read": 4,
+        "index_rows_touched": 2,
+        "ms": 66.0859
+      },
+      "public_authorized_region_query": {
+        "p50_ms": 25.4142,
+        "p95_ms": 25.6462
+      },
+      "public_authorized_region_query_forced_refresh": {
+        "p50_ms": 36.8181,
+        "p95_ms": 43.2417
+      },
+      "raw_grid_candidate_query": {
+        "p50_ms": 0.0109,
+        "p95_ms": 0.0192
+      },
+      "reads": {
+        "canonical_rows_refreshed": 96,
+        "exact_candidate_rows": 7,
+        "history_rows_selected": 7,
+        "public_hits": 7,
+        "raw_candidate_rows": 10,
+        "raw_cells": 24
+      },
+      "rebuild": {
+        "history_rows_read": 96,
+        "index_rows_touched": 32,
+        "ms": 22.4129
+      },
+      "runtime": {
+        "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+        "python": "3.13.12"
+      }
+    }
+  ]
+}

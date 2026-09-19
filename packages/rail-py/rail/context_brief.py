@@ -16,7 +16,8 @@ from krail.provider.v1 import (
     EvidencePacket,
     GetResourceRequest,
     MAX_EVIDENCE_ITEM_BYTES,
-    Provider,
+    GetResourceResult,
+    SearchResult,
     ResourceRef,
     SearchRequest,
 )
@@ -205,10 +206,17 @@ class ContextAuthorizer(Protocol):
         """Raise ``PermissionError`` when the exact ref is not currently allowed."""
 
 
+class ContextReader(Protocol):
+    """Minimum structural read boundary needed for context and packet assembly."""
+
+    def get_resource(self, request: GetResourceRequest) -> GetResourceResult: ...
+    def search(self, request: SearchRequest) -> SearchResult: ...
+
+
 class ContextBriefService:
     """Read-only context assembly; history recording is an explicit local step."""
 
-    def __init__(self, provider: Provider, history: EpistemicHistory | None = None) -> None:
+    def __init__(self, provider: ContextReader, history: EpistemicHistory | None = None) -> None:
         self.provider = provider
         self.history = history
 

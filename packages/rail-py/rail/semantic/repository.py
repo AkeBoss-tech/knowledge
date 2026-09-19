@@ -49,12 +49,19 @@ SemanticKind = Literal[
     "procedure_invalidation",
     "procedure_freshness",
     "temporal_record",
+    "temporal_scope_cursor",
+    "temporal_scope_change",
     "procedure_projection_edge",
+    "procedure_projection_alias",
     "procedure_projection_checkpoint",
     "procedure_projection_tombstone",
     "procedure_projection_current",
     "procedure_projection_dirty",
+    "procedure_projection_dirty_event",
     "procedure_projection_recompute_run",
+    "robotics_world_record",
+    "robotics_scene_snapshot",
+    "robotics_episode",
 ]
 
 _JSON_STORE_LOCKS: dict[Path, RLock] = {}

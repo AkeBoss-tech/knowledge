@@ -42,13 +42,15 @@ def ref(kind: str, ident: str) -> ResourceRef:
     )
 
 
-def record(entity: str, revision: str, *, supersedes=None, recorded_at=NOW, source=None):
+def record(entity: str, revision: str, *, supersedes=None, recorded_at=NOW, source=None, valid_to=None, freshness="current"):
     return create_temporal_record(
         record_id=f"test:{entity}:{revision}", entity_id=entity, entity_authority="test://entity",
         payload_schema="test.procedure", payload_schema_version="1.0.0", kind="proposed_change",
         authority="test://authority", writer_family="test-writer", valid_from=NOW,
-        recorded_at=recorded_at, source_refs=(source or ref("dependency", f"dep-{entity}"),),
+        valid_to=valid_to, recorded_at=recorded_at,
+        source_refs=(source or ref("dependency", f"dep-{entity}"),),
         revision=revision, payload={"entity": entity, "revision": revision},
+        freshness=freshness,
         supersedes_digest=supersedes,
     )
 
@@ -111,6 +113,211 @@ def test_temporal_projection_reverse_edges_find_three_level_affected_region(tmp_
     for item in (a, b, c):
         service.ingest(item, at=NOW, writer=Allow())
     assert tuple(item.digest for item in service.affected_region(a_ref)) == (b.record_digest, c.record_digest)
+
+
+def test_supersession_lineage_can_heal_but_explicit_predecessor_dependency_stays_stale(tmp_path):
+    pure = TemporalProjectionService(
+        str(tmp_path / "pure.json"), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    old_source = ref("evidence", "incident-v1")
+    new_source = ref("evidence", "incident-v2")
+    first = record("procedure", "1", source=old_source)
+    successor = record(
+        "procedure", "2", supersedes=first.record_digest,
+        recorded_at=NOW + timedelta(minutes=2), source=new_source,
+    )
+    for item in (first, successor):
+        pure.ingest(item, at=item.recorded_at, writer=Allow())
+    pure.rebuild(
+        projection_id="current", valid_at=NOW + timedelta(minutes=2),
+        known_at=NOW + timedelta(minutes=2), at=NOW,
+    )
+    pure.tombstone(
+        old_source, event_id="old-source", reason="evidence replaced",
+        effective_at=NOW + timedelta(minutes=1), recorded_at=NOW + timedelta(minutes=1),
+        authorizer=AllowInvalidation(),
+    )
+    pure.recompute(
+        projection_id="current", valid_at=NOW + timedelta(minutes=2),
+        known_at=NOW + timedelta(minutes=2), at=NOW + timedelta(minutes=2),
+    )
+    pure_state = pure.current_state("current")[0]
+    assert pure_state.record_digests == (successor.record_digest,)
+    assert all(item.status == "current" for item in pure_state.dependency_states)
+
+    explicit = TemporalProjectionService(
+        str(tmp_path / "explicit.json"), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    first = record("procedure", "1", source=old_source)
+    predecessor_ref = explicit.record_ref(first)
+    successor = record(
+        "procedure", "2", supersedes=first.record_digest,
+        recorded_at=NOW + timedelta(minutes=2), source=predecessor_ref,
+    )
+    for item in (first, successor):
+        explicit.ingest(item, at=item.recorded_at, writer=Allow())
+    explicit.rebuild(
+        projection_id="current", valid_at=NOW + timedelta(minutes=2),
+        known_at=NOW + timedelta(minutes=2), at=NOW,
+    )
+    explicit.tombstone(
+        old_source, event_id="old-source", reason="evidence replaced",
+        effective_at=NOW + timedelta(minutes=1), recorded_at=NOW + timedelta(minutes=1),
+        authorizer=AllowInvalidation(),
+    )
+    explicit.recompute(
+        projection_id="current", valid_at=NOW + timedelta(minutes=2),
+        known_at=NOW + timedelta(minutes=2), at=NOW + timedelta(minutes=2),
+    )
+    explicit_state = explicit.current_state("current")[0]
+    assert any(
+        item.input_ref == predecessor_ref and item.status == "stale"
+        for item in explicit_state.dependency_states
+    )
+
+
+def test_divergent_independent_reviewed_roots_remain_ambiguous(tmp_path):
+    service = TemporalProjectionService(
+        str(tmp_path / "conflict.json"), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+
+    def reviewed(revision: str, rationale: str):
+        return create_temporal_record(
+            record_id=f"procedure:payment:{revision}",
+            entity_id="procedure:payment",
+            entity_authority="test://company",
+            payload_schema="krail.procedure-memory.v1",
+            payload_schema_version="1.0.0",
+            kind="approved_state",
+            authority="test://company",
+            writer_family="human-reviewed",
+            valid_from=NOW,
+            recorded_at=NOW,
+            source_refs=(ref("review-evidence", revision),),
+            revision=revision,
+            payload={"lifecycle": "reviewed", "rationale": rationale},
+        )
+
+    restart = reviewed("1", "Restart the payment worker")
+    do_not_restart = reviewed("2", "Do not restart the payment worker")
+    for item in (restart, do_not_restart):
+        service.ingest(item, at=NOW, writer=Allow())
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    state = service.current_state("current")[0]
+    assert set(state.record_digests) == {
+        restart.record_digest,
+        do_not_restart.record_digest,
+    }
+    assert service.actionable_record(restart, projection_id="current") is False
+    assert service.actionable_record(do_not_restart, projection_id="current") is False
+
+
+def test_live_actionability_ignores_stale_cache_for_conflict_expiry_and_supersession(tmp_path):
+    current_time = [NOW]
+    path = tmp_path / "live.json"
+    service = TemporalProjectionService(
+        str(path), tenant_id="t", project_id="p", clock=lambda: current_time[0]
+    )
+    first = record("procedure", "1")
+    service.ingest(first, at=NOW, writer=Allow())
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    contradictory = record(
+        "procedure", "conflict", source=ref("dependency", "contradictory")
+    )
+    service.ingest(contradictory, at=NOW, writer=Allow())
+    assert service.actionable_record(first, projection_id="current") is False
+    assert service.actionable_record(contradictory, projection_id="current") is False
+    reopened = TemporalProjectionService(
+        str(path), tenant_id="t", project_id="p", clock=lambda: current_time[0]
+    )
+    assert reopened.actionable_record(first, projection_id="current") is False
+
+    expiry_path = tmp_path / "expiry.json"
+    expiring = record("expiring", "1", valid_to=NOW + timedelta(seconds=1))
+    expiring_service = TemporalProjectionService(
+        str(expiry_path), tenant_id="t", project_id="p", clock=lambda: current_time[0]
+    )
+    expiring_service.ingest(expiring, at=NOW, writer=Allow())
+    expiring_service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    assert expiring_service.actionable_record(expiring, projection_id="current") is True
+    current_time[0] = NOW + timedelta(seconds=2)
+    assert expiring_service.actionable_record(expiring, projection_id="current") is False
+    assert TemporalProjectionService(
+        str(expiry_path), tenant_id="t", project_id="p", clock=lambda: current_time[0]
+    ).actionable_record(expiring, projection_id="current") is False
+
+    supersession_path = tmp_path / "supersession.json"
+    supersession = TemporalProjectionService(
+        str(supersession_path), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    old = record("superseded", "1")
+    supersession.ingest(old, at=NOW, writer=Allow())
+    supersession.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    replacement = record(
+        "superseded", "2", supersedes=old.record_digest,
+        source=ref("dependency", "replacement"),
+    )
+    supersession.ingest(replacement, at=NOW, writer=Allow())
+    assert supersession.actionable_record(old, projection_id="current") is False
+    assert supersession.actionable_record(replacement, projection_id="current") is True
+    restarted_supersession = TemporalProjectionService(
+        str(supersession_path), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    assert restarted_supersession.actionable_record(old, projection_id="current") is False
+    assert restarted_supersession.actionable_record(replacement, projection_id="current") is True
+
+
+def test_dirty_only_invalidation_abstains_before_recompute_and_restart(tmp_path):
+    path = tmp_path / "dirty.json"
+    service = TemporalProjectionService(
+        str(path), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    source = ref("dependency", "external-policy")
+    item = record("procedure", "1", source=source)
+    service.ingest(item, at=NOW, writer=Allow())
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    assert service.actionable_record(item, projection_id="current") is True
+    assert service.mark_dirty(
+        source, projection_id="current", reason="external policy invalidated", at=NOW
+    ) == (service.record_ref(item),)
+    assert service.actionable_record(item, projection_id="current") is False
+    reopened = TemporalProjectionService(
+        str(path), tenant_id="t", project_id="p", clock=lambda: NOW
+    )
+    assert reopened.actionable_record(item, projection_id="current") is False
+
+
+def test_selected_stale_record_abstains_even_without_dirty_projection(tmp_path):
+    service = TemporalProjectionService(str(tmp_path / "stale.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
+    stale = record("procedure", "stale", freshness="stale")
+    service.ingest(stale, at=NOW, writer=Allow())
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    assert service.actionable_record(stale, projection_id="current") is False
+
+
+def test_stale_canonical_dependency_propagates_directly_and_transitively(tmp_path):
+    service = TemporalProjectionService(str(tmp_path / "dependency-freshness.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
+    source = record("source", "1", freshness="stale")
+    direct = record("direct", "1", source=service.record_ref(source))
+    transitive = record("transitive", "1", source=service.record_ref(direct))
+    for item in (source, direct, transitive):
+        service.ingest(item, at=NOW, writer=Allow())
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    assert service.actionable_record(direct, projection_id="current") is False
+    assert service.actionable_record(transitive, projection_id="current") is False
+
+
+def test_stale_dependency_propagates_through_projection_alias(tmp_path):
+    service = TemporalProjectionService(str(tmp_path / "alias-freshness.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
+    canonical = record("canonical", "1", freshness="stale")
+    external = ref("external-evidence", "canonical-alias")
+    middle = record("middle", "1", source=external)
+    output = record("output", "1", source=service.record_ref(middle))
+    for item in (canonical, middle, output):
+        service.ingest(item, at=NOW, writer=Allow())
+    service.register_alias(external, service.record_ref(canonical), at=NOW)
+    service.rebuild(projection_id="current", valid_at=NOW, known_at=NOW, at=NOW)
+    assert service.actionable_record(output, projection_id="current") is False
 
 
 def test_affected_region_is_exact_ref_scoped_not_digest_scoped(tmp_path):

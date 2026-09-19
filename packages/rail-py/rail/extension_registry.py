@@ -21,6 +21,9 @@ Digest = Annotated[str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_.:/-]{0,199}$")]
 Version = Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")]
 Payload = dict[str, Any]
+# Reserved trusted-handler output field. Dispatch removes it before response
+# serialization and binds the exact refs into InvocationResult lineage.
+HANDLER_LINEAGE_REFS = "__krail_lineage_refs__"
 
 
 class StrictModel(BaseModel):
@@ -188,9 +191,20 @@ class DomainExtensionRegistry:
         except PermissionError as exc:
             raise PermissionError("extension access denied") from exc
         config_digest = _digest(config)
-        output = handler(tuple(payload for _ref, payload in inputs), config)
-        if not isinstance(output, Mapping):
+        raw_output = handler(tuple(payload for _ref, payload in inputs), config)
+        if not isinstance(raw_output, Mapping):
             raise TypeError("operator handler must return a mapping")
+        output = dict(raw_output)
+        raw_lineage_refs = output.pop(HANDLER_LINEAGE_REFS, ())
+        if not isinstance(raw_lineage_refs, (tuple, list)) or not all(isinstance(ref, ResourceRef) for ref in raw_lineage_refs):
+            raise TypeError("operator handler lineage refs must be exact ResourceRefs")
+        # A trusted local handler may read immutable canonical evidence in
+        # addition to caller inputs. Bind every exact record it consumed into
+        # the invocation before exposing its output.
+        unique_refs: dict[tuple[str, str, str, str, str], ResourceRef] = {}
+        for ref in (*refs, *raw_lineage_refs):
+            unique_refs.setdefault(ref.exact_key, ref)
+        refs = tuple(unique_refs.values())
         try:
             for ref in refs:
                 authorizer.authorize(ref)
@@ -210,7 +224,7 @@ class DomainExtensionRegistry:
             operator_id=descriptor.operator_id,
             operator_version=descriptor.version,
             output_schema=descriptor.output_schema,
-            output=dict(output),
+            output=output,
             input_refs=refs,
             config_digest=config_digest,
             output_digest=output_digest,
@@ -221,6 +235,7 @@ class DomainExtensionRegistry:
 __all__ = [
     "DomainExtensionRegistry",
     "ExtensionDescriptor",
+    "HANDLER_LINEAGE_REFS",
     "InvocationResult",
     "OperatorDescriptor",
     "describe_extension",

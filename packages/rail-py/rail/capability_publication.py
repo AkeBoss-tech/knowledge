@@ -29,8 +29,23 @@ from rail.context_brief import (
     ContextBrief,
     ContextBriefRequest,
 )
+from rail.authorized_context import (
+    AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID,
+    AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION,
+    AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION,
+    MAX_AUTHORIZED_CONTEXT_PACKET_BYTES,
+    MAX_AUTHORIZED_CONTEXT_TOKENS,
+    AuthorizedContextPacketCreateRequest,
+    AuthorizedContextPacketReadRequest,
+    AuthorizedContextPacketReadResult,
+    SharedAuthorizedContextPacket,
+)
 from rail.core_provenance import (
+    PROCEDURE_EXPLANATION_CAPABILITY_ID,
+    PROCEDURE_EXPLANATION_CAPABILITY_VERSION,
     PROCEDURE_EXPLANATION_VERSION,
+    ProcedureActionableGuidanceRequest,
+    ProcedureActionableGuidanceResult,
     ProcedureExplanation,
     ProcedureExplanationRequest,
 )
@@ -50,6 +65,14 @@ from rail.verification_evidence import (
     VERIFICATION_PROCESSING_VERSION,
     VerificationEvidence,
     VerificationEvidenceRequest,
+)
+from rail.company_guidance_packet import (
+    CAPABILITY_ID as COMPANY_GUIDANCE_PACKET_CAPABILITY_ID,
+    CAPABILITY_VERSION as COMPANY_GUIDANCE_PACKET_CAPABILITY_VERSION,
+    CompanyGuidancePacket,
+    CompanyGuidancePacketCreateRequest,
+    CompanyGuidancePacketReadRequest,
+    CompanyGuidancePacketReadResult,
 )
 from krail.provider.semantic import (
     AssembleCrossSourceEvidenceRequest,
@@ -83,7 +106,6 @@ CAPABILITY_VERSION = "1.0.0"
 VERIFICATION_CAPABILITY_ID = "krail.verification-evidence"
 OUTCOME_CAPABILITY_ID = "krail.outcome-evidence"
 SEMANTIC_CAPABILITY_ID = "krail.semantic-operations"
-PROCEDURE_EXPLANATION_CAPABILITY_ID = "krail.procedure-explanation"
 
 
 def context_brief_descriptor() -> CapabilityDescriptor:
@@ -117,6 +139,59 @@ def context_brief_descriptor() -> CapabilityDescriptor:
             SemanticProcessingVersion(component="ranking", version=RANKING_VERSION),
             SemanticProcessingVersion(component="freshness", version=FRESHNESS_VERSION),
             SemanticProcessingVersion(component="conflict", version=CONFLICT_VERSION),
+        ),
+    )
+
+
+def authorized_context_packet_descriptor() -> CapabilityDescriptor:
+    """Publish immutable packet creation and fresh reauthorization reads."""
+
+    return CapabilityDescriptor.issue(
+        provider="krail.local",
+        capability_id=AUTHORIZED_CONTEXT_PACKET_CAPABILITY_ID,
+        semantic_version=AUTHORIZED_CONTEXT_PACKET_CAPABILITY_VERSION,
+        operations=(
+            CapabilityOperation(
+                operation_id="create_authorized_context_packet",
+                input_schema=AuthorizedContextPacketCreateRequest.model_json_schema(),
+                output_schema=SharedAuthorizedContextPacket.model_json_schema(),
+            ),
+            CapabilityOperation(
+                operation_id="read_authorized_context_packet",
+                input_schema=AuthorizedContextPacketReadRequest.model_json_schema(),
+                output_schema=AuthorizedContextPacketReadResult.model_json_schema(),
+            ),
+        ),
+        effects=EffectDeclaration(),
+        limits=(
+            CapabilityLimit(
+                name="max_authorized_context_packet_bytes",
+                value=MAX_AUTHORIZED_CONTEXT_PACKET_BYTES,
+                unit="utf8-bytes",
+            ),
+            CapabilityLimit(
+                name="max_authorized_context_tokens",
+                value=MAX_AUTHORIZED_CONTEXT_TOKENS,
+                unit="items",
+            ),
+            CapabilityLimit(
+                name="max_exact_resource_refs", value=256, unit="items"
+            ),
+            CapabilityLimit(
+                name="max_reauthorization_receipt_bytes", value=8192, unit="utf8-bytes"
+            ),
+        ),
+        semantic_processing_versions=(
+            SemanticProcessingVersion(
+                component="provider-contract", version="krail.provider.v1"
+            ),
+            SemanticProcessingVersion(
+                component="authorized-context-packet",
+                version=AUTHORIZED_CONTEXT_PACKET_SCHEMA_VERSION,
+            ),
+            SemanticProcessingVersion(
+                component="context-brief", version=CONTEXT_BRIEF_VERSION
+            ),
         ),
     )
 
@@ -185,12 +260,17 @@ def procedure_explanation_descriptor() -> CapabilityDescriptor:
     return CapabilityDescriptor.issue(
         provider="krail.local",
         capability_id=PROCEDURE_EXPLANATION_CAPABILITY_ID,
-        semantic_version=CAPABILITY_VERSION,
+        semantic_version=PROCEDURE_EXPLANATION_CAPABILITY_VERSION,
         operations=(
             CapabilityOperation(
                 operation_id="explain_procedure",
                 input_schema=ProcedureExplanationRequest.model_json_schema(),
                 output_schema=ProcedureExplanation.model_json_schema(),
+            ),
+            CapabilityOperation(
+                operation_id="actionable_guidance",
+                input_schema=ProcedureActionableGuidanceRequest.model_json_schema(),
+                output_schema=ProcedureActionableGuidanceResult.model_json_schema(),
             ),
         ),
         effects=EffectDeclaration(),
@@ -244,13 +324,44 @@ def semantic_operations_descriptor() -> CapabilityDescriptor:
     )
 
 
+def company_guidance_packet_descriptor() -> CapabilityDescriptor:
+    return CapabilityDescriptor.issue(
+        provider="krail.local",
+        capability_id=COMPANY_GUIDANCE_PACKET_CAPABILITY_ID,
+        semantic_version=COMPANY_GUIDANCE_PACKET_CAPABILITY_VERSION,
+        operations=(
+            CapabilityOperation(
+                operation_id="create_company_guidance_packet",
+                input_schema=CompanyGuidancePacketCreateRequest.model_json_schema(),
+                output_schema=CompanyGuidancePacket.model_json_schema(),
+            ),
+            CapabilityOperation(
+                operation_id="read_company_guidance_packet",
+                input_schema=CompanyGuidancePacketReadRequest.model_json_schema(),
+                output_schema=CompanyGuidancePacketReadResult.model_json_schema(),
+            ),
+        ),
+        effects=EffectDeclaration(),
+        limits=(
+            CapabilityLimit(name="max_packet_bytes", value=524_288, unit="utf8-bytes"),
+            CapabilityLimit(name="max_exact_resource_refs", value=256, unit="items"),
+        ),
+        semantic_processing_versions=(
+            SemanticProcessingVersion(component="provider-contract", version="krail.provider.v1"),
+            SemanticProcessingVersion(component="company-guidance-packet", version="krail.company-guidance-packet.v1"),
+        ),
+    )
+
+
 def capability_descriptors() -> tuple[CapabilityDescriptor, ...]:
     return (
         context_brief_descriptor(),
+        authorized_context_packet_descriptor(),
         verification_evidence_descriptor(),
         outcome_evidence_descriptor(),
         procedure_explanation_descriptor(),
         semantic_operations_descriptor(),
+        company_guidance_packet_descriptor(),
     )
 
 
@@ -279,7 +390,10 @@ __all__ = [
     "VERIFICATION_CAPABILITY_ID",
     "SEMANTIC_CAPABILITY_ID",
     "PROCEDURE_EXPLANATION_CAPABILITY_ID",
+    "PROCEDURE_EXPLANATION_CAPABILITY_VERSION",
     "LocalCapabilityPublication",
+    "authorized_context_packet_descriptor",
+    "company_guidance_packet_descriptor",
     "capability_descriptors",
     "context_brief_descriptor",
     "outcome_evidence_descriptor",

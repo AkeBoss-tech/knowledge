@@ -133,6 +133,8 @@ class KnowledgeApplicationService:
             self.provider,
             EpistemicHistory(runtime.project_path),
         )
+        self.authorized_context_packets = None
+        self.company_guidance_packets = None
         from rail.capability_publication import LocalCapabilityPublication
         from rail.outcome_observations import OutcomeObservationService
         from rail.verification_evidence import VerificationEvidenceService
@@ -263,6 +265,90 @@ class KnowledgeApplicationService:
         """Assemble a bounded brief without performing provider or external writes."""
         return self.context_briefs.assemble(request)
 
+    def configure_authorized_context_packets(
+        self,
+        authority,
+        *,
+        tenant_id: str,
+        project_id: str,
+        clock=None,
+        current_ref_resolver=None,
+        packet_retention_until=None,
+    ):
+        """Inject the caller-owned verifier at the application composition root."""
+
+        from rail.authorized_context import AuthorizedContextPacketService
+
+        descriptor = self.capability_publication.descriptor(
+            "krail.authorized-context-packet"
+        )
+        self.authorized_context_packets = AuthorizedContextPacketService(
+            self.context_briefs,
+            project_path=self.runtime.project_path,
+            authority=authority,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            capability_descriptor_digest=descriptor.descriptor_digest,
+            clock=clock,
+            current_ref_resolver=current_ref_resolver or self.provider._ref,
+            packet_retention_until=packet_retention_until,
+        )
+        return self.authorized_context_packets
+
+    def create_authorized_context_packet(self, request):
+        if self.authorized_context_packets is None:
+            raise PermissionError("authorized context packet access denied")
+        return self.authorized_context_packets.create(request)
+
+    def configure_company_guidance_packets(
+        self,
+        guidance_factory,
+        *,
+        authority,
+        tenant_id: str,
+        project_id: str,
+        current_ref_resolver,
+        clock=None,
+    ):
+        """Inject the caller-owned company readers and packet authority."""
+        from rail.company_guidance_packet import CompanyGuidancePacketService
+
+        descriptor = self.capability_publication.descriptor(
+            "krail.company-guidance-packet"
+        )
+        self.company_guidance_packets = CompanyGuidancePacketService(
+            guidance_factory,
+            project_path=self.runtime.project_path,
+            authority=authority,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            capability_descriptor_digest=descriptor.descriptor_digest,
+            current_ref_resolver=current_ref_resolver,
+            clock=clock,
+        )
+        return self.company_guidance_packets
+
+    def create_company_guidance_packet(self, request):
+        if self.company_guidance_packets is None:
+            raise PermissionError("company guidance packet access denied")
+        return self.company_guidance_packets.create(request)
+
+    def read_company_guidance_packet(self, request):
+        if self.company_guidance_packets is None:
+            from rail.company_guidance_packet import CompanyGuidancePacketReadResult
+
+            return CompanyGuidancePacketReadResult(status="packet_unavailable")
+        return self.company_guidance_packets.read(request)
+
+    def read_authorized_context_packet(self, request):
+        if self.authorized_context_packets is None:
+            from rail.authorized_context import AuthorizedContextPacketReadResult
+
+            return AuthorizedContextPacketReadResult(
+                status="context_packet_unavailable"
+            )
+        return self.authorized_context_packets.read(request)
+
     def assemble_verification_evidence(self, request):
         """Interpret supplied bounded artifacts without executing or mutating."""
         return self.verification_evidence.assemble(request)
@@ -348,6 +434,20 @@ class LocalKnowledgeProvider:
     def context_brief(self, request):
         """Delegate to the accepted K2.1 service; do not duplicate assembly."""
         return self.application.context_brief(request)
+
+    def create_authorized_context_packet(self, request):
+        """Create one signed, bounded, content-addressed context packet."""
+        return self.application.create_authorized_context_packet(request)
+
+    def read_authorized_context_packet(self, request):
+        """Reauthorize and return one existing immutable packet."""
+        return self.application.read_authorized_context_packet(request)
+
+    def create_company_guidance_packet(self, request):
+        return self.application.create_company_guidance_packet(request)
+
+    def read_company_guidance_packet(self, request):
+        return self.application.read_company_guidance_packet(request)
 
     def assemble_verification_evidence(self, request):
         return self.application.assemble_verification_evidence(request)

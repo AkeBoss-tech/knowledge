@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence
 
 from krail.provider.semantic import (
     AliasView,
@@ -61,6 +61,13 @@ from rail.semantic.models import (
 )
 from rail.semantic.packs import SemanticPack
 from rail.semantic.repository import SemanticRepository, SemanticRow
+
+if TYPE_CHECKING:
+    from rail.core_provenance import (
+        ProcedureActionableGuidanceRequest,
+        ProcedureActionableGuidanceResult,
+        ProcedureExplanationService,
+    )
 
 
 SEMANTIC_PROCESSING_VERSION = "semantic-operations/1.0.0"
@@ -171,6 +178,10 @@ class SemanticOperationsService:
         cursor_key: bytes,
         authorize_scope: Callable[[SemanticReadScope], AuthorizedSemanticScope],
         clock: Callable[[], float] = time.monotonic,
+        procedure_guidance: ProcedureExplanationService | None = None,
+        procedure_access_authority: Any | None = None,
+        procedure_capability_digest: str | None = None,
+        procedure_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if len(cursor_key) < 32:
             raise ValueError("semantic cursor key must contain at least 32 bytes")
@@ -178,6 +189,79 @@ class SemanticOperationsService:
         self._cursor_key = bytes(cursor_key)
         self._authorize_scope = authorize_scope
         self._clock = clock
+        configured = (
+            procedure_guidance,
+            procedure_access_authority,
+            procedure_capability_digest,
+        )
+        if any(item is not None for item in configured) and not all(
+            item is not None for item in configured
+        ):
+            raise ValueError(
+                "procedure guidance service and access authority must be paired"
+            )
+        self._procedure_guidance = procedure_guidance
+        self._procedure_access_authority = procedure_access_authority
+        self._procedure_capability_digest = procedure_capability_digest
+        self._procedure_clock = procedure_clock
+
+    def actionable_guidance(
+        self, request: ProcedureActionableGuidanceRequest
+    ) -> ProcedureActionableGuidanceResult:
+        """Dispatch the published guidance read through caller-owned authority."""
+
+        from rail.authorized_context import HostedAccessContextAuthorizer
+        from rail.core_provenance import ProcedureActionableGuidanceResult
+        from rail.core_provenance import (
+            PROCEDURE_EXPLANATION_CAPABILITY_ID,
+            PROCEDURE_EXPLANATION_CAPABILITY_VERSION,
+        )
+
+        if (
+            self._procedure_guidance is None
+            or self._procedure_access_authority is None
+            or self._procedure_capability_digest is None
+        ):
+            # Publication is honest even in the default local runtime. Do not
+            # inspect the candidate, repository, or supplied context when no
+            # trusted verifier/service composition exists.
+            return ProcedureActionableGuidanceResult(
+                status="unavailable", unavailable_reason="not-configured"
+            )
+        try:
+            claims = self._procedure_access_authority.verify(
+                request.access_context, as_of=self._procedure_clock()
+            )
+        except PermissionError as exc:
+            raise PermissionError("actionable guidance access denied") from exc
+        if (
+            (claims.tenant_id, claims.project_id)
+            != (self.repository.tenant_id, self.repository.project_id)
+            or claims.capability_id != PROCEDURE_EXPLANATION_CAPABILITY_ID
+            or claims.capability_version != PROCEDURE_EXPLANATION_CAPABILITY_VERSION
+            or claims.capability_digest != self._procedure_capability_digest
+            or "context.read" not in claims.actions
+        ):
+            raise PermissionError("actionable guidance access denied")
+        authorizer = HostedAccessContextAuthorizer(
+            self._procedure_access_authority,
+            request.access_context,
+            exact_refs=request.exact_refs,
+            clock=self._procedure_clock,
+        )
+        try:
+            guidance = self._procedure_guidance.actionable_guidance(
+                request.procedure, authorizer=authorizer
+            )
+        except PermissionError as exc:
+            raise PermissionError("actionable guidance access denied") from exc
+        if guidance is None:
+            return ProcedureActionableGuidanceResult(
+                status="abstained", abstention_reason="not-current"
+            )
+        return ProcedureActionableGuidanceResult(
+            status="guidance", guidance=guidance
+        )
 
     def _finish(
         self,

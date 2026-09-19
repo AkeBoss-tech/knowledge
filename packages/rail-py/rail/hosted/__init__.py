@@ -17,7 +17,9 @@ from rail.hosted.access import (
     InvalidAccessContext,
     MemoryAuditLedger,
     MemoryRevocationRegistry,
+    PacketRequestBinding,
     SignedAccessContext,
+    SignedPacketRequestBinding,
 )
 from rail.hosted.migration import Migration, migrations
 from rail.hosted.models import (
@@ -67,10 +69,12 @@ __all__ = [
     "MemoryMetadataStore",
     "MemoryObjectStore",
     "MemoryRevocationRegistry",
+    "PacketRequestBinding",
     "Migration",
     "PostgresMetadataStore",
     "ProjectionRecord",
     "S3ObjectStore",
     "SignedAccessContext",
+    "SignedPacketRequestBinding",
     "migrations",
 ]

@@ -82,3 +82,81 @@ Invalidation admission is a separate signed action boundary. Callers must
 present the additive `krail.procedure-invalidation` `1.0.0` capability with
 `procedure.invalidate`, exact changed-ref scope, and the event digest; a
 read-only `context.read` grant cannot write stale-marking events.
+
+
+## Actionable reviewed guidance
+
+`ProcedureExplanationService.actionable_guidance(request, authorizer=...)`
+returns a `ProcedureActionableGuidance` only for an accepted, currently supported
+reviewed procedure. The result binds the candidate and reviewed digests,
+procedure identity/version, reviewed rationale, exact evidence refs, and an
+optional corroborating projection-state digest. This read does not execute the
+procedure or claim that its rationale is independently correct.
+
+The service rechecks exact read authority before exposure. Historical explanation
+remains available separately; operational guidance returns `None` when it must
+abstain. No structured abstention reason is currently returned.
+
+When composed with `TemporalProjectionService`, eligibility is evaluated against
+live canonical valid/known time, competing records, persisted tombstones, dirty
+outputs, and exact dependency state. Cached projection rows cannot establish
+eligibility or select a winner among conflicting roots. Invalidation, expiry,
+new conflicting evidence, and supersession are checked before recomputation and
+after restart. Explicit canonical freshness propagates through direct,
+transitive, and aliased inputs. Pure supersession lineage is distinct from an
+explicit dependency on a predecessor.
+
+The company incident acceptance test persists incident revisions, uses the real
+review/promotion service with signed review/read/invalidation authorities,
+withholds guidance after source invalidation, and restores a supported revision
+against new evidence. Core receipt trust and temporal writer admission in that
+test are deterministic fixtures. This is local callable evidence, not a hosted
+company-memory product, a UI journey, or completion of Knowledge #15/#29.
+
+## Core actionable-guidance consumer contract
+
+The existing `krail.procedure-explanation` capability is version `1.1.0` and
+publishes both `explain_procedure` and `actionable_guidance` as read-only
+operations. Core invokes the latter through the normal provider dispatch entry:
+
+```python
+result = provider.semantic_operation("actionable_guidance", request)
+```
+
+`ProcedureActionableGuidanceRequest` contains:
+
+- `procedure`: the bounded `ProcedureExplanationRequest` with the exact
+  candidate digest;
+- `access_context`: a caller-owned `SignedAccessContext` whose verified claims
+  include `context.read`, the negotiated capability ID/version/digest, live
+  tenant/project scope, and non-wildcard source IDs;
+- `exact_refs`: the complete immutable grant set. For guidance this includes
+  the candidate and reviewed `procedure-record` refs, Core command/environment
+  refs, reviewer and review-decision refs, exact review evidence, and any
+  applicable invalidation refs.
+
+KRAIL never issues or self-signs this context during dispatch. The composition
+root injects the trusted `AccessContextAuthority`; the operation verifies the
+signature, expiry/revocation, negotiated capability binding, source IDs, and
+every exact ref before exposure. Missing scope returns the generic
+`PermissionError("actionable guidance access denied")` and no partial result.
+
+`ProcedureActionableGuidanceResult` is explicit about three distinct outcomes.
+`status="guidance"` carries the exact candidate/review refs and digests,
+procedure identity/version, reviewed rationale, exact evidence refs, and the
+optional corroborating projection digest. `status="abstained"` carries no
+guidance and `abstention_reason="not-current"`. Abstention covers missing or
+conflicting review authority, stale or invalidated evidence, invalid effective
+time, unresolved live competitors, and non-current projection dependencies.
+`status="unavailable"` with `unavailable_reason="not-configured"` means the
+runtime has no injected trusted procedure service/verifier composition. That
+path does not inspect the candidate, signed context, or private repository.
+Permission failures remain denials rather than abstention or unavailability.
+Historical explanation remains a separate operation.
+
+Core remains responsible for obtaining the descriptor, negotiating `1.1.x`,
+assembling its complete exact-ref grant from previously returned provenance and
+review records, obtaining a signed context from its control plane, and treating
+both abstention and denial as non-executable outcomes. The operation does not
+execute a command, activate a procedure, resolve conflicts, refresh evidence,
+or mint authority.
