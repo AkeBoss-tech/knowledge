@@ -1,12 +1,13 @@
 """Opt-in signed retention of a reviewed source document from an external Git root."""
 from __future__ import annotations
-import fcntl, json, os, re, subprocess, selectors, time
+import fcntl, json, os, re, stat, subprocess, selectors, time
 from contextlib import contextmanager
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Literal
 import rfc8785
 from krail.provider.v1 import ResourceRef
 from rail.bootstrap import bootstrap_future_project
@@ -17,6 +18,7 @@ _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 _HEX = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _MAX_BLOB_BYTES = 1_048_576
 _MAX_MANIFEST_BYTES = 1_048_576
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 def registered_git_evidence_request_digest(action: str, ref: ResourceRef, target: str, state_root: str | Path) -> str:
     """Public canonical binding for caller-owned bridge delegations."""
@@ -44,6 +46,167 @@ class CapturedEvidenceMetadata:
     captured_at: datetime
     reviewed_at: datetime | None
     source_ref: ResourceRef
+
+
+@dataclass(frozen=True)
+class HistoricalCapturedEvidence:
+    """Verified archived bytes and untrusted provenance, never an access grant."""
+
+    capture_id: str
+    commit: str
+    path: str
+    content_digest: str
+    captured_at: datetime
+    historical_review_id: str | None
+    historical_reviewed_at: datetime | None
+    content: bytes
+
+    @property
+    def current_authority_attested(self) -> Literal[False]:
+        return False
+
+    @property
+    def semantic_evidence_reviewed(self) -> Literal[False]:
+        return False
+
+
+def _archived_file(root: Path, components: tuple[str, ...], limit: int) -> bytes:
+    """Read a fixed archive path without following a symlink at any component."""
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in components[:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=directory)
+            os.close(directory)
+            directory = child
+        descriptor = os.open(components[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             dir_fd=directory)
+        try:
+            details = os.fstat(descriptor)
+            if not stat.S_ISREG(details.st_mode) or details.st_size > limit:
+                raise ValueError("historical capture unavailable")
+            chunks = bytearray()
+            while len(chunks) <= limit:
+                block = os.read(descriptor, min(65536, limit + 1 - len(chunks)))
+                if not block:
+                    break
+                chunks.extend(block)
+            if len(chunks) > limit:
+                raise ValueError("historical capture unavailable")
+            return bytes(chunks)
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(directory)
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("historical capture unavailable")
+        value[key] = item
+    return value
+
+
+def _historical_timestamp(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("historical capture unavailable")
+    try:
+        result = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError("historical capture unavailable") from None
+    if result.tzinfo is None or result.utcoffset() is None:
+        raise ValueError("historical capture unavailable")
+    return result
+
+
+def inspect_historical_registered_git_capture(
+    *, state_root: str | Path, capture_id: str,
+    expected_content_digest: str | None = None,
+) -> HistoricalCapturedEvidence:
+    """Verify one stopped archive capture; the caller supplies current authority.
+
+    This offline reader does not inspect signing keys, issue grants, attest live
+    Git or remote access, or promote an old review label into current trust. The
+    caller must separately verify and lock its historical snapshot, select a
+    current source, and compare that source's exact content digest.
+    """
+    if not isinstance(capture_id, str) or _ID.fullmatch(capture_id) is None:
+        raise ValueError("invalid historical capture id")
+    if expected_content_digest is not None and (
+        not isinstance(expected_content_digest, str)
+        or _DIGEST.fullmatch(expected_content_digest) is None
+    ):
+        raise ValueError("invalid expected content digest")
+    root = Path(state_root)
+    try:
+        if not root.is_absolute() or root != root.resolve(strict=True):
+            raise ValueError("historical capture unavailable")
+        manifest_bytes = _archived_file(
+            root, (".krail", "registered-evidence-staging.json"), _MAX_MANIFEST_BYTES,
+        )
+        def reject_constant(_value: str) -> None:
+            raise ValueError("historical capture unavailable")
+
+        manifest = json.loads(
+            manifest_bytes, object_pairs_hook=_unique_json_object,
+            parse_constant=reject_constant,
+        )
+        if not isinstance(manifest, dict):
+            raise ValueError("historical capture unavailable")
+        record = manifest.get(capture_id)
+        if not isinstance(record, dict):
+            raise ValueError("historical capture unavailable")
+        required = {"commit", "path", "digest", "blob", "captured_at"}
+        optional = {"review_id", "reviewed_at", "source_key"}
+        if not required <= record.keys() or record.keys() - required - optional:
+            raise ValueError("historical capture unavailable")
+        commit, path, digest = record["commit"], record["path"], record["digest"]
+        if not isinstance(commit, str) or _HEX.fullmatch(commit) is None:
+            raise ValueError("historical capture unavailable")
+        if not isinstance(path, str) or not path or len(path.encode("utf-8")) > 240:
+            raise ValueError("historical capture unavailable")
+        path_value = PurePosixPath(path)
+        if (not path_value.parts or path_value.is_absolute() or path_value.as_posix() != path
+                or any(part in {".", "..", ""} for part in path_value.parts)
+                or "\\" in path or "\x00" in path or "\n" in path or "\r" in path):
+            raise ValueError("historical capture unavailable")
+        if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None:
+            raise ValueError("historical capture unavailable")
+        if record["blob"] != f"sources/registered/{capture_id}.bin":
+            raise ValueError("historical capture unavailable")
+        captured_at = _historical_timestamp(record["captured_at"])
+        review_id = record.get("review_id")
+        if review_id is None:
+            if any(key in record for key in ("review_id", "reviewed_at", "source_key")):
+                raise ValueError("historical capture unavailable")
+            reviewed_at = None
+        else:
+            if (not isinstance(review_id, str) or _ID.fullmatch(review_id) is None
+                    or not isinstance(record.get("source_key"), str)
+                    or not record["source_key"]):
+                raise ValueError("historical capture unavailable")
+            reviewed_at = _historical_timestamp(record.get("reviewed_at"))
+            if reviewed_at < captured_at:
+                raise ValueError("historical capture unavailable")
+        content = _archived_file(
+            root, ("sources", "registered", capture_id + ".bin"), _MAX_BLOB_BYTES,
+        )
+        if "sha256:" + sha256(content).hexdigest() != digest:
+            raise ValueError("historical capture unavailable")
+        if expected_content_digest is not None and digest != expected_content_digest:
+            raise ValueError("historical capture unavailable")
+        if _archived_file(root, (".krail", "registered-evidence-staging.json"),
+                          _MAX_MANIFEST_BYTES) != manifest_bytes:
+            raise ValueError("historical capture unavailable")
+        return HistoricalCapturedEvidence(
+            capture_id=capture_id, commit=commit, path=path, content_digest=digest,
+            captured_at=captured_at, historical_review_id=review_id,
+            historical_reviewed_at=reviewed_at, content=content,
+        )
+    except (OSError, UnicodeError, TypeError, json.JSONDecodeError):
+        raise ValueError("historical capture unavailable") from None
 
 
 class RegisteredGitEvidenceBridge:

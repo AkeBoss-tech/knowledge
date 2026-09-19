@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source_tree": "e77c76a6d9a54b0107f29a0bf2a74a86f38fbed6",
+  "verification": "exact staged git archive, independent root rerun",
+  "invariant": "K29-HISTORICAL-CAPTURE",
+  "command": "PYTHONPATH=packages/rail-py:packages/mcp-server <Core Python environment> -m pytest -q packages/rail-py/tests/test_historical_registered_git_evidence.py packages/rail-py/tests/test_registered_git_evidence.py packages/rail-py/tests/test_registered_evidence_context.py",
+  "passed": 32,
+  "seconds": 3.46,
+  "pre_fix_regression": "New offline protocol; no prior regression claim",
+  "scope": "Real public capture and historical review, offline inspection after delegation revocation, malformed/tampered/oversized/linked archive rejection",
+  "limits": "Not current authority, semantic review, snapshot migration, or released enrollment proof; trusted-local POSIX archive boundary"
+}
