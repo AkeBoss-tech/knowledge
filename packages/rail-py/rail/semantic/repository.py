@@ -46,6 +46,7 @@ SemanticKind = Literal[
     "semantic_revision",
     "core_provenance",
     "observed_invocation",
+    "observed_run_artifact",
     "procedure_review",
     "procedure_invalidation",
     "procedure_freshness",

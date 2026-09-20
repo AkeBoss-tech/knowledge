@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from krail.provider.v1 import ResourceRef
 from rail.observed_invocation import ObservedInvocationEvidence, verify_observed_invocation_integrity
+from rail.observed_run_artifact import ObservedRunArtifactEvidence, verify_observed_run_artifact_integrity
 from rail.extension_registry import OperatorDescriptor
 from rail.temporal_records import TemporalRecord, create_temporal_record
 
@@ -262,6 +263,50 @@ def add_observed_evidence_to_procedure_candidate(
     return create_procedure(**values)
 
 
+def add_observed_run_artifact_to_procedure_candidate(
+    previous: ProcedureRecord,
+    evidence: ObservedRunArtifactEvidence,
+    *,
+    procedure_version: str,
+    rationale: str,
+    recorded_at: datetime,
+) -> ProcedureRecord:
+    """Propose a desired revision citing opaque observed bytes, never approval.
+
+    Input refs are caller-declared exact sources. Their current authorization
+    and the Core artifact must be rechecked when this candidate is read.
+    """
+
+    verify_procedure_integrity(previous)
+    verify_observed_run_artifact_integrity(evidence)
+    if previous.freshness != "current":
+        raise ValueError("stale procedure cannot seed a current observation candidate")
+    if procedure_version == previous.procedure_version:
+        raise ValueError("observed procedure candidate requires a new version")
+    declared = previous.package_refs + previous.command_refs + previous.environment_refs
+    seen = {ref.exact_key for ref in declared}
+    dependencies: list[ResourceRef] = []
+    for ref in (*previous.dependency_refs, evidence.exact_ref(), *evidence.input_refs,
+                evidence.observation.run_ref, evidence.observation.artifact_ref):
+        if ref.exact_key not in seen:
+            dependencies.append(ref)
+            seen.add(ref.exact_key)
+    values = previous.model_dump(mode="python", exclude={"record_digest"})
+    values.update(
+        procedure_version=procedure_version,
+        lifecycle="desired",
+        valid_from=recorded_at,
+        recorded_at=recorded_at,
+        test_evidence_refs=(),
+        dependency_refs=tuple(dependencies),
+        rationale=rationale,
+        activation_ref=None,
+        review_ref=None,
+        supersedes_digest=previous.record_digest,
+    )
+    return create_procedure(**values)
+
+
 def invalidate_for_dependency(record: ProcedureRecord, changed_ref: ResourceRef, *, reason: str | None = None) -> ProcedureRecord:
     """Mark a record stale only when an exact declared dependency changed."""
 
@@ -426,6 +471,7 @@ __all__ = [
     "create_procedure",
     "authorize_procedure",
     "add_observed_evidence_to_procedure_candidate",
+    "add_observed_run_artifact_to_procedure_candidate",
     "invalidate_for_dependency",
     "procedure_temporal_record",
     "procedure_temporal_history",
