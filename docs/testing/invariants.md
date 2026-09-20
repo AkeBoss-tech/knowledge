@@ -222,3 +222,22 @@ revocation before and after byte read, mutable-output tampering, and denial of
 the candidate after its artifact source is withdrawn. The evidence repository
 is reopened before the candidate read; an authorized read resolves the exact
 stored ref while a different project scope cannot reuse it.
+
+## K21-OPAQUE-RUN-ARTIFACT — native result bytes remain distinct from v1 output
+
+A completed generic-agent Run's current final-lease artifact may be observed
+through Core's authenticated human result-review and exact content APIs. KRAIL
+stores only exact Run/artifact refs, a raw-byte digest, caller-declared exact
+input refs, and an unverified observation receipt. It never parses native text
+into `InvocationResult.output`, treats a Core result as provider attestation, or
+inherits procedure test/review/activation. Reopening the evidence and reading
+its desired procedure candidate must repeat current Core artifact access and
+input-ref authorization. The bounded HTTP adapter refuses redirects, ambient
+proxy credentials, wrong project/Run/final artifact, drift, and oversized bytes.
+
+`test_observed_run_artifact.py` covers opaque bytes, durable reopen, desired
+candidate lineage, revoked inputs, redirects, and encoded responses. Core's `test_core_krail_observation.py`
+uses public worker result/complete and loopback human read APIs with an explicit
+sibling rail-py path, including two-Project selector denial and withdrawal
+during a protected artifact read. It distinguishes a deterministic worker
+fixture from an actual model turn. The v1 observed-invocation tests remain unchanged.
