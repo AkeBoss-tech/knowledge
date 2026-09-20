@@ -54,6 +54,39 @@ trusted local canonical reader. This does
 not introduce a general storage plugin, sandbox, model-run artifact, or hosted
 deployment adapter.
 
+## Caller-observed model results
+
+`rail.observed_invocation.record_observed_invocation` is an additive path for
+an already-dispatched nondeterministic operator. A trusted-local observer
+identifies one exact Run and output artifact, declares model provider, ID,
+version, execution-config digest and observation time. The observer is asked
+for at most 1 MiB of output bytes, and larger returned bodies are rejected.
+KRAIL requires the artifact bytes to equal the canonical JSON
+encoding of the existing `InvocationResult.output`; native text artifacts do
+not satisfy that contract unless an authorized adapter first publishes the
+canonical JSON artifact. It checks the artifact digest, invocation integrity,
+stable observer identity, and current read authority before and after the
+artifact read. The evidence ref binds these values but is explicitly
+`caller_observed_unverified`: this trusted-local declaration is not a signed
+Core receipt, provider verification, execution approval, or environment
+activation. The existing v1 `dispatch` continues to serve nondeterministic
+temporal queries without changing descriptor or result digests.
+
+`ObservedInvocationRepository` persists the digest-keyed evidence in the
+existing local semantic store. An exact read after restart repeats the
+observer, canonical artifact-byte, and current authorization checks;
+`ObservationAwareProcedureAuthorizer` resolves that durable evidence ref during
+normal procedure reads. `add_observed_evidence_to_procedure_candidate` gives
+the evidence one real consumer: a new **desired** procedure revision with the
+exact observation, Run, artifact and input refs as dependencies, clearing
+inherited test and human-review refs. Withdrawing an underlying source denies
+the candidate. The prior `writer_family` remains the canonical procedure
+record family; it is not a claim that a human authored the observed output.
+Candidate persistence remains caller-owned, as in `procedural_memory`.
+Human review and outcome verification remain separate gates. An authenticated
+Core observation adapter and model-run artifact issuer are still required
+before treating this declaration as independently verified execution evidence.
+
 Robotics and company validators use the same registry interface in the focused
 fixtures. Payload schemas are declared and discoverable, but schema-specific
 validation, durable storage adapters, and sandboxed third-party extension

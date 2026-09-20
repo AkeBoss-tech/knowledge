@@ -16,6 +16,8 @@ from typing import Annotated, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationInfo, field_validator, model_validator
 
 from krail.provider.v1 import ResourceRef
+from rail.observed_invocation import ObservedInvocationEvidence, verify_observed_invocation_integrity
+from rail.extension_registry import OperatorDescriptor
 from rail.temporal_records import TemporalRecord, create_temporal_record
 
 
@@ -214,6 +216,52 @@ def verify_procedure_integrity(record: ProcedureRecord) -> ProcedureRecord:
     return record
 
 
+def add_observed_evidence_to_procedure_candidate(
+    previous: ProcedureRecord,
+    evidence: ObservedInvocationEvidence,
+    descriptor: OperatorDescriptor,
+    *,
+    procedure_version: str,
+    rationale: str,
+    recorded_at: datetime,
+) -> ProcedureRecord:
+    """Propose a new revision citing a Run observation without reviewing it.
+
+    The evidence ref and all of its underlying exact inputs remain procedure
+    dependencies, so normal procedure reads recheck source access. A model
+    result cannot carry forward an earlier human review or test verdict.
+    """
+
+    verify_procedure_integrity(previous)
+    verify_observed_invocation_integrity(evidence, descriptor)
+    if previous.freshness != "current":
+        raise ValueError("stale procedure cannot seed a current observation candidate")
+    if procedure_version == previous.procedure_version:
+        raise ValueError("observed procedure candidate requires a new version")
+    declared = previous.package_refs + previous.command_refs + previous.environment_refs
+    seen = {ref.exact_key for ref in declared}
+    dependencies: list[ResourceRef] = []
+    for ref in (*previous.dependency_refs, evidence.exact_ref(), *evidence.invocation.input_refs,
+                evidence.observation.run_ref, evidence.observation.output_artifact_ref):
+        if ref.exact_key not in seen:
+            dependencies.append(ref)
+            seen.add(ref.exact_key)
+    values = previous.model_dump(mode="python", exclude={"record_digest"})
+    values.update(
+        procedure_version=procedure_version,
+        lifecycle="desired",
+        valid_from=evidence.observation.observed_at,
+        recorded_at=recorded_at,
+        test_evidence_refs=(),
+        dependency_refs=tuple(dependencies),
+        rationale=rationale,
+        activation_ref=None,
+        review_ref=None,
+        supersedes_digest=previous.record_digest,
+    )
+    return create_procedure(**values)
+
+
 def invalidate_for_dependency(record: ProcedureRecord, changed_ref: ResourceRef, *, reason: str | None = None) -> ProcedureRecord:
     """Mark a record stale only when an exact declared dependency changed."""
 
@@ -364,6 +412,7 @@ def authorize_procedure(record: ProcedureRecord, authorizer: ProcedureAuthorizer
         # would have been returned. Callers receive the whole record only after
         # every exact dependency is authorized.
         raise PermissionError("procedure access denied") from exc
+    verify_procedure_integrity(record)
     return record
 
 
@@ -376,6 +425,7 @@ __all__ = [
     "verify_review_integrity",
     "create_procedure",
     "authorize_procedure",
+    "add_observed_evidence_to_procedure_candidate",
     "invalidate_for_dependency",
     "procedure_temporal_record",
     "procedure_temporal_history",

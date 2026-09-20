@@ -202,3 +202,23 @@ responses disclose no packet metadata.
 proves signed creation, deterministic digest, persisted fixture bytes, fresh
 reader reauthorization, disk restart, exact lineage, and source-scoped durable
 tombstoning.
+
+## K21-OBSERVED-INVOCATION — a model observation is evidence, not review
+
+An already-dispatched nondeterministic extension result may be bound to one
+trusted-local observer's exact Run and canonical-JSON artifact only when the
+artifact bytes match the result output digest, the model/provider/version and
+configuration are declared, and input/Run/artifact read authority survives a
+final check. The resulting digest-bound evidence says
+`caller_observed_unverified`; it does not authenticate Core, verify an outcome,
+activate an environment, or approve a procedure. A proposed procedure revision
+must cite the evidence and all underlying exact refs, clear inherited review
+and test attestations, and fail read authorization after source withdrawal.
+Existing v1 extension dispatch and descriptor digests remain unchanged.
+
+`test_observed_invocation.py` exercises public extension dispatch through the
+observer and procedure-candidate APIs, including exact artifact mismatch,
+revocation before and after byte read, mutable-output tampering, and denial of
+the candidate after its artifact source is withdrawn. The evidence repository
+is reopened before the candidate read; an authorized read resolves the exact
+stored ref while a different project scope cannot reuse it.

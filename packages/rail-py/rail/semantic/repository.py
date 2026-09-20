@@ -45,6 +45,7 @@ SemanticKind = Literal[
     "ontology_change_set",
     "semantic_revision",
     "core_provenance",
+    "observed_invocation",
     "procedure_review",
     "procedure_invalidation",
     "procedure_freshness",
