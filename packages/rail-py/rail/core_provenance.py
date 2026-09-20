@@ -17,9 +17,17 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from krail.provider.v1 import ResourceRef
 from rail.hosted.access import SignedAccessContext
+from rail.observed_run_artifact import (
+    ObservedRunArtifactEvidence,
+    RunArtifactAuthorizer,
+    TrustedRunArtifactSource,
+    record_observed_run_artifact,
+)
 from rail.procedural_memory import (
     ProcedureRecord,
     ProcedureReviewDecision,
+    add_observed_run_artifact_to_procedure_candidate,
+    authorize_procedure,
     create_procedure,
     create_review_decision,
     procedure_temporal_history,
@@ -378,11 +386,20 @@ class CoreProvenanceRepository:
 
     record_kind = "core_provenance"
     review_kind = "procedure_review"
+    observed_candidate_kind = "observed_procedure_candidate"
 
-    def __init__(self, path: str, *, tenant_id: str, project_id: str) -> None:
+    def __init__(
+        self, path: str, *, tenant_id: str, project_id: str,
+        observed_source: TrustedRunArtifactSource | None = None,
+        observed_authorizer: RunArtifactAuthorizer | None = None,
+    ) -> None:
+        if (observed_source is None) != (observed_authorizer is None):
+            raise ValueError("observed source and authorizer must be paired")
         self.store = JsonSemanticStore(path)
         self.tenant_id = tenant_id
         self.project_id = project_id
+        self._observed_source = observed_source
+        self._observed_authorizer = observed_authorizer
 
     def load(self, receipt_id: str) -> CoreProvenanceIngestion | None:
         row = self.store.get(self.tenant_id, self.project_id, self.record_kind, receipt_id)
@@ -432,9 +449,7 @@ class CoreProvenanceRepository:
             self.store.put(row, expected_revision=0)
         return value
 
-    def find_procedure(self, candidate_digest: str) -> ProcedureRecord | None:
-        """Find an exact proposed procedure in this canonical project scope."""
-
+    def _find_core_candidate(self, candidate_digest: str) -> ProcedureRecord | None:
         for row in self.store.list(self.tenant_id, self.project_id, kind=self.record_kind):
             try:
                 receipt = CoreProvenanceReceipt.model_validate(row.payload["receipt"])
@@ -446,13 +461,161 @@ class CoreProvenanceRepository:
                 return record
         return None
 
-    def load_review(self, decision_id: str) -> ProcedureReviewResult | None:
+    def _observed_evidence(
+        self, ref: ResourceRef, *, require_current: bool,
+    ) -> ObservedRunArtifactEvidence:
+        if (
+            ref.authority != "krail://observed-run-artifact"
+            or ref.resource_type != "observed-run-artifact"
+            or ref.resource_id != ref.digest
+        ):
+            raise ValueError("observed candidate evidence reference differs")
+        row = self.store.get(self.tenant_id, self.project_id, "observed_run_artifact", ref.resource_id)
+        if row is None:
+            raise ValueError("observed candidate evidence is unavailable")
+        evidence = ObservedRunArtifactEvidence.model_validate(row.payload)
+        if evidence.exact_ref() != ref or evidence.observation.project_id != self.project_id:
+            raise ValueError("observed candidate evidence scope differs")
+        if require_current:
+            if self._observed_source is None or self._observed_authorizer is None:
+                raise PermissionError("observed candidate current access is not configured")
+            try:
+                self._observed_authorizer.authorize(ref)
+                current = record_observed_run_artifact(
+                    evidence.observation.run_id, source=self._observed_source,
+                    authorizer=self._observed_authorizer, input_refs=evidence.input_refs,
+                )
+                self._observed_authorizer.authorize(ref)
+            except PermissionError as exc:
+                raise PermissionError("observed candidate current access denied") from exc
+            if current != evidence:
+                raise ValueError("observed candidate evidence changed")
+        return evidence
+
+    def _core_predecessor_review(self, decision_id: str) -> ProcedureReviewResult:
+        """Resolve only a reviewed Core receipt before following its candidate."""
+
+        row = self.store.get(self.tenant_id, self.project_id, self.review_kind, decision_id)
+        if row is None:
+            raise ValueError("observed candidate predecessor is unavailable")
+        decision = ProcedureReviewDecision.model_validate(row.payload["decision"])
+        if (
+            decision.decision_id != decision_id
+            or decision.outcome != "accepted"
+            or self._find_core_candidate(decision.candidate_digest) is None
+        ):
+            raise ValueError("observed candidate predecessor is not an accepted Core receipt")
+        parent = self.load_review(decision_id)
+        if parent is None or parent.promoted_record is None:
+            raise ValueError("observed candidate predecessor is unavailable")
+        return parent
+
+    def _load_observed_candidate(
+        self, candidate_digest: str, *, require_current: bool,
+    ) -> ProcedureRecord | None:
+        row = self.store.get(
+            self.tenant_id, self.project_id, self.observed_candidate_kind, candidate_digest,
+        )
+        if row is None:
+            return None
+        if set(row.payload) != {"candidate", "parent_decision_id", "evidence_ref"}:
+            raise ValueError("stored observed candidate has unsupported fields")
+        candidate = ProcedureRecord.model_validate(row.payload["candidate"])
+        if candidate.record_digest != candidate_digest:
+            raise ValueError("stored observed candidate identity differs")
+        parent_decision_id = row.payload["parent_decision_id"]
+        if not isinstance(parent_decision_id, str) or not parent_decision_id:
+            raise ValueError("stored observed candidate predecessor differs")
+        # Guard the parent kind before load_review can recurse back into this
+        # observed candidate. This v1 path is deliberately one generation deep.
+        parent = self._core_predecessor_review(parent_decision_id)
+        evidence_ref = ResourceRef.model_validate(row.payload["evidence_ref"])
+        evidence = self._observed_evidence(evidence_ref, require_current=require_current)
+        expected = add_observed_run_artifact_to_procedure_candidate(
+            parent.promoted_record, evidence,
+            procedure_version=candidate.procedure_version,
+            rationale=candidate.rationale,
+            recorded_at=candidate.recorded_at,
+        )
+        if expected != candidate:
+            raise ValueError("stored observed candidate is not derived from its predecessor")
+        return candidate
+
+    def find_procedure(self, candidate_digest: str) -> ProcedureRecord | None:
+        """Find one exact candidate, rechecking live Core access for observations."""
+
+        core = self._find_core_candidate(candidate_digest)
+        if core is not None:
+            return core
+        return self._load_observed_candidate(candidate_digest, require_current=True)
+
+    def _find_procedure_structural(self, candidate_digest: str) -> ProcedureRecord | None:
+        """Validate stored lineage for projection rebuild without releasing it."""
+
+        core = self._find_core_candidate(candidate_digest)
+        if core is not None:
+            return core
+        return self._load_observed_candidate(candidate_digest, require_current=False)
+
+    def require_observed_current(self, candidate_digest: str) -> None:
+        """Fence an observed candidate again immediately before public release."""
+
+        self._load_observed_candidate(candidate_digest, require_current=True)
+
+    def save_observed_candidate(
+        self, candidate: ProcedureRecord, *, parent_decision_id: str,
+        evidence_ref: ResourceRef, at: datetime,
+    ) -> ProcedureRecord:
+        """Persist a derived desired candidate; this grants no review authority."""
+
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise ValueError("candidate record time requires a timezone")
+        parent = self._core_predecessor_review(parent_decision_id)
+        evidence = self._observed_evidence(evidence_ref, require_current=True)
+        expected = add_observed_run_artifact_to_procedure_candidate(
+            parent.promoted_record, evidence,
+            procedure_version=candidate.procedure_version,
+            rationale=candidate.rationale,
+            recorded_at=candidate.recorded_at,
+        )
+        if expected != candidate:
+            raise ValueError("observed candidate is not derived from reviewed evidence")
+        payload = {
+            "candidate": candidate.model_dump(mode="json"),
+            "parent_decision_id": parent_decision_id,
+            "evidence_ref": evidence_ref.model_dump(mode="json"),
+        }
+        with self.store.transaction():
+            current = self.store.get(
+                self.tenant_id, self.project_id, self.observed_candidate_kind,
+                candidate.record_digest,
+            )
+            if current is not None:
+                existing = self._load_observed_candidate(candidate.record_digest, require_current=True)
+                if current.payload != payload or existing != candidate:
+                    raise ValueError("conflicting observed candidate replay")
+                return existing
+            self.store.put(SemanticRow(
+                tenant_id=self.tenant_id, project_id=self.project_id,
+                record_kind=self.observed_candidate_kind,
+                record_id=candidate.record_digest, revision=1, payload=payload,
+                created_at=at, updated_at=at,
+            ), expected_revision=0)
+        self.require_observed_current(candidate.record_digest)
+        return candidate
+
+    def _load_review(
+        self, decision_id: str, *, require_current: bool,
+    ) -> ProcedureReviewResult | None:
         row = self.store.get(self.tenant_id, self.project_id, self.review_kind, decision_id)
         if row is None:
             return None
         decision = ProcedureReviewDecision.model_validate(row.payload["decision"])
         promoted = row.payload.get("promoted_record")
-        candidate = self.find_procedure(decision.candidate_digest)
+        candidate = (
+            self.find_procedure(decision.candidate_digest)
+            if require_current else self._find_procedure_structural(decision.candidate_digest)
+        )
         if candidate is None:
             raise ValueError("stored review candidate is stale or unavailable")
         expected = promote_reviewed_procedure(candidate, decision)
@@ -466,11 +629,15 @@ class CoreProvenanceRepository:
             promoted_record=stored,
         )
 
-    def list_reviews_for_candidate(
-        self, candidate_digest: str, *, max_reviews: int = 32
-    ) -> tuple[ProcedureReviewResult, ...]:
-        """Return validated review history without changing canonical rows."""
+    def load_review(self, decision_id: str) -> ProcedureReviewResult | None:
+        """Load review under current artifact access when it cites an observation."""
 
+        return self._load_review(decision_id, require_current=True)
+
+    def _list_reviews_for_candidate(
+        self, candidate_digest: str, *, max_reviews: int,
+        require_current: bool,
+    ) -> tuple[ProcedureReviewResult, ...]:
         if not 1 <= max_reviews <= 32:
             raise ValueError("max_reviews must be between 1 and 32")
         results: list[ProcedureReviewResult] = []
@@ -478,13 +645,25 @@ class CoreProvenanceRepository:
             decision = ProcedureReviewDecision.model_validate(row.payload["decision"])
             if decision.candidate_digest != candidate_digest:
                 continue
-            loaded = self.load_review(decision.decision_id)
+            loaded = self._load_review(decision.decision_id, require_current=require_current)
             if loaded is None:  # pragma: no cover - concurrent deletion is fail closed
                 raise ValueError("stored procedure review disappeared during read")
             results.append(loaded)
             if len(results) > max_reviews:
                 raise ValueError("procedure review history exceeds requested bound")
         return tuple(sorted(results, key=lambda item: item.decision.decision_id))
+
+    def list_reviews_for_candidate(
+        self, candidate_digest: str, *, max_reviews: int = 32
+    ) -> tuple[ProcedureReviewResult, ...]:
+        """Return validated reviews under current observation access."""
+
+        self.require_observed_current(candidate_digest)
+        results = self._list_reviews_for_candidate(
+            candidate_digest, max_reviews=max_reviews, require_current=False,
+        )
+        self.require_observed_current(candidate_digest)
+        return results
 
     def _invalidation_events(self) -> tuple[ProcedureInvalidationEvent, ...]:
         events: list[ProcedureInvalidationEvent] = []
@@ -555,9 +734,14 @@ class CoreProvenanceRepository:
             record = ProcedureRecord.model_validate(row.payload["record"])
             _validate_record_binding(receipt, record)
             records.append(record)
+        for row in self.store.list(self.tenant_id, self.project_id, kind=self.observed_candidate_kind):
+            record = self._load_observed_candidate(row.record_id, require_current=False)
+            if record is None:
+                raise ValueError("stored observed candidate disappeared during rebuild")
+            records.append(record)
         for row in self.store.list(self.tenant_id, self.project_id, kind=self.review_kind):
             decision = ProcedureReviewDecision.model_validate(row.payload["decision"])
-            loaded = self.load_review(decision.decision_id)
+            loaded = self._load_review(decision.decision_id, require_current=False)
             if loaded and loaded.promoted_record is not None:
                 records.append(loaded.promoted_record)
         projections: list[ProcedureFreshnessProjection] = []
@@ -662,6 +846,38 @@ class CoreProvenanceRepository:
         return result
 
 
+class ObservedProcedureCandidateService:
+    """Trusted-local proposal of one new, unreviewed observed-artifact revision."""
+
+    def __init__(self, *, repository: CoreProvenanceRepository, clock=None) -> None:
+        self._repository = repository
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def propose(
+        self, *, parent_decision_id: str, evidence_ref: ResourceRef,
+        procedure_version: str, rationale: str,
+    ) -> ProcedureRecord:
+        authorizer = self._repository._observed_authorizer
+        if authorizer is None:
+            raise PermissionError("observed candidate current access is not configured")
+        parent = self._repository._core_predecessor_review(parent_decision_id)
+        authorize_procedure(parent.promoted_record, authorizer)
+        evidence = self._repository._observed_evidence(evidence_ref, require_current=True)
+        at = self._clock()
+        candidate = add_observed_run_artifact_to_procedure_candidate(
+            parent.promoted_record, evidence,
+            procedure_version=procedure_version, rationale=rationale, recorded_at=at,
+        )
+        authorize_procedure(candidate, authorizer)
+        result = self._repository.save_observed_candidate(
+            candidate, parent_decision_id=parent_decision_id,
+            evidence_ref=evidence_ref, at=at,
+        )
+        authorize_procedure(result, authorizer)
+        self._repository.require_observed_current(result.record_digest)
+        return result
+
+
 class ProcedureReviewService:
     """Explicit, authorized review and promotion over Core-provenance candidates."""
 
@@ -740,6 +956,7 @@ class ProcedureReviewService:
             except PermissionError as exc:
                 raise PermissionError("procedure review access denied") from exc
             self._sync_projection(tuple(record for record in (candidate, reviewed) if record is not None), at=now)
+            self._repository.require_observed_current(candidate_digest)
             return existing
         candidate = self._repository.find_procedure(candidate_digest)
         if candidate is None:
@@ -794,6 +1011,7 @@ class ProcedureReviewService:
         except PermissionError as exc:
             raise PermissionError("procedure review action denied") from exc
         self._sync_projection(tuple(record for record in (candidate, result.promoted_record) if record is not None), at=final_now)
+        self._repository.require_observed_current(candidate_digest)
         return result
 
 
@@ -824,8 +1042,12 @@ class ProcedureExplanationService:
         candidate = self._repository.find_procedure(request.candidate_digest)
         if candidate is None:
             raise ValueError("procedure candidate digest is stale or unavailable")
-        reviews = self._repository.list_reviews_for_candidate(
-            request.candidate_digest, max_reviews=request.max_reviews
+        # The candidate was live-checked above, and is checked again before
+        # release. Revalidating each of 32 review rows structurally avoids 32
+        # repeated Core artifact downloads within one read operation.
+        reviews = self._repository._list_reviews_for_candidate(
+            request.candidate_digest, max_reviews=request.max_reviews,
+            require_current=False,
         )
         decisions = tuple(item.decision for item in reviews)
         accepted = tuple(item for item in reviews if item.decision.outcome == "accepted")
@@ -955,6 +1177,7 @@ class ProcedureExplanationService:
                 authorizer.authorize(ref, at=final_at)
         except PermissionError as exc:
             raise PermissionError("procedure explanation access denied") from exc
+        self._repository.require_observed_current(request.candidate_digest)
         return result
 
     def _authorize_actionable_identities(
@@ -969,8 +1192,9 @@ class ProcedureExplanationService:
         candidate = self._repository.find_procedure(request.candidate_digest)
         if candidate is None:
             raise PermissionError("procedure guidance access denied")
-        reviews = self._repository.list_reviews_for_candidate(
-            request.candidate_digest, max_reviews=request.max_reviews
+        reviews = self._repository._list_reviews_for_candidate(
+            request.candidate_digest, max_reviews=request.max_reviews,
+            require_current=False,
         )
         records = (candidate,) + tuple(
             item.promoted_record
@@ -1076,6 +1300,7 @@ class ProcedureExplanationService:
                 authorizer.authorize(ref, at=final_now)
         except PermissionError as exc:
             raise PermissionError("procedure guidance access denied") from exc
+        self._repository.require_observed_current(request.candidate_digest)
         return ProcedureActionableGuidance(
             candidate_digest=explanation.candidate.record_digest,
             reviewed_digest=reviewed.record_digest,
@@ -1213,6 +1438,7 @@ __all__ = [
     "CoreProvenanceRepository",
     "CoreProvenanceService",
     "CoreProvenanceTrust",
+    "ObservedProcedureCandidateService",
     "ProcedureReviewResult",
     "ProcedureReviewAuthorizer",
     "ProcedureReviewService",

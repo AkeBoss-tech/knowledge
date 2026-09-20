@@ -32,6 +32,33 @@ under current Core access; independent procedure verification and human review
 remain necessary before promotion. KRAIL's existing v1 nondeterministic
 invocation contract, canonical-JSON output digest, and dispatcher do not change.
 
+`ObservedProcedureCandidateService.propose` persists one such desired
+candidate in the same project-scoped semantic store as its observation and
+canonical procedure review history. It takes an exact accepted review decision
+for a Core-receipt predecessor, not a caller-supplied predecessor record. The
+new row stores the derived candidate, predecessor decision ID, and observed
+evidence ref. Reload recomputes the candidate from those canonical rows and
+rejects substitution. This first version accepts one observed successor of a
+Core-receipt reviewed procedure; it does not recursively import an unlimited
+chain of observed candidates.
+
+Construct `CoreProvenanceRepository` with a current `observed_source` and
+`observed_authorizer` to review or explain these candidates. Unconfigured
+repositories fail closed for this row kind. Candidate lookup and final release
+reopen the Core artifact and reauthorize declared inputs; generic read grants
+for the saved evidence ref alone cannot turn it into standing access. Only the
+existing signed `procedure.review` action can promote it. Existing invalidation
+events mark dependent source, package, or environment revisions stale without
+rewriting the accepted candidate and review history. A later Core revert must
+be represented by a new exact Core environment revision and separately reviewed
+candidate; KRAIL never selects or activates an environment on its own.
+An explanation performs a current observation at entry and again before
+release. Its bounded review rows are rederived structurally within that one
+read, rather than downloading the same Core artifact once per review. Guidance
+may make additional entry/release checks; no observation is cached across
+public calls. Projection rebuild may validate lineage without a live Core read,
+but it cannot release a procedure or guidance.
+
 OpenSaddle's native worker result API currently accepts UTF-8 text. The KRAIL
 receipt still models the returned body as opaque bytes because it hashes the
 actual Core artifact representation rather than reconstructing a JSON output.
