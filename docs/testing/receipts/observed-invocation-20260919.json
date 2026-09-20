@@ -1,0 +1,41 @@
+{
+  "schema_version": "krail.test-receipt.v1",
+  "invariant": "K21-OBSERVED-INVOCATION",
+  "base_commit": "e2c6009481e132e4784451137eb63f7d74a6b899",
+  "scope": "trusted-local caller-observed nondeterministic operator evidence and desired procedure candidate; no authenticated Core issuer or automatic review",
+  "boundary": "public DomainExtensionRegistry dispatch, observed artifact repository, reopened procedure authorization",
+  "focused_command": "PYTHONPATH=packages/rail-py:packages/core /Users/akashdubey/Documents/CodingProjects/opensaddle/.venv/bin/python -m pytest -q packages/rail-py/tests/test_observed_invocation.py packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_procedural_memory.py packages/rail-py/tests/test_core_provenance.py",
+  "focused_result": "58 passed in 3.06s on the final working-tree tests",
+  "full_suite": {
+    "source": "git archive of base_commit with only the task's two production edits, two new files, and documentation overlay; unrelated .antigravitycli excluded",
+    "source_root": "/tmp/opensaddle-20260919/observed-invocation-proof/full-fixed",
+    "command": "PYTHONPATH=packages/rail-py /Users/akashdubey/Documents/CodingProjects/opensaddle/.venv/bin/python -c \"import sys; sys.path.append('/opt/homebrew/Caskroom/miniconda/base/lib/python3.13/site-packages'); import pytest; raise SystemExit(pytest.main(['-q','packages/rail-py/tests']))\"",
+    "dependency_boundary": "Core test venv supplies required dependencies; appended local conda site-packages supplies optional DuckDB 1.5.0",
+    "result": "997 passed in 86.14s",
+    "log": "/tmp/opensaddle-20260919/observed-invocation-proof/full-pytest.log",
+    "note": "A cosmetic test-fixture writer-family label changed after this run; the final focused run covers that label. Production bytes were unchanged."
+  },
+  "regression_proof": {
+    "baseline": "private mutation of the fixed source; git base has no additive observed API or usable behavioral baseline",
+    "baseline_change": "only the final post-callback verify_invocation_integrity call was removed in a private copy",
+    "test": "test_observation_rejects_metadata_drift_and_tampering_without_changing_v1_dispatch",
+    "baseline_result": "mutation check failed a behavioral assertion: final authorizer mutated output after artifact comparison and record_observed_invocation returned instead of raising",
+    "baseline_log": "/tmp/opensaddle-20260919/observed-invocation-proof/pre-final-integrity.log",
+    "fixed_result": "same public test passed",
+    "fixed_log": "/tmp/opensaddle-20260919/observed-invocation-proof/final-integrity.log"
+  },
+  "verified": [
+    "exact canonical JSON artifact bytes and digest bind the invocation output",
+    "Run, artifact, and input read authority is checked before and after observation",
+    "reopened digest-keyed evidence revalidates the current observer and artifact",
+    "candidate stays desired with no inherited test or human-review attestation",
+    "underlying artifact withdrawal denies the candidate after repository reopen",
+    "existing nondeterministic v1 dispatch remains usable"
+  ],
+  "unverified": [
+    "independent authentication of the claimed Core Run or model provider",
+    "provider outcome verification or human approval",
+    "Core-native text artifact compatibility without a canonical JSON adapter",
+    "hosted semantic-store composition and external issuer verification"
+  ]
+}
