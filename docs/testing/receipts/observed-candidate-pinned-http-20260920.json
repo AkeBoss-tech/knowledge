@@ -1,0 +1,76 @@
+{
+  "schema_version": "opensaddle.observed-candidate-pinned-http-qualification.v1",
+  "status": "passed",
+  "date_utc": "2026-09-20",
+  "preferred_over": "/tmp/opensaddle-20260919/observed-candidate-final/real-http-receipt.json",
+  "core_runtime": {
+    "source_tree": "e65b589f7ef2af2760f2989fd373908feb762106",
+    "source_archive": "/tmp/opensaddle-20260919/hosted-review-archive",
+    "pythonpath_first_entry": "/tmp/opensaddle-20260919/hosted-review-archive/src",
+    "imported_opensaddle_file": "/private/tmp/opensaddle-20260919/hosted-review-archive/src/opensaddle/__init__.py",
+    "imported_api_file": "/private/tmp/opensaddle-20260919/hosted-review-archive/src/opensaddle/control_plane/api.py",
+    "imported_paths_checked_within_archive": true,
+    "archive_file_hashes_match_git_tree": true,
+    "source_sha256": {
+      "src/opensaddle/__init__.py": "615a37b07163045392081d60d7658c29edc6634e5b25cb7e99e3919a6bf9e2f2",
+      "src/opensaddle/control_plane/api.py": "a91e7fee2c8014af88e2ef6bd1a5d9e1e91c20ad012b6e119228001eb6b6402b",
+      "src/opensaddle/control_plane/store.py": "818c9f6852416905f4f158c66f64e2ea592d6ee9064ec15312cb6c4027c390cd",
+      "src/opensaddle/control_plane/artifact_blobs.py": "6d47ba66762c0baba18abc88b58463a738b09f07601de4b150fedbc55730a131",
+      "src/opensaddle/control_plane/auth.py": "37c53d306e7940fdf22c92b71bf237c79eec1904aaf136daec46b1f5a3a081a6",
+      "src/opensaddle/control_plane/personal_knowledge.py": "af56e2edbd2aef7ab4b7e4d27fdf13a997b7aa6a56c69088c6a44f7bc4c093c9"
+    },
+    "launch_script": "/tmp/opensaddle-20260919/observed-candidate-final/pinned_reopen.py",
+    "launch_script_sha256": "c041678950d1a866caeebc0ca6e433248a3020b0964cad9efc906e79bdf6d1de",
+    "runtime_provenance": "/private/tmp/osar8-pinned-core-20260920/runtime-provenance.json",
+    "worker_or_provider_started": false,
+    "owned_uvicorn_stopped_after_qualification": true
+  },
+  "copied_state": {
+    "copy_root": "/private/tmp/osar8-pinned-core-20260920/personal-runtime",
+    "original_state_root": "/private/tmp/osar8-s/personal-runtime",
+    "control_db_sha256_original_before_and_after": "ea7d380a06546f26ead3d6ff2f05d6729f4b8253ac89a479faea8f3b02f2b93e",
+    "control_db_sha256_copy_before_start": "ea7d380a06546f26ead3d6ff2f05d6729f4b8253ac89a479faea8f3b02f2b93e",
+    "control_db_sha256_copy_after_start": "3e6f675c3356d9a873d3ad768d562c6cff66e4a4aa90a1a4cbd7280011c2faed",
+    "http_methods_used_by_qualification": [
+      "GET"
+    ],
+    "retained_project_id_sha256": "5b81ba093a8c47a3ded86f1ed56c686d16144cca40213da8bd39850897572190",
+    "retained_run_id_sha256": "8f8b462ee2b010749c5d663817ce6b981361552d1093bc2d821a0e06b4e14cc9"
+  },
+  "knowledge_runtime": {
+    "source_sha256": {
+      "packages/rail-py/rail/core_provenance.py": "73c26b034b96684f76bcc042fe4c75b7cb5bb5747a9b892425fbf828cb7a24b6",
+      "packages/rail-py/rail/observed_run_artifact.py": "1bdc399bf04423d2994cbbbea176c4c76ac4466a4ec8313d7a23b8ae07aad9ed",
+      "packages/rail-py/rail/opensaddle_run_artifact.py": "10e74de9129a6a78350fe6ff8ca034a23954438fce54295e5054fffeb984fc01",
+      "packages/rail-py/rail/semantic/repository.py": "daea491b1ad6a71f55b0310cd4dfa3cefda1b0fc23f4c31332f7802d52fee10d"
+    },
+    "qualification_script": "/tmp/opensaddle-20260919/observed-candidate-real-qualification.py",
+    "qualification_script_sha256": "c0ba3f11325c573bf623b1acc00107e62b3cac0d1475f7a034c53b6b643edf04",
+    "new_private_state": "/private/tmp/osar8-observed-candidate-pinned-20260920/semantic.json",
+    "log": "/tmp/opensaddle-20260919/observed-candidate-final/pinned-real-http.log",
+    "log_sha256": "7e964abdf262aaaa18db7669b26ff6e956b68f9cd301d9329680906bc2a5ce20",
+    "commit": "4c3530c"
+  },
+  "observations": [
+    "Exact completed native Run and final artifact were reread by authenticated loopback Core HTTP from a disposable copied Core state.",
+    "Opaque artifact evidence and an observed desired candidate were saved in a fresh private KRAIL store and reopened.",
+    "A locally generated predecessor receipt and two locally HMAC-signed fixture decisions produced accepted predecessor and candidate review; the resulting guidance was available after another KRAIL reopen.",
+    "A fresh KRAIL repository with an invalid Core bearer was denied actionable guidance by actual Core HTTP. The valid owner token and original Core state were not revoked or changed."
+  ],
+  "limits": [
+    "No new provider/model turn or external write occurred. The HTTP qualification sent GET requests only; ordinary server startup did write to the disposable copied database.",
+    "The predecessor receipt was not issued by Core; its trust adapter and both review decisions are explicit local fixtures, not actual human acceptance.",
+    "The input authorizer was a fixture permitting no claimed input refs. Production source-grant checks are not qualified here.",
+    "The invalid-bearer negative proves live Core credential denial, not source-grant or Project-membership withdrawal.",
+    "The copied PersonalKnowledge configuration still identifies the original fixture Git workspace, used only as a read source during this GET-only qualification; no original workspace write was performed by the script.",
+    "This does not confer procedure activation, execution authority, or correctness certification."
+  ],
+  "adjacent_validation": {
+    "focused": "/tmp/opensaddle-20260919/observed-candidate-final/focused.log",
+    "focused_result": "36 passed in 1.44s",
+    "full": "/tmp/opensaddle-20260919/observed-candidate-final/full.log",
+    "full_result": "1002 passed in 83.65s",
+    "full_suite_after_final_release_fence": true
+  },
+  "verification_ownership": "Delegated reviewer executed the pinned disposable-state journey; root checked receipt and runtime source hashes against the immutable Core tree and committed Knowledge source."
+}

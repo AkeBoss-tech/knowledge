@@ -68,3 +68,13 @@ authority and exact input refs are trusted-local declarations, not signatures.
 The Core read and KRAIL write are separate transactions; a concurrent
 revocation may require a later read to observe denial. No model execution or
 external provider claim is made by this bridge.
+
+## Retained native-artifact qualification
+
+The [pinned HTTP receipt](testing/receipts/observed-candidate-pinned-http-20260920.json)
+records a separate read of a retained real Codex result through a copied Core
+runtime. The observation and derived candidate survived KRAIL reopen and
+returned guidance after explicit signed fixture reviews. An invalid Core bearer
+then denied guidance. The runtime source and original-state preservation are
+hash checked. The predecessor and reviews remain fixtures: this is not actual
+human acceptance, production input-grant qualification, or Core activation.
