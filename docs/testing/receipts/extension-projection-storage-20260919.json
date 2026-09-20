@@ -1,0 +1,40 @@
+{
+  "schema_version": "krail.test-receipt.v1",
+  "invariant": "K21-PROJECTION-STORAGE-BINDING",
+  "base_commit": "7a46538cdd215eb9c2e9c60d2ecad97ec1f71b6d",
+  "scope": "trusted-local additive projection binding; no hosted adapter or model-backed observed-run claim",
+  "command": "PYTHONPATH=packages/rail-py:packages/core /Users/akashdubey/Documents/CodingProjects/opensaddle/.venv/bin/python -m pytest -q packages/rail-py/tests/test_extension_registry.py packages/rail-py/tests/test_robotics_world_memory.py packages/rail-py/tests/test_domain_extension_initial_proof.py packages/rail-py/tests/test_spatial_current_projection.py packages/rail-py/tests/test_temporal_records.py",
+  "result": "79 passed in 2.34s with the two adjacent files included in the same final run",
+  "adjacent_command": "PYTHONPATH=packages/rail-py:packages/core /Users/akashdubey/Documents/CodingProjects/opensaddle/.venv/bin/python -m pytest -q packages/rail-py/tests/test_spatial_current_projection.py packages/rail-py/tests/test_temporal_records.py",
+  "adjacent_result": "12 passed in 0.34s in an earlier separate run; also included in the final 79-test focused run",
+  "full_suite": {
+    "source": "git archive of base_commit plus only the five task-modified tracked files; no .antigravitycli or other working-tree content",
+    "source_root": "/tmp/opensaddle-20260919/krail-projection-proof/full-fixed",
+    "command": "PYTHONPATH=packages/rail-py /Users/akashdubey/Documents/CodingProjects/opensaddle/.venv/bin/python -c \"import sys; sys.path.append('/opt/homebrew/Caskroom/miniconda/base/lib/python3.13/site-packages'); import pytest; raise SystemExit(pytest.main(['-q','packages/rail-py/tests']))\"",
+    "dependency_boundary": "Core test venv supplies Knowledge's required packages; appended conda site-packages supplies missing optional DuckDB 1.5.0 without replacing already available packages",
+    "result": "994 passed in 83.04s",
+    "log": "/tmp/opensaddle-20260919/krail-projection-proof/full-composed-pytest.log"
+  },
+  "regression_proof": {
+    "test": "test_registered_spatial_read_abstains_when_another_writer_adds_a_candidate_midquery",
+    "baseline": "captured pre-race draft in /tmp/opensaddle-20260919/krail-projection-proof/pre-race; the git base lacks the additive projection API",
+    "baseline_result": "public two-instance test failed: raced read returned current with one object after a second writer added another in-region object",
+    "fixed_result": "same test passed against task-only fixed snapshot: raced read abstained, next read returned both objects"
+  },
+  "boundary": "public DomainExtensionRegistry and TabletopWorldMemory region read",
+  "evidence": [
+    "v1 extension descriptor digest unchanged",
+    "registered rebuildable spatial projection selects current authorized exact candidates",
+    "revoked or changed source refuses derived read and canonical fallback does not disclose denied record",
+    "duplicate projection and conflicting canonical writer declarations rejected",
+    "post-query authorization denial withholds derived result",
+    "canonical scope drift during candidate query abstains instead of publishing omitted records",
+    "post-callback config or source mutation refuses derived result"
+  ],
+  "unverified": [
+    "independent hostile plugin containment",
+    "hosted projection adapter qualification",
+    "model-backed observed-run durability",
+    "cross-process linearizable snapshot under concurrent canonical updates"
+  ]
+}

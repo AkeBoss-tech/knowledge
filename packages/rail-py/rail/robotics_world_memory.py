@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from krail.provider.v1 import ResourceRef
 from rail.authorized_context import HostedRoboticsInvalidationAuthorizer, HostedRoboticsProjectionWriter, HostedRoboticsWorldReader
-from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, HANDLER_LINEAGE_REFS, describe_extension, describe_operator
+from rail.extension_registry import DomainExtensionRegistry, ExtensionDescriptor, HANDLER_LINEAGE_REFS, ProjectionReadUnavailable, describe_extension, describe_operator, describe_projection_storage
 from rail.procedure_projection import ProjectionCheckpoint, ProjectionInvalidationAuthorizer, ProjectionRecomputeRun, ProjectionWriter, TemporalProjectionService
 from rail.semantic.models import canonical_digest
 from rail.semantic.repository import SemanticRow
@@ -356,14 +356,39 @@ def register_world_memory_extension(registry: DomainExtensionRegistry, memory: "
             HANDLER_LINEAGE_REFS: answer.evidence,
         }
 
-    registry.register(
+    binding = describe_projection_storage(
+        extension_id=descriptor.extension_id, extension_version=descriptor.version,
+        projection_id="robotics.spatial-current", version="1.0.0",
+        canonical_authority="robotics://world-memory", canonical_resource_type="world-record",
+        declared_schema="robotics.world-memory.v1",
+        canonical_payload_schema="robotics.world-memory",
+        canonical_schema_version="1.0.0",
+        canonical_writer_family="robotics-world-memory",
+        projection_writer_family="robotics-spatial-current",
+        rebuildable=True,
+    )
+    def build_spatial(records, config):
+        if set(config) != {"valid_at", "known_at"}:
+            raise ValueError("spatial projection requires exact time cutoffs")
+        return SpatialCurrentProjection(
+            records,
+            valid_at=datetime.fromisoformat(str(config["valid_at"])),
+            known_at=datetime.fromisoformat(str(config["known_at"])),
+        )
+    registry.register_with_projection(
         descriptor,
         {
             "robotics.world-memory.location": location,
             "robotics.object-state.query": object_state,
             "robotics.object-state.validate-freshness": action_freshness,
         },
+        binding, build_spatial,
     )
+    memory._spatial_registry = registry
+    memory._spatial_reader = reader
+    # A projection prepared before registration did not pass the declared
+    # source-authority checks and cannot be reused by this extension.
+    memory._spatial_current = None
     return descriptor
 
 
@@ -383,6 +408,8 @@ class TabletopWorldMemory:
         self._scenes: list[SceneSnapshot] = []
         self._episodes: list[SceneEpisode] = []
         self._spatial_current: SpatialCurrentProjection | None = None
+        self._spatial_registry: DomainExtensionRegistry | None = None
+        self._spatial_reader: WorldReader | None = None
         self._temporal_scope_cursor: int | None = None
         self.last_spatial_update_work: ProjectionWork | None = None
         self.last_region_read_work: dict[str, int] = {}
@@ -597,7 +624,13 @@ class TabletopWorldMemory:
             # until a second explicit rebuild.  ``apply`` still evaluates the
             # fixed valid/known cutoffs, so future/unknown records cannot leak.
             if self._spatial_current is not None:
-                self.last_spatial_update_work = self._spatial_current.apply(record)
+                if self._spatial_registry is None:
+                    self.last_spatial_update_work = self._spatial_current.apply(record)
+                else:
+                    # An incremental edit is not the exact input set bound at
+                    # preparation. The next read uses canonical history until
+                    # an explicit, reviewed rebuild of the disposable grid.
+                    self._spatial_current = None
         return record
 
     def prepare_spatial_snapshot(self, *, valid_at: datetime, known_at: datetime) -> ProjectionWork:
@@ -607,7 +640,16 @@ class TabletopWorldMemory:
         rather than hiding that cost inside an authorized region read.
         """
         self._refresh()
-        self._spatial_current = SpatialCurrentProjection(tuple(self._records), valid_at=valid_at, known_at=known_at)
+        if self._spatial_registry is None:
+            self._spatial_current = SpatialCurrentProjection(tuple(self._records), valid_at=valid_at, known_at=known_at)
+        else:
+            if self._spatial_reader is None:
+                raise RuntimeError("spatial projection reader is not bound")
+            self._spatial_current = self._spatial_registry.prepare_projection(
+                "robotics.spatial-current", tuple(self._records),
+                config={"valid_at": valid_at.isoformat(), "known_at": known_at.isoformat()},
+                authorizer=self._spatial_reader,
+            )
         return self._spatial_current.last_build_work
 
     @staticmethod
@@ -1223,6 +1265,16 @@ class TabletopWorldMemory:
         self._require_world(world_id)
         self._require_reader(reader)
         self._refresh()
+        # A second writer can commit between the initial canonical refresh and
+        # the grid query. In that case the candidate set is incomplete even if
+        # every old exact ref remains authorized. Do not publish it as current.
+        source_cursor = self._projection.scope_cursor() if self._projection is not None else None
+        source_digests = tuple(record.record_digest for record in self._records)
+        region_digests = tuple(record.record_digest for record in self._region_records)
+        def source_unchanged() -> bool:
+            return ((self._projection is None or self._projection.scope_cursor() == source_cursor)
+                    and tuple(record.record_digest for record in self._records) == source_digests
+                    and tuple(record.record_digest for record in self._region_records) == region_digests)
         region_record = self._region_record_for_ref(region_ref)
         if region_record is None or not self._record_known_at(region_record, known_at) or region_record.valid_from > at:
             return RegionObjectsAnswer(status="unknown")
@@ -1238,13 +1290,32 @@ class TabletopWorldMemory:
                 return RegionObjectsAnswer(status="stale", evidence=tuple(evidence))
         records_by_object: dict[str, list[TemporalRecord]] = {}
         spatial = self._spatial_current
-        if spatial is not None and not active and (spatial.valid_at, spatial.known_at) == (at, known_at) and not spatial.requires_conservative_fallback(world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision):
+        use_spatial = spatial is not None and not active and (spatial.valid_at, spatial.known_at) == (at, known_at) and not spatial.requires_conservative_fallback(world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision)
+        candidates = None
+        if use_spatial:
             margin = spatial.max_uncertainty_metres
-            candidates = spatial.candidate_query(
-                world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision,
-                minimum=tuple(value - margin for value in region.min_metres),
-                maximum=tuple(value + margin for value in region.max_metres),
-            )
+            def candidate_read(projection):
+                if not isinstance(projection, SpatialCurrentProjection):
+                    raise ProjectionReadUnavailable("spatial projection type changed")
+                return projection.candidate_query(
+                    world_id=world_id, frame_id=region.frame_id, map_revision=region.map_revision,
+                    minimum=tuple(value - margin for value in region.min_metres),
+                    maximum=tuple(value + margin for value in region.max_metres),
+                )
+            if self._spatial_registry is None:
+                candidates = candidate_read(spatial)
+            else:
+                try:
+                    candidates = self._spatial_registry.read_projection(
+                        "robotics.spatial-current", tuple(self._records),
+                        config={"valid_at": at.isoformat(), "known_at": known_at.isoformat()},
+                        authorizer=reader, read=candidate_read,
+                    )
+                except (ProjectionReadUnavailable, PermissionError):
+                    use_spatial = False
+        if use_spatial and candidates is not None:
+            if not source_unchanged():
+                return RegionObjectsAnswer(status="unknown")
             # A broad region is not silently changed into an unbounded scan.
             # The caller must explicitly prepare a suitable projection/region.
             if candidates.status == "too-large":
@@ -1296,6 +1367,8 @@ class TabletopWorldMemory:
             inside.append(self.record_ref(record))
         for ref in tuple(dict.fromkeys(evidence)):
             reader.authorize(ref)
+        if not source_unchanged():
+            return RegionObjectsAnswer(status="unknown")
         if stale:
             return RegionObjectsAnswer(status="stale", evidence=tuple(dict.fromkeys(evidence)))
         if unknown:
