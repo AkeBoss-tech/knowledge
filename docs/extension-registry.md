@@ -17,6 +17,43 @@ mutation of the shallow-frozen output mapping. The registry never
 imports, evaluates, installs, sandboxes, or activates third-party code;
 installation and runtime authority remain outside KRAIL.
 
+## Declared rebuildable projection storage
+
+`ProjectionStorageBinding` is an additive sidecar to the v1 extension
+descriptor; it does not change existing extension or operator digests. A
+binding names its owning extension/version and declared payload schema, the
+exact canonical temporal authority, payload schema/version and writer family,
+and the rebuildable projection writer. The registry rejects duplicate
+projection IDs and conflicting writers for one canonical resource namespace.
+Only already-imported trusted-local builders may register. The binding does
+not authorize canonical writes or mint source access.
+
+The robotics `SpatialCurrentProjection` is the first real consumer. Preparing
+it verifies a bounded set of immutable canonical `TemporalRecord` inputs and
+authorizes every exact source ref before and after the build. Region candidate
+reads compare the current canonical input set and time-cutoff configuration to
+that preparation, then reauthorize and revalidate both inputs and configuration
+after the grid query. A missing,
+changed, or revoked input refuses the derived read; `TabletopWorldMemory`
+resolves the region from current canonical records with its existing per-record
+authorization instead. New canonical writes invalidate the prepared grid until
+explicit rebuild. If a second writer advances the canonical scope cursor
+during a region read, that read abstains instead of publishing a candidate set
+that may have omitted the new record; a fresh read can use the updated
+canonical history. This is a bounded snapshot check, not a cross-process
+linearizable transaction.
+
+This governed path trades throughput for clear authority: it verifies and
+authorizes at most 10,000 exact canonical inputs on each derived read and
+invalidates the grid on same-process ingest instead of incrementally updating
+it. It should not be presented as constant-cost or incrementally maintained
+region search. The declared projection writer family is trusted local
+metadata, not a cryptographic attestation of the callback. The disposable
+grid is never a source of authority or a complete-history claim outside the
+trusted local canonical reader. This does
+not introduce a general storage plugin, sandbox, model-run artifact, or hosted
+deployment adapter.
+
 Robotics and company validators use the same registry interface in the focused
 fixtures. Payload schemas are declared and discoverable, but schema-specific
 validation, durable storage adapters, and sandboxed third-party extension

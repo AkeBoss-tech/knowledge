@@ -150,6 +150,22 @@ revocation or clock expiry inside the owning object/metadata adapter, after the
 first authorization and before the facade return. All four cases failed with
 returned data before the repair and pass with final release checks.
 
+## K21-PROJECTION-STORAGE-BINDING — a derived grid cannot become parallel authority
+
+An extension-owned rebuildable projection declares its canonical temporal
+authority, exact schema/version, and writer family outside the unchanged v1
+extension digest. Registration rejects conflicting writer declarations.
+Preparation and derived reads verify bounded exact canonical inputs and live
+authorization. A stale, missing, or revoked declaration prevents use of the
+candidate grid; the robotics consumer independently resolves authorized
+canonical records instead. `test_registered_spatial_projection_uses_declared_current_sources_and_canonical_fallback`
+and `test_registered_projection_rejects_writer_conflict_stale_inputs_and_midread_revocation`
+cover the public registry plus region-query boundary, including same-process
+source changes, callback mutation, and post-query revocation.
+`test_registered_spatial_read_abstains_when_another_writer_adds_a_candidate_midquery`
+uses two canonical store instances to add an in-region object after the first
+refresh; the raced read must abstain, and the next read must show both records.
+
 ## K23-COMPANY-GUIDANCE — reviewed guidance requires current company authority
 
 Operational guidance joins an exact reviewed procedure with the current

@@ -4,10 +4,11 @@ from hashlib import sha256
 import pytest
 
 from krail.provider.v1 import ResourceRef
-from rail.extension_registry import DomainExtensionRegistry
+from rail.extension_registry import DomainExtensionRegistry, ProjectionReadUnavailable, describe_projection_storage
 from rail.procedure_projection import TemporalProjectionService
 from rail.robotics_world_memory import Pose, TabletopWorldMemory, WorldObject, register_world_memory_extension, robotics_world_extension, tabletop_episode_fixture, tabletop_fixture
 from rail.semantic.repository import JsonSemanticStore, SemanticRow
+from rail.temporal_records import create_temporal_record
 
 NOW = datetime(2026, 9, 7, 12, tzinfo=UTC)
 
@@ -552,6 +553,141 @@ def test_prepared_spatial_snapshot_receives_same_cutoff_and_retroactive_object_r
         reopened = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
         reopened.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
         assert reopened.objects_in_region(world_id="one", region_ref=region.region_ref, at=NOW, known_at=NOW, reader=Allow()).object_refs == (reopened.record_ref(cup), reopened.record_ref(retro))
+
+
+def test_registered_spatial_projection_uses_declared_current_sources_and_canonical_fallback(tmp_path):
+    memory = TabletopWorldMemory(str(tmp_path / "world.json"), tenant_id="t", project_id="p", clock=lambda: NOW)
+    region = memory.record_region(
+        world_id="one", session_id="s", place_id="table", region_id="zone",
+        frame_id="table", map_revision="map-1", min_metres=(0, -.1, -.1), max_metres=(.5, .1, .1),
+        evidence_refs=(evidence("zone"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    first = memory.record(WorldObject(world_id="one", object_id="cup", class_label="cup"),
+                          pose(.1, "cup"), kind="observation", evidence=(evidence("cup"),), recorded_at=NOW)
+    registry = DomainExtensionRegistry()
+    descriptor = register_world_memory_extension(registry, memory, Allow())
+    assert descriptor.descriptor_digest == robotics_world_extension().descriptor_digest
+    binding, = registry.projection_bindings()
+    assert binding.rebuildable and binding.canonical_writer_family == "robotics-world-memory"
+    memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+    answer = memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                       at=NOW, known_at=NOW, reader=Allow())
+    assert answer.object_refs == (memory.record_ref(first),)
+    assert memory.last_region_read_work["exact_candidate_rows"] == 1
+
+    denied = memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                       at=NOW, known_at=NOW, reader=DenyResource(first.record_id))
+    assert memory.record_ref(first) not in denied.object_refs
+    assert memory.last_region_read_work["exact_candidate_rows"] == 0
+
+    later = memory.record(WorldObject(world_id="one", object_id="second", class_label="cup"),
+                          pose(.2, "second"), kind="observation", evidence=(evidence("second"),), recorded_at=NOW)
+    answer = memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                       at=NOW, known_at=NOW, reader=Allow())
+    assert set(answer.object_refs) == {memory.record_ref(first), memory.record_ref(later)}
+    assert memory.last_region_read_work["exact_candidate_rows"] == 0
+    memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+    assert set(memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                        at=NOW, known_at=NOW, reader=Allow()).object_refs) == {memory.record_ref(first), memory.record_ref(later)}
+    assert memory.last_region_read_work["exact_candidate_rows"] == 2
+
+
+def test_registered_projection_rejects_writer_conflict_stale_inputs_and_midread_revocation():
+    memory = TabletopWorldMemory(clock=lambda: NOW)
+    first = memory.record(WorldObject(world_id="one", object_id="cup", class_label="cup"),
+                          pose(.1, "cup"), kind="observation", evidence=(evidence("cup"),), recorded_at=NOW)
+    registry = DomainExtensionRegistry()
+    register_world_memory_extension(registry, memory, Allow())
+    binding, = registry.projection_bindings()
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register_projection(binding, lambda records, config: object())
+    with pytest.raises(ValueError, match="conflicting writer"):
+        registry.register_projection(describe_projection_storage(**{
+            **binding.model_dump(exclude={"binding_digest"}), "projection_id": "robotics.other-grid",
+            "canonical_writer_family": "other-writer",
+        }), lambda records, config: object())
+    memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+    config = {"valid_at": NOW.isoformat(), "known_at": NOW.isoformat()}
+    foreign = create_temporal_record(**{
+        **first.model_dump(mode="python", exclude={"record_digest"}),
+        "authority": "robotics://another-authority",
+    })
+    with pytest.raises(ProjectionReadUnavailable, match="canonical source declaration"):
+        registry.read_projection(binding.projection_id, (foreign,), config=config,
+                                 authorizer=Allow(), read=lambda projection: projection)
+    with pytest.raises(ProjectionReadUnavailable, match="configuration changed"):
+        registry.read_projection(binding.projection_id, (first,), config={**config, "known_at": (NOW + timedelta(seconds=1)).isoformat()},
+                                 authorizer=Allow(), read=lambda projection: projection)
+    with pytest.raises(ProjectionReadUnavailable, match="exact inputs"):
+        registry.read_projection(binding.projection_id, (), config=config,
+                                 authorizer=Allow(), read=lambda projection: projection)
+    with pytest.raises(PermissionError, match="revoked"):
+        registry.read_projection(binding.projection_id, (first,), config=config,
+                                 authorizer=RevokeAfter(1), read=lambda projection: projection.candidate_query(
+                                     world_id="one", frame_id="table", map_revision="map-1",
+                                     minimum=(0, -.1, -.1), maximum=(.5, .1, .1)))
+    changed_config = dict(config)
+    def change_config_during_read(_projection):
+        changed_config["known_at"] = (NOW + timedelta(seconds=1)).isoformat()
+        return "unreleased result"
+    with pytest.raises(ProjectionReadUnavailable, match="during read"):
+        registry.read_projection(binding.projection_id, (first,), config=changed_config,
+                                 authorizer=Allow(), read=change_config_during_read)
+    changed_record = first.model_copy(deep=True)
+    def change_record_during_read(_projection):
+        changed_record.payload["state"] = "estimate"
+        return "unreleased result"
+    with pytest.raises(ProjectionReadUnavailable, match="integrity changed"):
+        registry.read_projection(binding.projection_id, (changed_record,), config=config,
+                                 authorizer=Allow(), read=change_record_during_read)
+    mutating_binding = describe_projection_storage(**{
+        **binding.model_dump(exclude={"binding_digest"}), "projection_id": "robotics.mutating-grid",
+    })
+    def mutate_build_config(_records, build_config):
+        build_config["known_at"] = "changed"
+        return object()
+    registry.register_projection(mutating_binding, mutate_build_config)
+    build_config = dict(config)
+    with pytest.raises(ProjectionReadUnavailable, match="during build"):
+        registry.prepare_projection(mutating_binding.projection_id, (first,),
+                                    config=build_config, authorizer=Allow())
+    with pytest.raises(ProjectionReadUnavailable, match="not been prepared"):
+        registry.read_projection(mutating_binding.projection_id, (first,),
+                                 config=build_config, authorizer=Allow(), read=lambda projection: projection)
+
+
+def test_registered_spatial_read_abstains_when_another_writer_adds_a_candidate_midquery(tmp_path):
+    path = str(tmp_path / "shared-world.json")
+    memory = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+    region = memory.record_region(
+        world_id="one", session_id="s", place_id="table", region_id="zone",
+        frame_id="table", map_revision="map-1", min_metres=(0, -.1, -.1), max_metres=(.5, .1, .1),
+        evidence_refs=(evidence("zone"),), revision="1", valid_from=NOW, recorded_at=NOW,
+    )
+    first = memory.record(WorldObject(world_id="one", object_id="first", class_label="cup"),
+                          pose(.1, "first"), kind="observation", evidence=(evidence("first"),), recorded_at=NOW)
+    registry = DomainExtensionRegistry()
+    register_world_memory_extension(registry, memory, Allow())
+    memory.prepare_spatial_snapshot(valid_at=NOW, known_at=NOW)
+    other = TabletopWorldMemory(path, tenant_id="t", project_id="p", clock=lambda: NOW)
+
+    class ConcurrentWriter:
+        added = None
+        def authorize(self, ref):
+            if self.added is None:
+                self.added = other.record(
+                    WorldObject(world_id="one", object_id="second", class_label="cup"),
+                    pose(.2, "second"), kind="observation", evidence=(evidence("second"),), recorded_at=NOW,
+                )
+
+    writer = ConcurrentWriter()
+    raced = memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                      at=NOW, known_at=NOW, reader=writer)
+    assert writer.added is not None and raced.status == "unknown" and not raced.object_refs
+    current = memory.objects_in_region(world_id="one", region_ref=region.region_ref,
+                                        at=NOW, known_at=NOW, reader=Allow())
+    assert current.status == "current"
+    assert set(current.object_refs) == {memory.record_ref(first), memory.record_ref(writer.added)}
 
 
 def test_canonical_scope_cursor_refreshes_cross_process_current_and_known_time_reads(tmp_path):

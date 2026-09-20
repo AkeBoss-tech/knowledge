@@ -10,11 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Mapping
-from typing import Annotated, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from krail.provider.v1 import ResourceRef
+
+if TYPE_CHECKING:
+    from rail.temporal_records import TemporalRecord
 
 
 Digest = Annotated[str, StringConstraints(to_lower=True, pattern=r"^sha256:[0-9a-f]{64}$")]
@@ -110,6 +113,50 @@ class InvocationResult(StrictModel):
     lineage_digest: Digest
 
 
+class ProjectionStorageBinding(StrictModel):
+    """A rebuildable adapter's declared input authority, never a new grant."""
+
+    extension_id: Identifier
+    extension_version: Version
+    projection_id: Identifier
+    version: Version
+    canonical_authority: str = Field(min_length=1, max_length=300)
+    canonical_resource_type: Identifier
+    declared_schema: Identifier
+    canonical_payload_schema: Identifier
+    canonical_schema_version: Version
+    canonical_writer_family: Identifier
+    projection_writer_family: Identifier
+    rebuildable: Literal[True] = True
+    binding_digest: Digest
+
+    @model_validator(mode="after")
+    def _digest_matches(self) -> "ProjectionStorageBinding":
+        ResourceRef(
+            authority=self.canonical_authority,
+            resource_type=self.canonical_resource_type,
+            resource_id="binding-validation", version=self.version,
+            digest="sha256:" + "0" * 64,
+        )
+        if self.binding_digest != _digest(self.model_dump(mode="json", exclude={"binding_digest"})):
+            raise ValueError("projection storage binding digest does not match")
+        return self
+
+
+def describe_projection_storage(**values: object) -> ProjectionStorageBinding:
+    values = dict(values)
+    provisional = ProjectionStorageBinding.model_construct(**values, binding_digest="sha256:" + "0" * 64)
+    values["binding_digest"] = _digest(provisional.model_dump(mode="json", exclude={"binding_digest"}))
+    return ProjectionStorageBinding.model_validate(values)
+
+
+class ProjectionReadUnavailable(ValueError):
+    """The disposable projection cannot be used against current exact inputs."""
+
+
+ProjectionBuilder = Callable[[tuple["TemporalRecord", ...], Mapping[str, Any]], object]
+
+
 def verify_invocation_integrity(result: InvocationResult, descriptor: OperatorDescriptor) -> InvocationResult:
     """Revalidate mutable output and lineage before a consumer exposes it."""
 
@@ -141,6 +188,115 @@ class DomainExtensionRegistry:
         self._extensions: dict[tuple[str, str], ExtensionDescriptor] = {}
         self._schema_owners: dict[str, str] = {}
         self._operators: dict[tuple[str, str], tuple[OperatorDescriptor, OperatorHandler]] = {}
+        self._projections: dict[str, tuple[ProjectionStorageBinding, ProjectionBuilder]] = {}
+        self._projection_inputs: dict[str, tuple[tuple[ResourceRef, ...], str, object]] = {}
+        self._canonical_writers: dict[tuple[str, str], str] = {}
+
+    @staticmethod
+    def _projection_refs(binding: ProjectionStorageBinding, records: tuple["TemporalRecord", ...]) -> tuple[ResourceRef, ...]:
+        from rail.temporal_records import TemporalRecord, verify_temporal_record_integrity
+
+        if len(records) > 10_000:
+            raise ProjectionReadUnavailable("projection input bound exceeded")
+        refs: list[ResourceRef] = []
+        for record in records:
+            if not isinstance(record, TemporalRecord):
+                raise TypeError("projection inputs must be canonical temporal records")
+            try:
+                verify_temporal_record_integrity(record)
+            except ValueError as exc:
+                raise ProjectionReadUnavailable("projection canonical input integrity changed") from exc
+            if (record.authority != binding.canonical_authority
+                    or record.payload_schema != binding.canonical_payload_schema
+                    or record.payload_schema_version != binding.canonical_schema_version
+                    or record.writer_family != binding.canonical_writer_family):
+                raise ProjectionReadUnavailable("projection canonical source declaration differs")
+            refs.append(ResourceRef(
+                authority=binding.canonical_authority,
+                resource_type=binding.canonical_resource_type,
+                resource_id=record.record_id,
+                version=record.revision,
+                digest=record.record_digest,
+            ))
+        if len({ref.exact_key for ref in refs}) != len(refs):
+            raise ProjectionReadUnavailable("projection input references are duplicated")
+        return tuple(sorted(refs, key=lambda ref: ref.exact_key))
+
+    def register_projection(self, binding: ProjectionStorageBinding, builder: ProjectionBuilder) -> None:
+        if (binding.extension_id, binding.extension_version) not in self._extensions:
+            raise ValueError("projection owner extension is not registered")
+        if self._schema_owners.get(binding.declared_schema) != binding.extension_id:
+            raise ValueError("projection canonical schema belongs to another extension")
+        if binding.projection_id in self._projections:
+            raise ValueError("projection storage is already registered")
+        if not callable(builder):
+            raise TypeError("projection builder must be an already-imported callable")
+        source = (binding.canonical_authority, binding.canonical_resource_type)
+        writer = self._canonical_writers.get(source)
+        if writer is not None and writer != binding.canonical_writer_family:
+            raise ValueError("canonical source has a conflicting writer family")
+        self._canonical_writers[source] = binding.canonical_writer_family
+        self._projections[binding.projection_id] = binding, builder
+
+    def register_with_projection(self, descriptor: ExtensionDescriptor,
+                                 handlers: Mapping[str, OperatorHandler],
+                                 binding: ProjectionStorageBinding,
+                                 builder: ProjectionBuilder) -> None:
+        """Validate both registrations before publishing either capability."""
+        if (binding.extension_id, binding.extension_version) != (descriptor.extension_id, descriptor.version):
+            raise ValueError("projection owner extension identity differs")
+        if binding.declared_schema not in descriptor.payload_schemas:
+            raise ValueError("projection canonical schema is not declared")
+        if binding.projection_id in self._projections:
+            raise ValueError("projection storage is already registered")
+        if not callable(builder):
+            raise TypeError("projection builder must be an already-imported callable")
+        writer = self._canonical_writers.get((binding.canonical_authority, binding.canonical_resource_type))
+        if writer is not None and writer != binding.canonical_writer_family:
+            raise ValueError("canonical source has a conflicting writer family")
+        self.register(descriptor, handlers)
+        self.register_projection(binding, builder)
+
+    def prepare_projection(self, projection_id: str, records: tuple["TemporalRecord", ...], *,
+                           config: Mapping[str, Any], authorizer: ExtensionAuthorizer) -> object:
+        entry = self._projections.get(projection_id)
+        if entry is None:
+            raise LookupError("unknown projection storage binding")
+        binding, builder = entry
+        refs = self._projection_refs(binding, records)
+        config_digest = _digest(config)
+        for ref in refs:
+            authorizer.authorize(ref)
+        projection = builder(records, config)
+        for ref in refs:
+            authorizer.authorize(ref)
+        if self._projection_refs(binding, records) != refs or _digest(config) != config_digest:
+            raise ProjectionReadUnavailable("projection inputs or configuration changed during build")
+        self._projection_inputs[projection_id] = (refs, config_digest, projection)
+        return projection
+
+    def read_projection(self, projection_id: str, records: tuple["TemporalRecord", ...], *,
+                        config: Mapping[str, Any], authorizer: ExtensionAuthorizer,
+                        read: Callable[[object], Any]) -> Any:
+        entry = self._projections.get(projection_id)
+        snapshot = self._projection_inputs.get(projection_id)
+        if entry is None or snapshot is None:
+            raise ProjectionReadUnavailable("projection has not been prepared")
+        binding, _builder = entry
+        refs = self._projection_refs(binding, records)
+        if refs != snapshot[0] or _digest(config) != snapshot[1]:
+            raise ProjectionReadUnavailable("projection exact inputs or configuration changed")
+        for ref in refs:
+            authorizer.authorize(ref)
+        result = read(snapshot[2])
+        for ref in refs:
+            authorizer.authorize(ref)
+        if self._projection_refs(binding, records) != refs or _digest(config) != snapshot[1]:
+            raise ProjectionReadUnavailable("projection inputs or configuration changed during read")
+        return result
+
+    def projection_bindings(self) -> tuple[ProjectionStorageBinding, ...]:
+        return tuple(self._projections[key][0] for key in sorted(self._projections))
 
     def register(self, descriptor: ExtensionDescriptor, handlers: Mapping[str, OperatorHandler]) -> None:
         if descriptor.trust != "trusted_local":
@@ -238,7 +394,10 @@ __all__ = [
     "HANDLER_LINEAGE_REFS",
     "InvocationResult",
     "OperatorDescriptor",
+    "ProjectionReadUnavailable",
+    "ProjectionStorageBinding",
     "describe_extension",
     "describe_operator",
+    "describe_projection_storage",
     "verify_invocation_integrity",
 ]
