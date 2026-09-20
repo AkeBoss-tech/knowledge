@@ -48,5 +48,15 @@
     "The Core review route used by this adapter is available for personal SQLite composition, not current hosted PostgreSQL.",
     "Core reads and the KRAIL metadata write are separate transactions; revocation during that gap may leave inert retained metadata, but current re-read denies release."
   ],
-  "retained_actual_provider_qualification": "pending separate read-only inspection of an existing native Run after the owner of that fixture makes it available"
+  "retained_actual_provider_qualification": {
+    "status": "passed",
+    "command_shape": "PYTHONPATH=<sibling rail-py> <Core .venv python> /tmp/opensaddle-20260919/observed-real-qualification.py --origin <owned loopback Core origin> --project <private project> --run <retained completed Run> --token-file <private daemon token file> --state-root <new private KRAIL state>",
+    "result": "A previously completed actual Codex native result was reread through Core HTTP after personal runtime restart; the exact final artifact was observed, saved and reopened in a separate private KRAIL JSON store, and cited by an inert desired procedure candidate with no review, test evidence, or activation.",
+    "provider_call_during_qualification": false,
+    "core_mutation_during_qualification": false,
+    "limits": "This verifies retained-result compatibility and current human access for one Run. It does not attest the provider binary/model, certify result correctness, exercise production input grants, or approve/activate the candidate. Private Run IDs, bearer, artifact bytes, and content are omitted.",
+    "qualified_core_commit": "8bcff3b324ca47c98d6867feba5230facb79c08c",
+    "qualified_knowledge_commit": "c350186",
+    "parent_verification": "Parent inspected the private retained observation and confirmed its exact Run, artifact ID and SHA-256 match the earlier packaged native-result receipt. The observation contains no body or bearer."
+  }
 }
