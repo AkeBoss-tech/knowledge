@@ -241,3 +241,21 @@ uses public worker result/complete and loopback human read APIs with an explicit
 sibling rail-py path, including two-Project selector denial and withdrawal
 during a protected artifact read. It distinguishes a deterministic worker
 fixture from an actual model turn. The v1 observed-invocation tests remain unchanged.
+
+## K15-OBSERVED-CANDIDATE — persisted observation is not standing approval
+
+A desired procedure derived from a current Core Run artifact can be saved only
+with a canonical accepted Core-receipt predecessor and exact persisted
+observation. The saved row is rederived on reopen; it carries no inherited test,
+review, or activation. Current Core artifact and declared input access are
+required before review, explanation, or guidance is released, even when a
+generic reader would allow the saved metadata ref. Only the existing signed
+`procedure.review` action can create a reviewed successor. Exact invalidation
+of source, package, or environment revisions makes guidance abstain while
+preserving historical records; revocation denies the read.
+
+`test_observed_procedure_candidate.py` exercises save/reopen, real signed
+review, guidance, three exact invalidations, and Core/input withdrawal through
+the public Knowledge services. The Core artifact source is a deterministic
+external-adapter fixture; it does not prove a new provider turn or Core
+environment activation.

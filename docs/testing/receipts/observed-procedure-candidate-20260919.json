@@ -1,0 +1,37 @@
+{
+  "schema_version": "krail.observed-procedure-candidate-qualification.v1",
+  "source_base": "5a60ad9",
+  "invariant": "K15-OBSERVED-CANDIDATE",
+  "source_sha256": {
+    "packages/rail-py/rail/core_provenance.py": "73c26b034b96684f76bcc042fe4c75b7cb5bb5747a9b892425fbf828cb7a24b6",
+    "packages/rail-py/rail/semantic/repository.py": "daea491b1ad6a71f55b0310cd4dfa3cefda1b0fc23f4c31332f7802d52fee10d",
+    "packages/rail-py/tests/test_observed_procedure_candidate.py": "2640fb89f346ec0c74676c4585b4af0c4862b48ba7eb3f944236ae99f9f5e5a1",
+    "docs/observed-run-artifact.md": "730aa11a815edc2d41b9607ccfaf7c3511a66d85f2575da8eadd85b24571e6dd",
+    "docs/testing/invariants.md": "4b29ac8805479d061c3a7defef26d55bfbfdc88fc337cb56e94f958d3e2597b0"
+  },
+  "checks": {
+    "focused": {
+      "result": "36 passed in 1.44s",
+      "log_sha256": "fba9405a2211499a1d47a90478ba51f35d6c4a60a5e91374ed02ed0f94aae06a"
+    },
+    "full_rail_py": {
+      "result": "1002 passed in 83.65s",
+      "log_sha256": "e13cacc4f7dbc6ca3be754f8233c0f315e2343ad5b850cab6457cf40b70dd363",
+      "scope": "Final frozen source including public review-list release fence"
+    }
+  },
+  "observed_contract": [
+    "Canonical accepted Core-receipt predecessor required; one observed successor generation",
+    "Saved candidate rederived from canonical predecessor and exact observed artifact",
+    "Current Core artifact and declared input access required for review and public guidance",
+    "Existing signed procedure.review action required; no inherited tests, review or activation",
+    "Exact source, package and environment invalidations make guidance abstain while preserving history",
+    "Public list response denied when source access is withdrawn during assembly",
+    "Self-referential stored predecessor rejected before recursive resolution"
+  ],
+  "limits": [
+    "Core artifact adapter and signed review issuer are deterministic fixtures in these tests.",
+    "No new provider execution, actual human approval, Core activation or rollback is established.",
+    "Real retained-artifact HTTP integration is separately qualified; not claimed by this receipt."
+  ]
+}
