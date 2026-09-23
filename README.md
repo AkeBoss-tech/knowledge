@@ -54,6 +54,64 @@ runner-backed synthesis are separate integrations.
 KRAIL helps an agent understand what supports a memory and whether that memory
 is still appropriate to use.
 
+## Basic concepts
+
+- A **project** is a directory with a `rail.yaml` manifest. Its `topics/`,
+  `sources/`, `research_plan/`, and `artifacts/` files hold the working record.
+- A **source** is material the project depends on. **Evidence** connects a
+  source or capture to a claim or answer; source paths and exact revisions matter
+  when that support changes.
+- A **capture** is raw input in `topics/inbox/`. **Promotion** organizes a useful
+  capture into a durable **topic** page. Promotion does not verify every claim
+  extracted from it.
+- A **claim candidate** needs evidence review before it becomes a supported
+  claim. An **artifact** is a generated output that can be registered and
+  checked without automatically making its claims trusted.
+- **Integrity** reports missing evidence, stale dependencies, and review
+  readiness. **Tasks and workflows** record repeatable work; a dry run can
+  prepare work orders without launching an agent.
+
+See [project layout](docs/project-layout.md) for the folders and
+[knowledge operations](docs/knowledge-operations.md) for the deeper contracts.
+
+## CLI, Python API, and MCP primitives
+
+All three entry points operate on a selected KRAIL project. The CLI is useful
+in a terminal or script; `rail.local(path)` exposes the same local project to
+Python; `rail-mcp` lets an MCP client call project tools over local stdio.
+
+| Intent | CLI after `krail --local --path my-project` | Python `project = rail.local("my-project")` | MCP tool |
+| --- | --- | --- | --- |
+| Check the project | `doctor` | `project.doctor()` | `doctor` |
+| Capture raw material | `capture "note"` | `project.capture("note")` | `capture` |
+| Triage and promote | `inbox list`; `inbox promote <path> --topic <slug>` | `project.inbox_list()`; `project.inbox_promote(path, topic=slug)` | `inbox_list`; `inbox_promote` |
+| Retrieve evidence | `search "question"` | `project.search_evidence("question")` | `search` |
+| Build an evidence envelope | `think "question"` | `project.think("question")` | `think` |
+| Inspect trust gaps | `integrity status` | `project.integrity_status()` | `integrity_status` |
+
+`search` returns matching project material; `find` locates typed records such
+as claims or workflow runs. Default `think` returns a deterministic evidence
+envelope with citations and gaps. Runner-backed synthesis is an explicit
+additional mode. `mcp_contract` lets an MCP client discover its supported tool
+boundary before calling project tools; `provider_v1` is the
+storage-independent resource and evidence interface.
+
+For example, from Python after installing KRAIL and creating a project:
+
+```python
+import rail
+
+project = rail.local("my-project")
+capture = project.capture("Production releases require a reviewer.")
+hits = project.search_evidence("release reviewer")["hits"]
+readiness = project.integrity_status()["summary"]["status"]
+```
+
+`capture["path"]` names an inbox file; `hits` contain cited project paths;
+`readiness` can still report a review gap. The optional local HTTP adapter is
+described in [API runtime](docs/api-runtime.md); it is a separate integration
+surface from this local Python API.
+
 ## Install
 
 Python 3.11 or newer is required. Choose one published release lane:
