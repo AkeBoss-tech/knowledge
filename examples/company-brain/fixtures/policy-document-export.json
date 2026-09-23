@@ -1,0 +1,7 @@
+{
+  "source_kind": "fictional policy export; no live Confluence connection",
+  "policy_id": "release-policy",
+  "scope": "production",
+  "rule": "A reviewer approves each production release.",
+  "review_state": "approved fixture"
+}

@@ -1,0 +1,9 @@
+lane: stable
+required_version: 1.1.13
+entry: python examples/software-map/run.py
+offline: true
+credentials: false
+model: false
+external_service: false
+modifies_source_fixtures: false
+expected: route change affects api-service and health-endpoint topics only; proposed update remains unreviewed

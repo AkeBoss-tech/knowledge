@@ -1,355 +1,190 @@
 # KRAIL
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AkeBoss-tech/knowledge)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/krail?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/krail)
-[![PyPI version](https://badge.fury.io/py/krail.svg)](https://badge.fury.io/py/krail)
+[![PyPI version](https://badge.fury.io/py/krail.svg)](https://pypi.org/project/krail/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Local-first knowledge operations for serious AI agent projects.**
+**Durable, evidence-backed memory for AI agents.**
 
-KRAIL gives agents a durable project workspace instead of fragile chat context.
-You keep sources, notes, claims, workflows, prompts, and task records in a
-repo-backed local project, then let agents search, synthesize, and operate on
-that knowledge with citations and audit trails.
+KRAIL turns a project workspace into reusable knowledge. Capture source material,
+organize it into topics and claims, retrieve evidence with citations, and review
+proposed changes before promoting them into the project's working record.
 
-It is built for people who have outgrown "paste files into chat" and want a
-local-first way to give Codex, Claude Code, Cursor, and MCP-compatible tools a
-real working memory.
+Use KRAIL through its CLI, Python SDK, or MCP server. Start with a local project;
+connect an agent or execution system when you need synthesis and repeatable
+workflows.
 
-## Why KRAIL?
+## Release and support status
 
-Most agent workflows break down in the same places:
+| Lane | What it means | Start here |
+| --- | --- | --- |
+| **Stable** | Published `krail==1.1.13` local-runtime contract. The matching MCP adapter is available from source tag `v1.1.13`; there is no `rail-mcp==1.1.13` PyPI release. | [1.1.13 notes](docs/releases/1.1.13.md), [local example](examples/minimal-project/README.md) |
+| **Preview** | Published matching `krail==1.2.0rc2` and `rail-mcp==1.2.0rc2` prereleases. A prerelease is not a promise that every main-branch feature is in its wheel. | [preview package](https://pypi.org/project/krail/1.2.0rc2/), [MCP package](https://pypi.org/project/rail-mcp/1.2.0rc2/) |
+| **Development** | Source behavior at a pinned Git revision; this checkout may contain changes after the August prerelease even though package metadata still says `1.2.0rc2`. | [examples index](examples/README.md), [qualification evidence](docs/observed-run-artifact.md) |
 
-- context disappears between sessions
-- research notes and source files drift apart
-- retrieval returns snippets but not a trustworthy working record
-- agent work is hard to audit, rerun, or promote into trusted knowledge
+Check `git rev-parse HEAD` before following a development example. Its README
+states the minimum source revision and the fixture or integration boundary.
+The [package README](packages/rail-py/README.md) and [docs index](docs/README.md)
+describe the stable contract and deeper surfaces.
 
-KRAIL is the repo-backed layer that sits between raw files and agent actions.
+## How knowledge becomes usable
 
 ```text
-search   = retrieve document evidence in the project
-retriever = produce read-only ranked evidence through a declared contract
-find     = find typed records across docs, graph, evidence, sessions, and queues
-think    = synthesize evidence + cite files + expose gaps
-action   = validate and run a typed operation with declared effects
-task     = create auditable work orders for local agents
-workflow = run repeatable project routines from the active pack
-trigger  = notice local/external changes and start workflows (`listener` remains supported)
-run      = inspect workflow and agent execution through one surface
-queue    = reserve inventory batches for parallel ingestion workers
-permissions = keep access public by default, restrict only explicit records
-integrity = decide what is ready to trust, verify, or promote
+Source material
+    ↓
+Captured evidence and candidate knowledge
+    ↓ review and promotion
+Project topics, claims, decisions, and procedures
+    ↓
+Retrieval, evidence packets, and context for agents
+
+Source revisions and invalidations
+    → identify affected knowledge
+    → refresh it, mark it stale, or withhold unsupported guidance
 ```
 
-## What You Get
+The stable local path covers capture, inbox promotion, retrieval, and integrity
+inspection. Development-only typed temporal projections and reviewed procedure
+memory add more precise answers to *what changed*, *what was known at the time*,
+and *which guidance is still supported*. See [company-brain](examples/company-brain/README.md)
+and [governed-memory](examples/governed-memory/README.md). Each ingestion route
+implements only the stages stated in its example; live source adapters and
+runner-backed synthesis are separate integrations.
 
-- local-first knowledge projects with `rail.yaml`, `.ontology/`, `topics/`,
-  `sources/`, `research_plan/`, and `artifacts/`
-- deterministic search, unified `find`, and `think` envelopes with citations,
-  freshness, typed records, and next actions
-- repo-backed tasks, workflow runs, and session outputs
-- public-by-default permission metadata with repo audit logs for denied access
-  and restricted-record access through KRAIL surfaces
-- listener/event triggers for files, websites, RSS, GitHub polling, schedules,
-  and custom command adapters
-- deterministic repo snapshot, inventory, ownership, dependency, and change
-  inspection for software-map workflows
-- repo-backed inventory queues with batch reservation, checkpointing, and retry
-  surfaces for ingestion workers
-- markdown graph inspection for frontmatter-rich topic collections
-- MCP tools for agents like Codex, Claude Code, Cursor, and Gemini
-- optional local API adapter for custom clients and interfaces
+KRAIL helps an agent understand what supports a memory and whether that memory
+is still appropriate to use.
 
-## V1 Contract
+## Install
 
-KRAIL 1.1.12 adds scalable dataset catalogs, DuckDB caches, provenance-carrying
-query routing, and incremental semantic hydration without breaking the 1.x
-local-runtime contract. See the [1.1.12 release notes](docs/releases/1.1.12.md)
-and [migration guide](docs/migrations/1.1.md).
-
-KRAIL 1.0.0 is an honest local-runtime release. This contract covers the
-repo-backed workflow described below; experimental surfaces and the hosted API
-and engine packages are explicitly excluded.
-
-KRAIL's v1 promise is a stable local-first runtime for repo-backed knowledge
-work.
-
-The v1 contract covers:
-
-- `krail init` scaffolding a working local project with `rail.yaml`
-- `doctor`, `mode active`, and `pack active` for local project inspection
-- `capture`, `inbox list`, `inbox promote`, and `topic upsert` for the raw-note
-  to durable-topic loop
-- deterministic `search` and typed `find`
-- optional local vector retrieval via `vector build` and `vector search`
-- deterministic `think` envelopes with citations, freshness, gaps, conflicts,
-  and next actions
-- repo-backed tasks, workflow templates, materialized workflow execution, and
-  dry-run dispatch records
-- `integrity status` and related ledger views for promotion readiness
-- MCP access to the stable local project subset
-
-The v1 contract does not promise:
-
-- hosted platform behavior or managed multi-user control planes
-- host-level sandbox isolation
-- autonomous agent execution without human review
-- model-backed synthesis as the default `think` behavior
-- mature external pack registries or plugin ecosystems
-- perfect semantic retrieval or perfect reranking
-
-## Quick Start
-
-Install from the repo root:
+Python 3.11 or newer is required. Choose one published release lane:
 
 ```bash
-./scripts/install-rail.sh
-source .venv/bin/activate
+# Stable local runtime
+python -m pip install "krail==1.1.13"
 ```
-
-Important:
-
-- install name: `krail`
-- import name: `rail`
-- CLI commands: `krail` and `rail` both work
-- this repository root is the KRAIL source tree, not a local KRAIL project
-
-From a source checkout, use the curated example fixture for a repo-root smoke
-check:
 
 ```bash
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/minimal-project doctor
+# Matching published preview runtime and MCP adapter
+python -m pip install "krail==1.2.0rc2" "rail-mcp==1.2.0rc2"
 ```
 
-Create a local project and run the first health check:
+The distribution is `krail`, its Python import is `rail`, and the CLI is
+`krail` (`rail` remains an alias). The MCP distribution and executable are
+`rail-mcp`. It is published on PyPI for the **preview** line. For stable MCP,
+install the adapter from the matching source tag:
 
 ```bash
-krail init robotics-kb --pack research-intelligence --mode markdown_graph
-cd robotics-kb
-krail --local doctor
+python -m pip install "krail==1.1.13"
+python -m pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
 ```
 
-`krail init` seeds the capture inbox and initial markdown graph files so the
-fresh project starts with visible repo-backed outputs.
+For current main source, see [Developing KRAIL](#developing-krail).
 
-Capture a note, search the project, and generate a cited answer envelope:
+## First run: a deployment runbook note
+
+The runbook says production releases require a reviewer. This offline journey
+captures the note, promotes it into a topic, retrieves it, registers a
+deterministic `think` artifact, and checks what still needs review. It needs no
+model account or external service. From this repository checkout, in an
+environment with KRAIL installed:
 
 ```bash
-krail --local capture "GCS may be useful as a feasibility layer for LLM task plans"
-krail --local search "GCS feasibility" --explain
-krail --local think "What changed in task and motion planning?"
+KRAIL_KEEP_WORKDIR=1 bash scripts/trust-lifecycle-smoke.sh
 ```
 
-`think` now follows the `krail.think.v1` contract. `deterministic` mode stays
-honest and returns an evidence envelope rather than pretending a model
-synthesized an answer. `runner` and `hybrid` modes write reviewable session
-traces under `research_plan/sessions/think_*`, including the prompt, evidence
-packet, result envelope, and failure state when synthesis cannot run cleanly.
+The script creates a temporary project and prints its path. Inspect the
+following files there after it completes:
 
-Build the project graph when your notes use frontmatter:
+| Step | On disk | What to check |
+| --- | --- | --- |
+| Initialize and capture | `rail.yaml`, `topics/inbox/<capture>.md` | `capture.path` points into the inbox. |
+| Promote and update | `topics/deployment-runbook.md` | `promote.topic.path` names the durable topic; this does not approve every extracted claim. |
+| Retrieve and think | `artifacts/deployment-review-think.json` | `think.status=done`; the deterministic result is an evidence envelope with citations and gaps, not a model-written answer. |
+| Inspect integrity | `research_plan/state/` | `verification_run.status=passed`, while `summary.status=missing_evidence` and claim candidates remain. |
+
+The expected final lines include `integrity: missing_evidence` and a positive
+claim-candidate count. The command succeeded and the artifact exists; the
+candidate claims have **not** automatically become reviewed knowledge. Remove
+the printed temporary directory when done. The complete command sequence and
+meaning checks live in [trust-lifecycle-smoke.sh](scripts/trust-lifecycle-smoke.sh).
+
+For a shorter fixture replay, see [minimal-project](examples/minimal-project/README.md).
+Runner-backed `think` is an explicit additional path that writes a reviewable
+session trace; it is not the expected output of this offline tutorial.
+
+## Python and MCP entry points
+
+The Python SDK opens the same local project:
+
+```python
+import rail
+
+project = rail.local("/absolute/path/to/project")
+print(project.doctor())
+```
+
+For an MCP client, install the matching `rail-mcp` release and configure a
+local stdio server:
+
+```json
+{
+  "mcpServers": {
+    "krail": {
+      "command": "rail-mcp",
+      "args": ["--local", "--path", "/absolute/path/to/project"]
+    }
+  }
+}
+```
+
+Client config formats vary; copy the relevant [integration guide](docs/integrations/README.md).
+Once connected, call `mcp_contract` to discover the compatibility boundary,
+`doctor` to inspect project health, and `search` for a known note such as
+`deployment runbook reviewer`. The `provider_v1` tools expose a
+storage-independent resource and evidence contract. The [MCP guide](docs/integrations/mcp-server.md)
+explains the exact tool set and verification sequence.
+
+## Examples
+
+The [examples index](examples/README.md) names each example's release lane,
+entry command, expected outcome, and limits. The paths are deliberately
+different: a first-run local trust loop; historical company ownership;
+source-linked architecture knowledge; evidence-backed hypothesis review; and
+development-only governed procedure memory.
+
+## Integration and security boundary
+
+KRAIL owns project evidence, reviewed knowledge records, retrieval, provenance,
+and supported knowledge operations. Local tasks, workflows, and runner adapters
+also exist for repeatable project work. An external execution system such as
+OpenSaddle may use KRAIL's evidence contracts, while retaining operational
+authority over identity, approvals, activation, and execution. It is optional
+for the local experience. See [architecture](docs/architecture.md) and
+[procedure memory](docs/procedural-memory.md).
+
+Local records are project-readable by default unless marked with restrictions.
+KRAIL applies mediated permissions through its CLI, SDK, and MCP paths, but
+ordinary direct filesystem access can bypass them. Signed authorization in
+newer development surfaces does not turn a local project into an isolated
+company deployment. A package published on PyPI is an installable client/server
+adapter, not a publicly accessible knowledge server.
+
+## Developing KRAIL
+
+To try behavior from this source checkout, record its exact revision and use a
+separate environment:
 
 ```bash
-krail --local graph build
-krail --local graph entities --type Package
-krail --local graph edges --entity PDDLStream
+git rev-parse HEAD
+python -m pip install -e 'packages/rail-py[local]' -e packages/mcp-server
+python -m rail.cli --local --path examples/minimal-project doctor
 ```
 
-Inspect a local codebase when using `knowledge_mode: software`:
+The source-tree smoke can also run without relying on an installed KRAIL wheel:
 
 ```bash
-krail --local repo snapshot .
-krail --local repo inventory .
-krail --local repo symbols .
-krail --local repo owners .
-krail --local repo dependencies .
-krail --local repo changed . --base-ref origin/main
+KRAIL_SOURCE_TREE=1 bash scripts/trust-lifecycle-smoke.sh
 ```
 
-Create auditable work before launching another agent:
-
-```bash
-krail --local task create "summarize new captures" --runner codex_cli
-krail --local task list
-krail --local task dispatch <task_id> --dry-run
-```
-
-Before you promote a topic update or ship an artifact, check integrity:
-
-```bash
-krail --local integrity status
-krail --local integrity source <source_key>
-krail --local integrity claim <claim_key>
-krail --local integrity artifact <artifact_path>
-krail --local integrity stale-graph
-krail --local integrity verification-runs
-```
-
-`integrity status` is the readiness surface. It tells you what can be trusted
-now, what is stale, what still lacks evidence, and which KRAIL command to run
-next before promotion or release. Use the detail commands to inspect and repair
-the exact record that is blocking trust.
-
-## Retrieval Defaults
-
-`krail --local search` now defaults to deterministic hybrid retrieval:
-
-- lexical scoring over local files
-- local graph boosts from frontmatter relations
-- offline vector similarity using the built-in `local_hash` embedding provider
-
-This keeps retrieval local-first and reproducible. The first hybrid search will
-build `.krail/vector.sqlite` automatically when needed.
-
-Use lexical plus graph only when you want the old behavior:
-
-```bash
-krail --local search "employment index" --no-rag
-```
-
-Model-backed embeddings are an explicit upgrade path, not a requirement:
-
-```bash
-krail --local vector build --provider openai --model text-embedding-3-small
-```
-
-Or use local transformer embeddings by opting into the extra dependency:
-
-```bash
-pip install 'krail[embeddings]'
-krail --local vector build --provider sentence_transformers
-```
-
-If a model-backed provider is misconfigured, KRAIL keeps lexical and graph
-results working and returns a clear error in the JSON response instead of
-failing the whole search.
-
-## What A Good First Run Looks Like
-
-If KRAIL is working well for you, the first session should feel like this:
-
-1. You initialize a local project in under a minute.
-2. `doctor` tells you whether the workspace is healthy.
-3. `capture` puts raw notes into a predictable inbox.
-4. `search` finds the relevant local evidence.
-5. `think` returns a usable answer envelope with citations and gaps.
-6. `task` or `workflow` prepares agent work without losing project state.
-
-## Permission And Security Boundary
-
-KRAIL enforces repo-backed access rules when you go through the CLI, SDK, MCP
-server, workflows, or launched runner adapters. Records stay public by default
-unless they opt into restrictive metadata, and denied access plus allowed
-access to restricted or sensitive repo records are written to
-`research_plan/audit/access.jsonl`.
-
-KRAIL does not isolate the host machine. Anyone with direct shell or filesystem
-access to the repo can bypass KRAIL by reading or writing files outside those
-mediated surfaces.
-
-## Primary Use Cases
-
-KRAIL supports research workspaces, company brains, software architecture
-maps, auditable Codex work, parent/child project programs, static knowledge
-sites, and queue-based ingestion. See [Supported Use Cases](docs/use-cases.md)
-for the concrete workflows, shipped examples, and operating boundaries.
-
-## Local Runtime Status
-
-Covered by the current CLI tests, MCP tests, or fixture smoke commands:
-
-- local project scaffolding
-- knowledge pack activation
-- capture inbox
-- inbox promotion and topic upsert
-- deterministic hybrid search defaults with local hash embeddings, plus unified typed `find`
-- deterministic `think` envelope
-- markdown graph build/query/export
-- repo-backed tasks, work orders, and session records
-- public-by-default permissions doctor and access audit log for denied and
-  restricted-record access
-- listener templates, event logs, workflow triggers, and event replay
-- software-map repo inspection commands and a bundled `examples/software-map`
-  fixture
-- queue-based ingestion, workflow dashboards, parameterized workflow inputs,
-  and lightweight typed workflow outputs
-- dependency-aware workflow DAGs with `needs`, parallel fan-out, retry policies,
-  timeouts, conditions, loops, approvals, and child workflows
-- dry-run and full dispatch to local CLIs
-- MCP tools for find, search, think, capture, tasks, workflows, and integrity
-- optional local FastAPI adapter using `.krail/store.json`
-
-Explicitly outside the v1 promise for now:
-
-- model-backed synthesis inside `think` remains opt-in and runner-backed
-- embedding upgrades and reranking quality beyond the local hash default
-- deeper graph-aware retrieval beyond the current deterministic graph signals
-- external pack installation and registry ergonomics
-- host-level isolation and managed security controls outside KRAIL-mediated
-  surfaces
-
-## MCP
-
-`rail-mcp` exposes a local KRAIL project to MCP-compatible tools.
-
-```bash
-pip install -e 'packages/rail-py[local]'
-pip install -e packages/mcp-server
-RAIL_LOCAL=1 RAIL_PATH=/path/to/project rail-mcp
-```
-
-This is a strong fit if you want local project knowledge available inside agent
-tools without turning the project itself into a hosted service. MCP follows the
-same KRAIL-mediated access policy; it is not a separate host sandbox.
-
-## Install Notes
-
-Requirements:
-
-- Python 3.11+
-- git
-- optional local agent CLIs such as `codex`, `claude`, `gemini`, `agent`, or
-  `gh`
-
-Optional agent CLI setup:
-
-```bash
-./scripts/install-agent-clis.sh
-```
-
-## Documentation
-
-- [Docs Index](docs/README.md)
-- [Supported Use Cases](docs/use-cases.md)
-- [Architecture](docs/architecture.md)
-- [Knowledge Modes](docs/knowledge-modes.md)
-- [Integration Guides](docs/integrations/README.md)
-- [KRAIL + Codex](docs/integrations/codex.md)
-- [KRAIL + Claude Code](docs/integrations/claude-code.md)
-- [KRAIL + Cursor](docs/integrations/cursor.md)
-- [KRAIL for Literature Reviews](docs/integrations/literature-reviews.md)
-- [KRAIL for Software Architecture Memory](docs/integrations/software-architecture-memory.md)
-- [Project Layout](docs/project-layout.md)
-- [Release Checklist](RELEASE.md)
-- [Growth Plan](docs/growth-plan.md)
-- [Launch Kit](docs/launch-kit.md)
-- [Launch Posts](docs/launch-posts.md)
-- [Demo Script](docs/demo-script.md)
-
-## Contributing
-
-KRAIL is local-first, with a stable v1 contract and evolving experimental
-surfaces. The most useful contributions are:
-
-- install and onboarding fixes
-- tighter docs and examples
-- focused tests around `packages/rail-py`, `packages/mcp-server`, or
-  `packages/api`
-- workflow, search, capture, doctor, and integrity improvements
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+See [contributing](CONTRIBUTING.md), [docs](docs/README.md), and the
+[release checklist](RELEASE.md). KRAIL is MIT licensed; see [LICENSE](LICENSE).

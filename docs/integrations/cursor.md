@@ -7,9 +7,9 @@ in the repository rather than in one chat session.
 ## 1. Install The Runtime And Adapter
 
 ```bash
-python -m pip install 'krail[local]'
+python -m pip install 'krail[local]==1.1.13'
 python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
+  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
 
 krail init my-project --pack research-intelligence --mode markdown_graph
 krail --local --path my-project doctor

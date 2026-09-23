@@ -1,0 +1,20 @@
+{
+  "status": "candidate_for_human_review",
+  "objective": "Reduce battery-energy use in a fictional edge-service workload",
+  "hypothesis": "Batch nonurgent telemetry writes into 30-second windows to reduce radio wakeups",
+  "supporting_evidence": [
+    {
+      "source": "fictional workload fixture",
+      "observation": "Frequent single-record writes trigger many radio wakeups",
+      "verification": "synthetic observation only"
+    }
+  ],
+  "critique": "Batching may increase event latency and lose unsent records on power loss; compare against an immediate-write baseline",
+  "ranking_rubric": {
+    "expected_energy_reduction": "estimated, not measured",
+    "testability": "high: compare two write schedules on the same simulated trace",
+    "latency_cost": "must measure 95th percentile delay",
+    "reliability_cost": "must test power-loss recovery"
+  },
+  "human_decision": "Approve a controlled experiment only; do not claim energy savings yet"
+}

@@ -8,16 +8,20 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/krail-trust-lifecycle.XXXXXX")"
 PROJECT_DIR="$WORK_DIR/project"
 
 cleanup() {
-  rm -rf "$WORK_DIR"
+  if [[ "${KRAIL_KEEP_WORKDIR:-0}" != "1" ]]; then
+    rm -rf "$WORK_DIR"
+  fi
 }
 trap cleanup EXIT
 
-export PYTHONPATH="$ROOT_DIR/packages/rail-py${PYTHONPATH:+:$PYTHONPATH}"
+if [[ "${KRAIL_SOURCE_TREE:-0}" == "1" ]]; then
+  export PYTHONPATH="$ROOT_DIR/packages/rail-py${PYTHONPATH:+:$PYTHONPATH}"
+fi
 
 run_json() {
   local output_path="$1"
   shift
-  "$@" | tee "$output_path"
+  "$@" > "$output_path"
 }
 
 assert_json() {
@@ -41,8 +45,8 @@ assert_json "$WORK_DIR/init.json" 'payload["status"] == "initialized"'
 
 run_json "$WORK_DIR/capture.json" \
   "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" capture \
-  "PDDLStream supports task and motion planning review." \
-  --topic robotics --entity PDDLStream --entity-type Package
+  "The deployment runbook says production releases require a reviewer." \
+  --topic deployment --entity release-runbook --entity-type Document
 assert_json "$WORK_DIR/capture.json" 'payload["status"] == "captured" and payload["path"].startswith("topics/inbox/")'
 CAPTURE_PATH="$($PYTHON_BIN - "$WORK_DIR/capture.json" <<'PY'
 import json
@@ -57,24 +61,44 @@ assert_json "$WORK_DIR/inbox.json" 'payload["unhandled"] == 1'
 
 run_json "$WORK_DIR/promote.json" \
   "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" inbox promote "$CAPTURE_PATH" \
-  --topic task-and-motion-planning --type method --entity PDDLStream --entity-type Package
-assert_json "$WORK_DIR/promote.json" 'payload["status"] == "promoted" and payload["topic"]["path"] == "topics/task-and-motion-planning.md"'
+  --topic deployment-runbook --type procedure --entity release-runbook --entity-type Document
+assert_json "$WORK_DIR/promote.json" 'payload["status"] == "promoted" and payload["topic"]["path"] == "topics/deployment-runbook.md"'
 
 run_json "$WORK_DIR/topic.json" \
-  "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" topic upsert task-and-motion-planning \
-  --content "Reviewed PDDLStream evidence for task and motion planning." \
+  "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" topic upsert deployment-runbook \
+  --content "Captured runbook note: production releases require a reviewer. Evidence review is pending." \
   --source-path "$CAPTURE_PATH"
 assert_json "$WORK_DIR/topic.json" 'payload["status"] == "updated"'
 
+run_json "$WORK_DIR/search.json" \
+  "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" search "deployment runbook reviewer" --no-rag
+assert_json "$WORK_DIR/search.json" '"topics/deployment-runbook.md" in [hit["path"] for hit in payload["hits"]]'
+
 run_json "$WORK_DIR/think.json" \
   "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" think \
-  "What evidence was captured about PDDLStream?" \
-  --output "$PROJECT_DIR/artifacts/task-and-motion-planning-think.json" \
-  --register-integrity --title "Task and motion planning trust smoke"
+  "What does the deployment runbook say about review?" \
+  --output "$PROJECT_DIR/artifacts/deployment-review-think.json" \
+  --register-integrity --title "Deployment review trust smoke"
 assert_json "$WORK_DIR/think.json" 'payload["status"] == "done" and payload["integrity"]["status"] == "registered" and payload["integrity"]["verification_run"]["status"] == "passed"'
 
 run_json "$WORK_DIR/integrity.json" \
   "$PYTHON_BIN" -m rail.cli --local --path "$PROJECT_DIR" integrity status
 assert_json "$WORK_DIR/integrity.json" 'payload["summary"]["artifactCount"] == 1 and payload["summary"]["verificationRunCount"] == 1 and payload["summary"]["claimCandidateCount"] >= 1 and payload["summary"]["status"] == "missing_evidence"'
 
-echo "Trust lifecycle smoke passed: capture was promoted, think output was registered, and integrity status exposed the pending evidence review."
+"$PYTHON_BIN" - "$WORK_DIR" "$PROJECT_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+results, project = map(Path, sys.argv[1:])
+def read(name):
+    return json.loads((results / f"{name}.json").read_text())
+
+print("capture:", read("capture")["path"])
+print("promotion:", read("promote")["topic"]["path"])
+print("retrieved:", read("search")["hits"][0]["path"])
+print("artifact:", project / "artifacts/deployment-review-think.json")
+print("integrity:", read("integrity")["summary"]["status"])
+print("claim candidates:", read("integrity")["summary"]["claimCandidateCount"])
+PY
+echo "The artifact passed registration; its candidate claims still need evidence review."
