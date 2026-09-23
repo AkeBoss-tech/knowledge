@@ -1,46 +1,44 @@
-# Co-Scientist Workflow (KRAIL example)
+# Co-scientist workflow: a hypothesis remains a candidate
 
-This runnable, local-first project models the *workflow pattern* described in
-Google's Co-Scientist research. It is a research-planning example, not an
-implementation of Google's Gemini-based product and it does not establish any
-scientific conclusion on its own.
+This local-first project models the *workflow pattern* described in Google's
+Co-Scientist research. It is not an implementation of Google's Gemini-based
+product and does not establish a scientific conclusion.
 
-The supplied toy objective is deliberately non-biomedical: identify a
-testable, evidence-backed hypothesis for reducing battery-energy use in a
-fictional edge-service workload. Agents first expand the evidence-backed idea
-set, then critique, rank, evolve, diversify, and synthesize it for a human
-scientist/engineer to review.
+**Required:** stable `krail==1.1.13` or a compatible source checkout.
+**Prerequisites:** Python 3.11+, this repository, no credentials, model, or
+external service for the offline replay.
 
-## Workflow mapping
-
-| Co-Scientist component | Local KRAIL representation |
-| --- | --- |
-| Supervisor | `research_plan/current_plan.md` and the workflow coordinator |
-| Generation | `generate_hypotheses` task |
-| Reflection / debate | `critique_and_debate` critic task |
-| Ranking tournament | `rank_tournament` with explicit score rubric |
-| Evolution | `evolve_finalists` research task |
-| Proximity | `cluster_for_diversity` deduplication task |
-| Meta-review | `meta_review` research task and human decision gate |
-
-## Run it
-
-From the repository root:
+**Entry command, from the repository root:**
 
 ```bash
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/co-scientist-workflow doctor
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/co-scientist-workflow workflow validate co_scientist_idea_tournament
-PYTHONPATH=packages/rail-py python -m rail.cli --local --path examples/co-scientist-workflow workflow execute co_scientist_idea_tournament --dry-run
+python examples/co-scientist-workflow/run.py
 ```
 
-The dry run materializes a work order without launching workers. Before a real
-run, replace the synthetic seed evidence with domain-appropriate primary
-sources, set the research goal and constraints, and have a qualified human
-review every candidate and experimental protocol.
+The script validates the eight-step workflow and materializes a dry run in a
+temporary copy of this project. It then checks and prints the
+[hypothesis review artifact](expected/hypothesis-review.json): one candidate,
+its synthetic supporting observation, a critique, the ranking rubric, and a
+human decision to run an experiment only. The estimated energy benefit is not
+measured. The fixture's `candidate_for_human_review` status prevents it from
+being presented as an experimentally supported result.
 
-## Sources
+| Stage | Local representation |
+| --- | --- |
+| Supervisor | `research_plan/current_plan.md` and workflow coordination |
+| Generation | `generate_hypotheses` task |
+| Critique and debate | `critique_and_debate` task |
+| Ranking | `rank_tournament` with an explicit rubric |
+| Evolution and diversity | `evolve_finalists` and `cluster_for_diversity` tasks |
+| Meta-review | `meta_review` and a human decision gate |
 
-- Gottweis *et al.*, “Accelerating scientific discovery with Co-Scientist,”
-  *Nature* (2026), doi:10.1038/s41586-026-10644-y.
-- [Google DeepMind’s Co-Scientist overview](https://deepmind.google/blog/co-scientist-a-multi-agent-ai-partner-to-accelerate-research/)
-- [Google Cloud Co-Scientist documentation](https://docs.cloud.google.com/gemini/enterprise/docs/co-scientist-and-alphaevolve)
+**Limitations:** The artifact is a checked-in fictional candidate, not output
+from the dry run. Dry-run materialization creates work orders without launching
+agents or experiments. A live agent run is a separate path requiring a
+configured runner, suitable primary sources, experimental constraints, and
+qualified human review.
+
+**Cleanup:** The entry script deletes its temporary copy on exit. It does not
+alter the checked-in project.
+
+Background: [Gottweis et al., *Nature* (2026)](https://doi.org/10.1038/s41586-026-10644-y)
+and [Google DeepMind's overview](https://deepmind.google/blog/co-scientist-a-multi-agent-ai-partner-to-accelerate-research/).

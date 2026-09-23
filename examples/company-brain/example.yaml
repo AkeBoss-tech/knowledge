@@ -1,0 +1,9 @@
+lane: development
+minimum_source_revision: 15df0a9
+entry: python examples/company-brain/run.py
+offline: true
+credentials: false
+model: false
+external_service: false
+modifies_source_fixtures: false
+expected: current owner changes from team-ledger to team-platform; invalidated ticket makes current answer stale

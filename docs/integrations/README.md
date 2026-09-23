@@ -20,19 +20,26 @@ Every guide assumes Python 3.11+ and a KRAIL project containing `rail.yaml` or
 `krail.yaml`. Create a research workspace with:
 
 ```bash
-python -m pip install 'krail[local]'
+python -m pip install 'krail[local]==1.1.13'
 krail init my-krail-project --pack research-intelligence --mode markdown_graph
 cd my-krail-project
 krail --local doctor
 ```
 
-For agent integrations, also install the MCP adapter. `rail-mcp` is not yet a
-separate PyPI project, so install its released source package from GitHub:
+For a published MCP package, install the matching preview pair in a separate
+environment:
 
 ```bash
-python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
+python -m pip install 'krail[local]==1.2.0rc2' 'rail-mcp==1.2.0rc2'
 rail-mcp --help
+```
+
+For the stable `krail==1.1.13` runtime above, install its MCP adapter from
+the `v1.1.13` source tag. The PyPI `rail-mcp` project currently has only
+1.2.0 release candidates:
+
+```bash
+python -m pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
 ```
 
 Use an absolute local project path in a personal configuration. For a

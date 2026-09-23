@@ -10,15 +10,19 @@ permission model.
 Install the local KRAIL runtime and MCP adapter with Python 3.11+:
 
 ```bash
-python -m pip install 'krail[local]'
-python -m pip install \
-  'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.12#subdirectory=packages/mcp-server'
+python -m pip install 'krail[local]==1.2.0rc2' 'rail-mcp==1.2.0rc2'
 rail-mcp --help
 ```
 
-`krail` is published on PyPI. The `rail-mcp` package is currently installed
-from the KRAIL GitHub source because its separate PyPI publisher is not yet
-configured.
+Both packages have matching published preview wheels. The stable KRAIL runtime
+is `krail==1.1.13`; its matching MCP adapter is available from source tag
+`v1.1.13`, not as a `rail-mcp==1.1.13` PyPI release. Source-only features
+require an exact repository revision beyond these published wheels.
+
+```bash
+python -m pip install 'krail[local]==1.1.13'
+python -m pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
+```
 
 ## Start Against A Local Project
 

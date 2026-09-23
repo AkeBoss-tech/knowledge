@@ -68,13 +68,15 @@ removed before a broader post-v1 contract is declared.
 
 ## Local Usage
 
-Install the local KRAIL runtime from PyPI, then install the MCP adapter from
-the released GitHub source. `rail-mcp` is not yet a separately published PyPI
-project:
+The MCP adapter is published on PyPI beginning with the 1.2.0 release
+candidates. Install the matching published preview pair:
 
 ```bash
-pip install 'krail[local]'
-pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
+python -m pip install 'krail[local]==1.2.0rc2' 'rail-mcp==1.2.0rc2'
+
+# For the stable 1.1.13 runtime, use its matching source-tag adapter:
+python -m pip install 'krail[local]==1.1.13'
+python -m pip install 'git+https://github.com/AkeBoss-tech/knowledge.git@v1.1.13#subdirectory=packages/mcp-server'
 ```
 
 For local development from a repository checkout:

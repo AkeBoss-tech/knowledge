@@ -1,0 +1,7 @@
+{
+  "source_kind": "fictional service repository export; no live GitHub connection",
+  "service_id": "billing-api",
+  "service_name": "Billing API",
+  "initial_owner": "team-ledger",
+  "teams": ["team-ledger", "team-platform"]
+}

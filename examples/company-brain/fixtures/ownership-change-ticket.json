@@ -1,0 +1,8 @@
+{
+  "source_kind": "fictional approved ownership ticket; no live Jira connection",
+  "service_id": "billing-api",
+  "new_owner": "team-platform",
+  "effective_at": "2026-09-08T09:00:00Z",
+  "recorded_at": "2026-09-10T09:00:00Z",
+  "review_state": "approved fixture"
+}

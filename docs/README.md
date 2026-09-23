@@ -1,10 +1,10 @@
 # KRAIL Docs
 
-KRAIL 1.1.12 extends the stable local-runtime line with scalable dataset catalogs and additive knowledge
-operations contracts. The docs below define that supported boundary while
-keeping planning notes and launch drafts separate so they do not silently
-become the product contract. The hosted API and engine packages remain outside
-the v1 release.
+The latest published stable local runtime is 1.1.13. Matching 1.2.0rc2
+prereleases are available for KRAIL and rail-mcp; current main can contain
+additional source-only behavior with the same metadata version. The
+[root README](../README.md#release-and-support-status) defines these lanes.
+The hosted API and engine packages remain outside the stable v1 contract.
 
 ## Local-Runtime Contract Docs
 
@@ -50,8 +50,4 @@ the v1 release.
 - [Listeners And Event Triggers](listeners.md)
 - [Generated Project Hygiene](generated-project-hygiene.md)
 
-Examples:
-
-- `examples/minimal-project/`
-- `examples/company-brain/`
-- `examples/software-map/`
+Examples: [outcomes, requirements, and verification](../examples/README.md).

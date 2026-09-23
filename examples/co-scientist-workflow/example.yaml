@@ -1,0 +1,9 @@
+lane: stable
+required_version: 1.1.13
+entry: python examples/co-scientist-workflow/run.py
+offline: true
+credentials: false
+model: false
+external_service: false
+modifies_source_fixtures: false
+expected: validated workflow dry run and inspectable unproven hypothesis review artifact

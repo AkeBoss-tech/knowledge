@@ -1,4 +1,16 @@
 documents:
+  - path: topics/billing-ownership.md
+    depends_on:
+      - id: local:billing-service-export
+        type: local_file
+        path: fixtures/service-repository.json
+        role: initial_service_ownership
+        refresh: manual
+      - id: local:billing-ownership-ticket
+        type: local_file
+        path: fixtures/ownership-change-ticket.json
+        role: reviewed_ownership_change
+        refresh: manual
   - path: topics/brief.md
     depends_on:
       - id: local:research-question

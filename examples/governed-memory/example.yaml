@@ -1,0 +1,9 @@
+lane: development
+minimum_source_revision: 15df0a9
+entry: python examples/governed-memory/run.py
+offline: true
+credentials: false
+model: false
+external_service: false
+modifies_source_fixtures: false
+expected: observed candidate has no inherited review; signed fixture review permits guidance; exact invalidation withholds guidance
