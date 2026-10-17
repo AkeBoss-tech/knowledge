@@ -1,5 +1,23 @@
 # Agent Guide
 
+## Product direction and documentation authority
+
+Read [the KRAIL vision](docs/vision.md) and [documentation map](docs/README.md)
+before product planning or substantial feature work. Akash's explicit direction
+is an **adaptable and extensible knowledge and data backbone**. It serves
+Floating Keys and other consumers; agent memory is one use, not the full scope.
+
+Akash's explicit project Codex statements and newer corrections take priority
+over generated briefs, research, roadmaps, and historical handoffs. Distinguish
+his words from assistant proposals in the same conversation. Uploaded generated
+material does not automatically become a requirement.
+
+Use current code, contracts, and scoped evidence to establish what works. Existing
+storage and provider contracts remain implementation boundaries until deliberately
+changed; they are not permanent restrictions on the vision. Archived plans and
+dated proof reports are not current assignments or execution authority. Update
+the owning reference rather than adding overlapping plans or status logs.
+
 KRAIL should be used locally first.
 
 ## Local Project

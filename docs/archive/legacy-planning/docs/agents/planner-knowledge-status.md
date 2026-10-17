@@ -1,3 +1,7 @@
+> **Historical reference.** Archived October 17, 2026. Plans, assignments,
+> deadlines, and status statements below belong to their original context. They
+> do not override the [product vision](../../../../vision.md) or current user instructions.
+
 # Knowledge planner status
 
 ## #19 feature branch: temporal tabletop world-memory hardening (2026-09-07)

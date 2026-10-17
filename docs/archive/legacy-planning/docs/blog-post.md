@@ -1,3 +1,7 @@
+> **Historical reference.** Archived October 17, 2026. Plans, assignments,
+> deadlines, and status statements below belong to their original context. They
+> do not override the [product vision](../../../vision.md) or current user instructions.
+
 # Beyond Chat History: Building a Local-First Memory Layer for AI Agents
 
 AI agents are getting better at coding, research, and operational tasks, but

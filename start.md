@@ -1,5 +1,8 @@
 # Start Here: KRAIL for Agents
 
+This is the agent quick start. For the broader adaptable knowledge and data
+backbone, read [the vision](docs/vision.md) and [documentation map](docs/README.md).
+
 KRAIL is a local-first knowledge runtime. The repository—not chat history—is
 the durable source of truth.
 

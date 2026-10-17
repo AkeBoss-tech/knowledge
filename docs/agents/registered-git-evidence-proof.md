@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # Registered Git evidence bridge proof
 
 `rail.registered_git_evidence.RegisteredGitEvidenceBridge` is an opt-in local

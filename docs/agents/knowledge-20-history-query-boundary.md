@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # #20 history-query storage boundary
 
 `TabletopWorldMemory.object_history()` now bounds returned rows and its

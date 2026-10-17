@@ -1,0 +1,2371 @@
+{
+  "date": "2026-10-17",
+  "baseline_head": "c084f8a38a40b749441ab8993956b5038d5db2e0",
+  "scope": "Nonignored Markdown inventory and authority/status scan; substantive review focused on direction, planning and relevant architecture. Not a current runtime certification or exhaustive historical-chat review.",
+  "backup": "/Users/akashdubey/Documents/Codex/2026-10-17/floating-keys-doc-cleanup/knowledge-markdown-before.zip",
+  "files": [
+    {
+      "before": "SECURITY.md",
+      "after": "SECURITY.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "38f06889f554059b468351b0194ca8cc2232eea627a58482a37b2153129e99bc",
+      "original_bytes": 3154,
+      "current_sha256": "38f06889f554059b468351b0194ca8cc2232eea627a58482a37b2153129e99bc"
+    },
+    {
+      "before": "start.md",
+      "after": "start.md",
+      "category": "reference",
+      "action": "update-reference-or-status",
+      "original_sha256": "543978081c76ab9c641cc8b574f4aa0060bf68acf39570b490357aa06b414908",
+      "original_bytes": 1000,
+      "current_sha256": "8881072af7034677776815df386971e35fa94ff7c200fedae69ccb6e6c6e7710"
+    },
+    {
+      "before": "AGENTS.md",
+      "after": "AGENTS.md",
+      "category": "reference",
+      "action": "update-reference-or-status",
+      "original_sha256": "ff8d988528366dd431f699cd222436b433ca170864e94ebce5f6c5db774061cc",
+      "original_bytes": 3838,
+      "current_sha256": "f38fa7b639b8718500025a2f6dc6c4ff3826fbfba326f7b0d331907997cd3302"
+    },
+    {
+      "before": "RELEASE.md",
+      "after": "RELEASE.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "265580b7fc101539b6e7b800162fb8b078527808a0ef8d69f84a64022bf4799b",
+      "original_bytes": 5719,
+      "current_sha256": "265580b7fc101539b6e7b800162fb8b078527808a0ef8d69f84a64022bf4799b"
+    },
+    {
+      "before": "CHANGELOG.md",
+      "after": "CHANGELOG.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "dc03796da119c444d68aa62ae3d22acd9bff0e1fec962ca5a9383cddc1f0b876",
+      "original_bytes": 8792,
+      "current_sha256": "dc03796da119c444d68aa62ae3d22acd9bff0e1fec962ca5a9383cddc1f0b876"
+    },
+    {
+      "before": "README.md",
+      "after": "README.md",
+      "category": "reference",
+      "action": "update-reference-or-status",
+      "original_sha256": "23ff9afeaa76acaa864a6732f81b2a33e720c731319870b53d1b031dcce1e39e",
+      "original_bytes": 11611,
+      "current_sha256": "7669f98d0c2b3d43db626cf2c4ecfb286854ffc979de637817a4586595991192"
+    },
+    {
+      "before": "CONTRIBUTING.md",
+      "after": "CONTRIBUTING.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "a587a608e66b25640c37b81251b9338fc724bfeab8230bf1643a6b412e4efddb",
+      "original_bytes": 3075,
+      "current_sha256": "a587a608e66b25640c37b81251b9338fc724bfeab8230bf1643a6b412e4efddb"
+    },
+    {
+      "before": "packages/rail-py/README.md",
+      "after": "packages/rail-py/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "22c5a1b9e99edc959a4911b92878e37d3b65ef128dc7a5d76cb717e05a8192f9",
+      "original_bytes": 24342,
+      "current_sha256": "22c5a1b9e99edc959a4911b92878e37d3b65ef128dc7a5d76cb717e05a8192f9"
+    },
+    {
+      "before": "docs/blog-post.md",
+      "after": "docs/archive/legacy-planning/docs/blog-post.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "13f1a50cfcc28456b12580c2e698e7948e222490a72d4a97b0b482a27bbe3537",
+      "original_bytes": 6375,
+      "current_sha256": "af461fab069c829b1d318f59333668abef937d2a5983fca881574b186fd051d6"
+    },
+    {
+      "before": "docs/extension-registry.md",
+      "after": "docs/extension-registry.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "b6d02ba7062a6d89ab25e673d550daee3835b249e702cfda5e6e8f702174cbbc",
+      "original_bytes": 7656,
+      "current_sha256": "b6d02ba7062a6d89ab25e673d550daee3835b249e702cfda5e6e8f702174cbbc"
+    },
+    {
+      "before": "docs/verification-and-outcome-evidence.md",
+      "after": "docs/verification-and-outcome-evidence.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "083ee38aec532eeedaa0d0ad492d6047eacb6f4493493c85a4e43aeb1fb17225",
+      "original_bytes": 2322,
+      "current_sha256": "083ee38aec532eeedaa0d0ad492d6047eacb6f4493493c85a4e43aeb1fb17225"
+    },
+    {
+      "before": "docs/launch-kit.md",
+      "after": "docs/archive/legacy-planning/docs/launch-kit.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "fc24fd06d7fa1f2bb02693959832ae33c01d7cc47f3f95997f26ce1111b13dba",
+      "original_bytes": 2358,
+      "current_sha256": "b02e92caf812e83cee7d692738c1b431094a11dace6242296ca8c40866397c36"
+    },
+    {
+      "before": "docs/v1-readiness-triage.md",
+      "after": "docs/archive/legacy-planning/docs/v1-readiness-triage.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "d06df3febc00f9d6bccc849dfbeeb1c0a0a900fab6e900b4b29467b37084794d",
+      "original_bytes": 5746,
+      "current_sha256": "26f28d8f5707ba27f14c8ccd31bd1144048262a27001d40e3c7eb460c3e18004"
+    },
+    {
+      "before": "docs/launch-tracker.md",
+      "after": "docs/archive/legacy-planning/docs/launch-tracker.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "a2c62e05a32662199b3edac6dbb08d837e860159524a4d9576dd514b98994492",
+      "original_bytes": 1875,
+      "current_sha256": "a8bcca00bfe066608fd6d835ad8e724c3173e90e2df6543a6d6f08673e107486"
+    },
+    {
+      "before": "docs/architecture.md",
+      "after": "docs/architecture.md",
+      "category": "reference",
+      "action": "update-reference-or-status",
+      "original_sha256": "d4bf14e8fe45713a8a2f4e141bc35c72ba6fc9cda44f382ec646be8aa0d51969",
+      "original_bytes": 4109,
+      "current_sha256": "07dd82f5fe71a5e2fec425a988ec0da26e63f8f1fca083a95fe87a97b40b36f7"
+    },
+    {
+      "before": "docs/launch-posts.md",
+      "after": "docs/archive/legacy-planning/docs/launch-posts.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "ff18cb319ec64116caac9d9c8546a4a66e0429507c42c4da13e8369016f46717",
+      "original_bytes": 2831,
+      "current_sha256": "23d0814ec37932b9223eebebb25d2b21fc7d6c4e23c3bb3a5c81754403a861f6"
+    },
+    {
+      "before": "docs/temporal-records.md",
+      "after": "docs/temporal-records.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "3144a13881e3e737f6f6464ad34c8f7910a463fb11d096b56915f1d3fc937dac",
+      "original_bytes": 2387,
+      "current_sha256": "3144a13881e3e737f6f6464ad34c8f7910a463fb11d096b56915f1d3fc937dac"
+    },
+    {
+      "before": "docs/use-cases.md",
+      "after": "docs/use-cases.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "7d53bee1f38a169c40fb9cd7f1421a6f38626dd11edbbb73c39fc5768e4487d5",
+      "original_bytes": 4416,
+      "current_sha256": "7d53bee1f38a169c40fb9cd7f1421a6f38626dd11edbbb73c39fc5768e4487d5"
+    },
+    {
+      "before": "docs/shared-knowledge-retention.md",
+      "after": "docs/shared-knowledge-retention.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "b1c9395e19e9f3c920195cf32cd45d35ad40fb4397f3c273cd80036294c24d08",
+      "original_bytes": 2881,
+      "current_sha256": "b1c9395e19e9f3c920195cf32cd45d35ad40fb4397f3c273cd80036294c24d08"
+    },
+    {
+      "before": "docs/management-v1.md",
+      "after": "docs/management-v1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "3ae8a07f89d119c65585554d189f27111cb3f50f4ad81f87724b51bf4d86e3ea",
+      "original_bytes": 5683,
+      "current_sha256": "3ae8a07f89d119c65585554d189f27111cb3f50f4ad81f87724b51bf4d86e3ea"
+    },
+    {
+      "before": "docs/api-runtime.md",
+      "after": "docs/api-runtime.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "c8b6634d7d6eb5502fa2e47e0cadcb188c67d822bc381a8c43db2ff6d74522b7",
+      "original_bytes": 501,
+      "current_sha256": "c8b6634d7d6eb5502fa2e47e0cadcb188c67d822bc381a8c43db2ff6d74522b7"
+    },
+    {
+      "before": "docs/knowledge-operations.md",
+      "after": "docs/knowledge-operations.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "294250b6433a538cba92839be033ba3214d399d8e24acd243016c91ca819bcd6",
+      "original_bytes": 3161,
+      "current_sha256": "294250b6433a538cba92839be033ba3214d399d8e24acd243016c91ca819bcd6"
+    },
+    {
+      "before": "docs/context-briefs.md",
+      "after": "docs/context-briefs.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "7763b18d94c07d2d95c1585fbf436da2190c2c9a06a231ee0ebf67edc9f613a4",
+      "original_bytes": 1806,
+      "current_sha256": "7763b18d94c07d2d95c1585fbf436da2190c2c9a06a231ee0ebf67edc9f613a4"
+    },
+    {
+      "before": "docs/ingestion-os.md",
+      "after": "docs/ingestion-os.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "52ab6e5610d9c31d404281aad02a8defe81081f55e594e839ad2002f933ba98e",
+      "original_bytes": 2780,
+      "current_sha256": "52ab6e5610d9c31d404281aad02a8defe81081f55e594e839ad2002f933ba98e"
+    },
+    {
+      "before": "docs/mac-mini-codex-handoff.md",
+      "after": "docs/archive/legacy-planning/docs/mac-mini-codex-handoff.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "8b8c3e71c9a315d52e248d16e0e62ed7f356cf1a881910952eb66adde542dae4",
+      "original_bytes": 6991,
+      "current_sha256": "bcc11bb9957e09bcc6e8ac116d0bcbf923e2a8703e66bf981fbb474b368e0b37"
+    },
+    {
+      "before": "docs/provider-v1.md",
+      "after": "docs/provider-v1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "8e02adff7f8b18e6f4473cae26cce0170470bcef733ca0b980ccd50d61ddeea2",
+      "original_bytes": 5597,
+      "current_sha256": "8e02adff7f8b18e6f4473cae26cce0170470bcef733ca0b980ccd50d61ddeea2"
+    },
+    {
+      "before": "docs/storage-authority.md",
+      "after": "docs/storage-authority.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "05d222bbda620a4f3f646a038856885466344b7cef4317ba30a05857f2f44e18",
+      "original_bytes": 8568,
+      "current_sha256": "05d222bbda620a4f3f646a038856885466344b7cef4317ba30a05857f2f44e18"
+    },
+    {
+      "before": "docs/release-1.2-reconciliation.md",
+      "after": "docs/release-1.2-reconciliation.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "e5824bd75643fc99a7bfa31fa56d130c0f54bf1814aa6992be3769b95af65424",
+      "original_bytes": 832,
+      "current_sha256": "e5824bd75643fc99a7bfa31fa56d130c0f54bf1814aa6992be3769b95af65424"
+    },
+    {
+      "before": "docs/procedural-memory.md",
+      "after": "docs/procedural-memory.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "f47c13f469684b0a4e7a06c74d54391abf658218bc24522f2da81e6ef699400c",
+      "original_bytes": 5448,
+      "current_sha256": "f47c13f469684b0a4e7a06c74d54391abf658218bc24522f2da81e6ef699400c"
+    },
+    {
+      "before": "docs/semantic-foundation.md",
+      "after": "docs/semantic-foundation.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "cb26abb4ae9387bc49d0042c20794edee2a6669b13abb9b67c62d0624a2a17a9",
+      "original_bytes": 4412,
+      "current_sha256": "cb26abb4ae9387bc49d0042c20794edee2a6669b13abb9b67c62d0624a2a17a9"
+    },
+    {
+      "before": "docs/core-provenance.md",
+      "after": "docs/core-provenance.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "8a1c5c53fbb42032d163ca35c924e837393f28f4e342ae002e78e13f65dc09dd",
+      "original_bytes": 9677,
+      "current_sha256": "8a1c5c53fbb42032d163ca35c924e837393f28f4e342ae002e78e13f65dc09dd"
+    },
+    {
+      "before": "docs/demo-script.md",
+      "after": "docs/demo-script.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "f75f1a3ce65362081bf9f45b7b8ea7b98e5ea0071927a999b26f3cde3cb8cd8c",
+      "original_bytes": 2823,
+      "current_sha256": "f75f1a3ce65362081bf9f45b7b8ea7b98e5ea0071927a999b26f3cde3cb8cd8c"
+    },
+    {
+      "before": "packages/mcp-server/README.md",
+      "after": "packages/mcp-server/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d12e63074b1fb1a4707a9f496e864ea4b6c62164265a8cdd06964e75762fe5ee",
+      "original_bytes": 7549,
+      "current_sha256": "d12e63074b1fb1a4707a9f496e864ea4b6c62164265a8cdd06964e75762fe5ee"
+    },
+    {
+      "before": "docs/releases/1.1.13.md",
+      "after": "docs/releases/1.1.13.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "45183d26e3b64aba103c2a4ff9b032827428736877990f056ef3ee9c23bd911a",
+      "original_bytes": 1785,
+      "current_sha256": "45183d26e3b64aba103c2a4ff9b032827428736877990f056ef3ee9c23bd911a"
+    },
+    {
+      "before": "docs/releases/1.1.12.md",
+      "after": "docs/releases/1.1.12.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "5846c347f0cdd81251cd94518e0d789c79969ab62b74e53e3cb952c4df0fff0c",
+      "original_bytes": 1011,
+      "current_sha256": "5846c347f0cdd81251cd94518e0d789c79969ab62b74e53e3cb952c4df0fff0c"
+    },
+    {
+      "before": "docs/releases/1.1.1.md",
+      "after": "docs/releases/1.1.1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "2910785541fe3edca3209e5b4802360a486ed5dc61c77417f431396f76f0b6a9",
+      "original_bytes": 821,
+      "current_sha256": "2910785541fe3edca3209e5b4802360a486ed5dc61c77417f431396f76f0b6a9"
+    },
+    {
+      "before": "docs/releases/1.1.0.md",
+      "after": "docs/releases/1.1.0.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "22999a4884cea5113e3e94071692526be301e4b36d7801443e33a7df6c933df2",
+      "original_bytes": 1415,
+      "current_sha256": "22999a4884cea5113e3e94071692526be301e4b36d7801443e33a7df6c933df2"
+    },
+    {
+      "before": "docs/testing/invariants.md",
+      "after": "docs/testing/invariants.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "4b29ac8805479d061c3a7defef26d55bfbfdc88fc337cb56e94f958d3e2597b0",
+      "original_bytes": 15849,
+      "current_sha256": "4b29ac8805479d061c3a7defef26d55bfbfdc88fc337cb56e94f958d3e2597b0"
+    },
+    {
+      "before": "docs/provider-rich-domain-read-v1.md",
+      "after": "docs/provider-rich-domain-read-v1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "7b2b969e4cbeda83a4f136d75ff0fbc8e2da6d0a18e6fe77ddb92c10e98468ea",
+      "original_bytes": 9201,
+      "current_sha256": "7b2b969e4cbeda83a4f136d75ff0fbc8e2da6d0a18e6fe77ddb92c10e98468ea"
+    },
+    {
+      "before": "docs/generated-project-hygiene.md",
+      "after": "docs/generated-project-hygiene.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "bd366d0ca1051d21407922dceb833f051ef179136323ee00836ac168e6282eee",
+      "original_bytes": 1654,
+      "current_sha256": "bd366d0ca1051d21407922dceb833f051ef179136323ee00836ac168e6282eee"
+    },
+    {
+      "before": "docs/semantic-operations.md",
+      "after": "docs/semantic-operations.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "23238fc77e72684e94d5ad2f836d66a7c27d500dd78f5fa50dcbe12509aae7bc",
+      "original_bytes": 3835,
+      "current_sha256": "23238fc77e72684e94d5ad2f836d66a7c27d500dd78f5fa50dcbe12509aae7bc"
+    },
+    {
+      "before": "docs/local-project-onboarding.md",
+      "after": "docs/local-project-onboarding.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "6dfb8f9d6984e423553af7444de61a62d6a0dcc67f6c80f46806a71b76d3f1ac",
+      "original_bytes": 2249,
+      "current_sha256": "6dfb8f9d6984e423553af7444de61a62d6a0dcc67f6c80f46806a71b76d3f1ac"
+    },
+    {
+      "before": "artifacts/research/polygres-overview.md",
+      "after": "artifacts/research/polygres-overview.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "1f70339f6264fac83a7528ad3b4b51f9a1d0e5c876d74a61726a071c2500755b",
+      "original_bytes": 4851,
+      "current_sha256": "1f70339f6264fac83a7528ad3b4b51f9a1d0e5c876d74a61726a071c2500755b"
+    },
+    {
+      "before": "docs/dataset-catalog.md",
+      "after": "docs/dataset-catalog.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "dc28975151cb9686c8b89ceac05672010a2acce2a029feff417c80f5aac881e6",
+      "original_bytes": 3648,
+      "current_sha256": "dc28975151cb9686c8b89ceac05672010a2acce2a029feff417c80f5aac881e6"
+    },
+    {
+      "before": "docs/observed-run-artifact.md",
+      "after": "docs/observed-run-artifact.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "4555dfe0f137cb224bbc006aa21c1cddc0731d1cee6ff0c7dd419d5eb8328f53",
+      "original_bytes": 5155,
+      "current_sha256": "4555dfe0f137cb224bbc006aa21c1cddc0731d1cee6ff0c7dd419d5eb8328f53"
+    },
+    {
+      "before": "docs/migrations/1.1.md",
+      "after": "docs/migrations/1.1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "34d6f2a21ce1cdeda0deb547ae9149f01f7bf4c5f543260f5bc5612613e0cd1a",
+      "original_bytes": 1775,
+      "current_sha256": "34d6f2a21ce1cdeda0deb547ae9149f01f7bf4c5f543260f5bc5612613e0cd1a"
+    },
+    {
+      "before": "docs/provider-asset-read-v1.md",
+      "after": "docs/provider-asset-read-v1.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "49a2ec394cfd9cfb889a3feeb235b5de2c18a1eff95de17d56a27430bf94abb3",
+      "original_bytes": 3981,
+      "current_sha256": "49a2ec394cfd9cfb889a3feeb235b5de2c18a1eff95de17d56a27430bf94abb3"
+    },
+    {
+      "before": "docs/authorized-context.md",
+      "after": "docs/authorized-context.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "2714044262e1d7db127ed0325e7d358f43d9658d3cdb4d01ad22c6b64af0fa9c",
+      "original_bytes": 1287,
+      "current_sha256": "2714044262e1d7db127ed0325e7d358f43d9658d3cdb4d01ad22c6b64af0fa9c"
+    },
+    {
+      "before": "docs/growth-plan.md",
+      "after": "docs/archive/legacy-planning/docs/growth-plan.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "7631b5d39de0b5f6651894056bc24dd3db41b9937f6586fa7be8ad9cc6aa1ec3",
+      "original_bytes": 8258,
+      "current_sha256": "a69bf7a635fe1c015b700387056e1f87f12bb7ae230999e81f705c2cd0d85e98"
+    },
+    {
+      "before": "docs/capability-publication.md",
+      "after": "docs/capability-publication.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "91b41ac98d990f39063c8f882a06974b387ca688582918675bf2ba91c00f48c7",
+      "original_bytes": 5927,
+      "current_sha256": "91b41ac98d990f39063c8f882a06974b387ca688582918675bf2ba91c00f48c7"
+    },
+    {
+      "before": "docs/project-layout.md",
+      "after": "docs/project-layout.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "6f6a8116d7687cea21e1e8cd52acc0cac677589e96317cec0c0993ae6c723d08",
+      "original_bytes": 1134,
+      "current_sha256": "6f6a8116d7687cea21e1e8cd52acc0cac677589e96317cec0c0993ae6c723d08"
+    },
+    {
+      "before": "docs/listeners.md",
+      "after": "docs/listeners.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "90398bb1d02a8d0333bc541c76fd5d174a53d605ccfa4a73e71cc9a213483bfd",
+      "original_bytes": 4893,
+      "current_sha256": "90398bb1d02a8d0333bc541c76fd5d174a53d605ccfa4a73e71cc9a213483bfd"
+    },
+    {
+      "before": "docs/README.md",
+      "after": "docs/README.md",
+      "category": "reference",
+      "action": "update-reference-or-status",
+      "original_sha256": "77579f90c8f321c6839324be364a2518b89669ca97131b9016469ee57739b8fa",
+      "original_bytes": 1918,
+      "current_sha256": "36958f76986c39441536448516b168c6aa1c8f18a52677023d2c0799e0057152"
+    },
+    {
+      "before": "examples/README.md",
+      "after": "examples/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c9cbd3a902ed994e83489cb28dad6a4adc1b345b795de1b6ade75f1ff575d6ce",
+      "original_bytes": 1460,
+      "current_sha256": "c9cbd3a902ed994e83489cb28dad6a4adc1b345b795de1b6ade75f1ff575d6ce"
+    },
+    {
+      "before": "docs/agents/knowledge-22-design-audit.md",
+      "after": "docs/agents/knowledge-22-design-audit.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "f360e3f28198b5c9d6bb39db8f15d9bbf5ad2e1054c78032a728e79e1fd2f668",
+      "original_bytes": 4559,
+      "current_sha256": "b9f83059ecf590b3097b4d6125652a74d9de6a4a161c8bbe3c908991dc6a0485"
+    },
+    {
+      "before": "docs/agents/local-writer-handoff.md",
+      "after": "docs/archive/legacy-planning/docs/agents/local-writer-handoff.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "714bd57b263138ec7d087870e12be770cb672a7b42efb1b1a687fc28ab9bb299",
+      "original_bytes": 16851,
+      "current_sha256": "e62c4f1ee74c2e0d9b579268fe95c54cc00094157fb235a6a49061593512514b"
+    },
+    {
+      "before": "docs/agents/knowledge-25-core-integration-fixture.md",
+      "after": "docs/agents/knowledge-25-core-integration-fixture.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "a7603bbd4725d5a7020b4cbc8e358e1462f5513a33f4cc55311d045faa89eede",
+      "original_bytes": 3072,
+      "current_sha256": "585e1eaa6f7523a8d0c89cca2505ed13e477701f665234f3c92c5cc983093633"
+    },
+    {
+      "before": "docs/agents/knowledge-31-reviewed-source-reuse.md",
+      "after": "docs/agents/knowledge-31-reviewed-source-reuse.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "e01f1274c6b44bf6e52647d4055e5a50fd6c17f5257937595e0e44367ac7f689",
+      "original_bytes": 3040,
+      "current_sha256": "448c126ca7f9cac21a2747105ed5e79dcd890fb20cb54f67a77adfb93a1b3cb9"
+    },
+    {
+      "before": "docs/agents/knowledge-19-acceptance-audit.md",
+      "after": "docs/agents/knowledge-19-acceptance-audit.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "66630875796cfd782dbaf5e562d2b5d2ebb684e9001d8be45507cc7dc2dd7928",
+      "original_bytes": 14985,
+      "current_sha256": "a3450a123bee5a3d51871b5c0fd9c65aa81bd473df69582ea1ef74bb440f61f4"
+    },
+    {
+      "before": "docs/agents/knowledge-20-projection-slice.md",
+      "after": "docs/agents/knowledge-20-projection-slice.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "69c4b81a23eea775a0373156e7ef1f35471ef2c740385d8b4889192f1d9249fe",
+      "original_bytes": 9734,
+      "current_sha256": "0314b151b0a315906db04327821d163a6e7ea0adf4a711bd2a8e70fab3290099"
+    },
+    {
+      "before": "docs/agents/knowledge-20-history-query-boundary.md",
+      "after": "docs/agents/knowledge-20-history-query-boundary.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "f63875dfc4941aa1fe510a29d2199d101e36dfd18026fe8ec22f184f429417ea",
+      "original_bytes": 4498,
+      "current_sha256": "5edf6ef75332c489fc05b95e57d30a5994ab69fc10586da751b338844787ca75"
+    },
+    {
+      "before": "docs/agents/knowledge-29-shared-knowledge-journey.md",
+      "after": "docs/agents/knowledge-29-shared-knowledge-journey.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "a4fe3c74943970a7c11e2f0d1113a2ec547049985bbc8fdfacf3a27f83ba3520",
+      "original_bytes": 3668,
+      "current_sha256": "e525797e09bd5da1932f41f1daff9725faae6c14e890f4f03f24e1f70d226305"
+    },
+    {
+      "before": "docs/agents/knowledge-25-provider-packet-proof.md",
+      "after": "docs/agents/knowledge-25-provider-packet-proof.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "323a778754ef23a407b69b77984a522c36686f458e4c0d2163658f61aeb327df",
+      "original_bytes": 7797,
+      "current_sha256": "328082ba4e5d21816b934d55fbda3a889a9b0db4b530f3732b62737b990af7c8"
+    },
+    {
+      "before": "docs/agents/knowledge-21-initial-proof.md",
+      "after": "docs/agents/knowledge-21-initial-proof.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "587014b22543ffa8097051d197b5efb7ff423fafe545b01903e3b208411405ae",
+      "original_bytes": 5287,
+      "current_sha256": "fb9cb4259885bf622da23fea44320c2ce2150fb9182d6402ed596c5cc5fa7753"
+    },
+    {
+      "before": "docs/agents/registered-git-evidence-proof.md",
+      "after": "docs/agents/registered-git-evidence-proof.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "0efa6f08fdd0eff432caf0645269bcb44eb9b50d398a59c72977205517f3a5f6",
+      "original_bytes": 3087,
+      "current_sha256": "f8c5a87d016a26dec5d57ec89000b89dc48910ca64c05934080ab4c9627c8969"
+    },
+    {
+      "before": "docs/agents/planner-knowledge-status.md",
+      "after": "docs/archive/legacy-planning/docs/agents/planner-knowledge-status.md",
+      "category": "historical-planning",
+      "action": "archive",
+      "original_sha256": "4c2fb6f0408540a3d9824757b312c8bb4a81d226b665ff66678767da56136e9f",
+      "original_bytes": 37434,
+      "current_sha256": "0af55e0c448a36a44b1d343bb97aaf9f336458c9ebe5b774773baa854bfc07a8"
+    },
+    {
+      "before": "docs/integrations/software-architecture-memory.md",
+      "after": "docs/integrations/software-architecture-memory.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "4b535dfbf227b9a2a324071c200f666a01e1ce868a4a275fa87acba3e6b66665",
+      "original_bytes": 2951,
+      "current_sha256": "4b535dfbf227b9a2a324071c200f666a01e1ce868a4a275fa87acba3e6b66665"
+    },
+    {
+      "before": "docs/integrations/literature-reviews.md",
+      "after": "docs/integrations/literature-reviews.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "00a0f95b97d39650dbbb97327fd0dc57d0d2deddfb2498c031cad627601d5e21",
+      "original_bytes": 2575,
+      "current_sha256": "00a0f95b97d39650dbbb97327fd0dc57d0d2deddfb2498c031cad627601d5e21"
+    },
+    {
+      "before": "docs/integrations/codex.md",
+      "after": "docs/integrations/codex.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "f93208b26af6a53b8e963dbbbef021d87a709eb4caa63b067b9b12f13e435e13",
+      "original_bytes": 2828,
+      "current_sha256": "f93208b26af6a53b8e963dbbbef021d87a709eb4caa63b067b9b12f13e435e13"
+    },
+    {
+      "before": "docs/integrations/README.md",
+      "after": "docs/integrations/README.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "760ff42eb12a36be28365097e18acfcb7887ff558e0586a075bd2dcc435215a9",
+      "original_bytes": 2534,
+      "current_sha256": "760ff42eb12a36be28365097e18acfcb7887ff558e0586a075bd2dcc435215a9"
+    },
+    {
+      "before": "docs/integrations/mcp-server.md",
+      "after": "docs/integrations/mcp-server.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "29bd472be930401c60af3bbc52f9ee06decbc2b1074d7164d2007e64b8d71a28",
+      "original_bytes": 2999,
+      "current_sha256": "29bd472be930401c60af3bbc52f9ee06decbc2b1074d7164d2007e64b8d71a28"
+    },
+    {
+      "before": "docs/integrations/cursor.md",
+      "after": "docs/integrations/cursor.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "569d92cd41d589fc5726fe785550794e585992ae9b4f723acbd3d67258733651",
+      "original_bytes": 2441,
+      "current_sha256": "569d92cd41d589fc5726fe785550794e585992ae9b4f723acbd3d67258733651"
+    },
+    {
+      "before": "docs/integrations/claude-code.md",
+      "after": "docs/integrations/claude-code.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "850c3c5fc8b72f8afc5263e13c6f3d37453fff3b27725f851cc091e4a5b9d607",
+      "original_bytes": 3966,
+      "current_sha256": "850c3c5fc8b72f8afc5263e13c6f3d37453fff3b27725f851cc091e4a5b9d607"
+    },
+    {
+      "before": "docs/knowledge-modes.md",
+      "after": "docs/knowledge-modes.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "3010d78e65f8369750ff342b7cb7a54dcd06f0d04bc9e3093e985ee1d6ad0d44",
+      "original_bytes": 8662,
+      "current_sha256": "3010d78e65f8369750ff342b7cb7a54dcd06f0d04bc9e3093e985ee1d6ad0d44"
+    },
+    {
+      "before": "docs/hosted-storage.md",
+      "after": "docs/hosted-storage.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "2533922b4044c037fb82390dea5626fb701d409fd0d724c61962b4ba50977fb9",
+      "original_bytes": 6428,
+      "current_sha256": "2533922b4044c037fb82390dea5626fb701d409fd0d724c61962b4ba50977fb9"
+    },
+    {
+      "before": "examples/software-map/topics/health-endpoint.md",
+      "after": "examples/software-map/topics/health-endpoint.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "40aedd527f68ccad61ec1c7fc3951546be8a2d225e61b366e217ff5720ed44b6",
+      "original_bytes": 831,
+      "current_sha256": "40aedd527f68ccad61ec1c7fc3951546be8a2d225e61b366e217ff5720ed44b6"
+    },
+    {
+      "before": "examples/software-map/topics/brief.md",
+      "after": "examples/software-map/topics/brief.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5272e02dd97d4daa13505a92202d0753d379fd16c11add6fb005792668da61bc",
+      "original_bytes": 1131,
+      "current_sha256": "5272e02dd97d4daa13505a92202d0753d379fd16c11add6fb005792668da61bc"
+    },
+    {
+      "before": "examples/software-map/topics/api-service.md",
+      "after": "examples/software-map/topics/api-service.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "a19f8005e58821359329a7b1adce9a59398f6371a0cd54615718dcf07e99c3bd",
+      "original_bytes": 833,
+      "current_sha256": "a19f8005e58821359329a7b1adce9a59398f6371a0cd54615718dcf07e99c3bd"
+    },
+    {
+      "before": "examples/software-map/topics/ui-module.md",
+      "after": "examples/software-map/topics/ui-module.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "0f88273e756428fe33bf484eb0254b31b2d7306d3028241f826b1762fa25b178",
+      "original_bytes": 771,
+      "current_sha256": "0f88273e756428fe33bf484eb0254b31b2d7306d3028241f826b1762fa25b178"
+    },
+    {
+      "before": "examples/software-map/topics/dependency-review.md",
+      "after": "examples/software-map/topics/dependency-review.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "695355b4ad4af3cab7c7c28233b85063e57646ae0bcecb3819f2b05be5837a51",
+      "original_bytes": 952,
+      "current_sha256": "695355b4ad4af3cab7c7c28233b85063e57646ae0bcecb3819f2b05be5837a51"
+    },
+    {
+      "before": "specs/README.md",
+      "after": "specs/README.md",
+      "category": "reference",
+      "action": "retain",
+      "original_sha256": "d34ecda7e49c25c70b9338cc5d7324ae9f12296afd343d7d88dd7d927eddec59",
+      "original_bytes": 577,
+      "current_sha256": "d34ecda7e49c25c70b9338cc5d7324ae9f12296afd343d7d88dd7d927eddec59"
+    },
+    {
+      "before": "docs/agents/integration-handoffs/knowledge-company-guidance-packet-proof-20260907.md",
+      "after": "docs/agents/integration-handoffs/knowledge-company-guidance-packet-proof-20260907.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "8e23e3e12acb6d62c4c4f747ae23e15da38f7ce5990bae2b321a3a3fcd9d0b71",
+      "original_bytes": 3090,
+      "current_sha256": "5c13bc84311481e568f6547848ba13710c621fd048e92058512565b595b7561d"
+    },
+    {
+      "before": "docs/agents/integration-handoffs/knowledge24-belief-inference-proof-20260907.md",
+      "after": "docs/agents/integration-handoffs/knowledge24-belief-inference-proof-20260907.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "992ea49e6007e897155cfaf29ca32d3fce45291588865b727c88e84266716847",
+      "original_bytes": 6269,
+      "current_sha256": "0b26a5563455d9945c0765514636940b6038cc15a859260bc754796fa9aa9616"
+    },
+    {
+      "before": "docs/agents/integration-handoffs/knowledge29-signed-authority-proof-20260907.md",
+      "after": "docs/agents/integration-handoffs/knowledge29-signed-authority-proof-20260907.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "e8ddc5f0f9c771d88386d6748baed78b5841861058da283b60a16924fdde7a6e",
+      "original_bytes": 3779,
+      "current_sha256": "d492eaa83b69c2e4034d55820c9d1974070370801c516507ef952ef746bdb2ce"
+    },
+    {
+      "before": "docs/agents/integration-handoffs/knowledge-company-guidance-proof-20260907.md",
+      "after": "docs/agents/integration-handoffs/knowledge-company-guidance-proof-20260907.md",
+      "category": "implementation-evidence",
+      "action": "update-reference-or-status",
+      "original_sha256": "f399b5e3955bd8bff632ac09ffc238bf7a5b5db418b94a5df1e791ec1577a6ac",
+      "original_bytes": 1980,
+      "current_sha256": "d6591d7e0a3b646bd00e50777e22e62c7e1e6ffe07665f2f1fcc253fa9d07ba8"
+    },
+    {
+      "before": "examples/governed-memory/README.md",
+      "after": "examples/governed-memory/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9cb8221079c711e85f80e8ac2ba9e3fb546bc8428485873bb27f90d9008cea3a",
+      "original_bytes": 1957,
+      "current_sha256": "9cb8221079c711e85f80e8ac2ba9e3fb546bc8428485873bb27f90d9008cea3a"
+    },
+    {
+      "before": "examples/co-scientist-workflow/topics/brief.md",
+      "after": "examples/co-scientist-workflow/topics/brief.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ca519c1faf53a4bc16b1c0de36d6d8a324f1ade7529fa26010e5cd4c6ab425bb",
+      "original_bytes": 1343,
+      "current_sha256": "ca519c1faf53a4bc16b1c0de36d6d8a324f1ade7529fa26010e5cd4c6ab425bb"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/retrieval_v2/topics/a-current-release.md",
+      "after": "packages/rail-py/tests/fixtures/retrieval_v2/topics/a-current-release.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "995f93059228e192873c222254284098ec5c10b38aa3ffbe835bead62726bf50",
+      "original_bytes": 200,
+      "current_sha256": "995f93059228e192873c222254284098ec5c10b38aa3ffbe835bead62726bf50"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/retrieval_v2/topics/aurora-routing.md",
+      "after": "packages/rail-py/tests/fixtures/retrieval_v2/topics/aurora-routing.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "0cc42178fe5fae699583e4b3dd7a21c77e0c181712b16b0cf7812d902b1b7303",
+      "original_bytes": 281,
+      "current_sha256": "0cc42178fe5fae699583e4b3dd7a21c77e0c181712b16b0cf7812d902b1b7303"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/retrieval_v2/topics/graph-consumer.md",
+      "after": "packages/rail-py/tests/fixtures/retrieval_v2/topics/graph-consumer.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "e8f61b73ce99804225453adc732b5e8f37043946efb45ff73865d7c61dbd5db4",
+      "original_bytes": 195,
+      "current_sha256": "e8f61b73ce99804225453adc732b5e8f37043946efb45ff73865d7c61dbd5db4"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/retrieval_v2/topics/owned-gateway.md",
+      "after": "packages/rail-py/tests/fixtures/retrieval_v2/topics/owned-gateway.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "900e8fa1a754b232be062adb8f02fb1ef850064e66759cd619c7b6bc793daa9f",
+      "original_bytes": 214,
+      "current_sha256": "900e8fa1a754b232be062adb8f02fb1ef850064e66759cd619c7b6bc793daa9f"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/retrieval_v2/topics/z-legacy-release.md",
+      "after": "packages/rail-py/tests/fixtures/retrieval_v2/topics/z-legacy-release.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "43b395a59d8c812813d482dfd9d0f220dabd29ef9676af92ec866e39afcaf9aa",
+      "original_bytes": 202,
+      "current_sha256": "43b395a59d8c812813d482dfd9d0f220dabd29ef9676af92ec866e39afcaf9aa"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/health.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866",
+      "original_bytes": 953,
+      "current_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/planner.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d",
+      "original_bytes": 2725,
+      "current_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/research.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93",
+      "original_bytes": 617,
+      "current_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/coding.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45",
+      "original_bytes": 145,
+      "current_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/artifact.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0",
+      "original_bytes": 149,
+      "current_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/critic.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4",
+      "original_bytes": 661,
+      "current_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/data.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd",
+      "original_bytes": 141,
+      "current_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/doctor.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355",
+      "original_bytes": 802,
+      "current_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/prompts/platform.md",
+      "after": "examples/co-scientist-workflow/agents/prompts/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9",
+      "original_bytes": 781,
+      "current_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/decisions.md",
+      "after": "examples/co-scientist-workflow/research_plan/decisions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2cce984feac8953790a34cb9a7176e7bb9b7dc08d81140ee7a42766571afb28d",
+      "original_bytes": 12,
+      "current_sha256": "2cce984feac8953790a34cb9a7176e7bb9b7dc08d81140ee7a42766571afb28d"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/claim_evidence.md",
+      "after": "examples/co-scientist-workflow/research_plan/claim_evidence.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5571bfef15e66b435f2829a4c9a02f4968a89b364181cd70dcaa6c3e41eedf95",
+      "original_bytes": 17,
+      "current_sha256": "5571bfef15e66b435f2829a4c9a02f4968a89b364181cd70dcaa6c3e41eedf95"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/verification_summary.md",
+      "after": "examples/co-scientist-workflow/research_plan/verification_summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "fc9993da4c7d4b2c6aeb2d627428b58fb7bf10bd1382243061eb5b27853a3472",
+      "original_bytes": 23,
+      "current_sha256": "fc9993da4c7d4b2c6aeb2d627428b58fb7bf10bd1382243061eb5b27853a3472"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/current_plan.md",
+      "after": "examples/co-scientist-workflow/research_plan/current_plan.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "36ce87fdcdb574a0976fa51abd7e2f2128f92ab12ca43890ac8f559ae81be6d4",
+      "original_bytes": 1450,
+      "current_sha256": "36ce87fdcdb574a0976fa51abd7e2f2128f92ab12ca43890ac8f559ae81be6d4"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/task_board.md",
+      "after": "examples/co-scientist-workflow/research_plan/task_board.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e",
+      "original_bytes": 182,
+      "current_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/target_state.md",
+      "after": "examples/co-scientist-workflow/research_plan/target_state.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c",
+      "original_bytes": 152,
+      "current_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c"
+    },
+    {
+      "before": "packages/rail-py/krail/resources/contracts/krail.semantic-operations.v1/README.md",
+      "after": "packages/rail-py/krail/resources/contracts/krail.semantic-operations.v1/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c75457be6b36a025dcbc1641fe9b6102b876dfd2e7ced6083a24d47240e69fdd",
+      "original_bytes": 1025,
+      "current_sha256": "c75457be6b36a025dcbc1641fe9b6102b876dfd2e7ced6083a24d47240e69fdd"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/assumptions.md",
+      "after": "examples/co-scientist-workflow/research_plan/assumptions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "a887f6020817a924fe26e69d36901b58f89981f059ba81ae78873ee1272ad52c",
+      "original_bytes": 14,
+      "current_sha256": "a887f6020817a924fe26e69d36901b58f89981f059ba81ae78873ee1272ad52c"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/rerun_options.md",
+      "after": "examples/co-scientist-workflow/research_plan/rerun_options.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2a75af46868b46ee8179b69b718d72402465c55244888acbb3f7a6838d23e0d7",
+      "original_bytes": 16,
+      "current_sha256": "2a75af46868b46ee8179b69b718d72402465c55244888acbb3f7a6838d23e0d7"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/source_registry.md",
+      "after": "examples/co-scientist-workflow/research_plan/source_registry.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "01f4e9305fdba35c8a777b6f815156d94e8bccac35ec48b69bb45f55ff475637",
+      "original_bytes": 565,
+      "current_sha256": "01f4e9305fdba35c8a777b6f815156d94e8bccac35ec48b69bb45f55ff475637"
+    },
+    {
+      "before": "examples/co-scientist-workflow/README.md",
+      "after": "examples/co-scientist-workflow/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5b821506a92c75796072562d6a06fb19206ff71a67a8214847f92ca7a2d72a2a",
+      "original_bytes": 2137,
+      "current_sha256": "5b821506a92c75796072562d6a06fb19206ff71a67a8214847f92ca7a2d72a2a"
+    },
+    {
+      "before": "examples/co-scientist-workflow/AGENTS.md",
+      "after": "examples/co-scientist-workflow/AGENTS.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "baee5ad5ab06f88e9cf8a1fe2c1c1bdce2c8792dc148d8f6ecbe0521eccdd80d",
+      "original_bytes": 792,
+      "current_sha256": "baee5ad5ab06f88e9cf8a1fe2c1c1bdce2c8792dc148d8f6ecbe0521eccdd80d"
+    },
+    {
+      "before": "packages/api/app/prompts/planner.md",
+      "after": "packages/api/app/prompts/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "fd3527b5b9846b2cdcfce7ac7df731a36a690f9a8557ecd53239356e75d388e6",
+      "original_bytes": 2621,
+      "current_sha256": "fd3527b5b9846b2cdcfce7ac7df731a36a690f9a8557ecd53239356e75d388e6"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/health.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14",
+      "original_bytes": 347,
+      "current_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/planner.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c",
+      "original_bytes": 716,
+      "current_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/research.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196",
+      "original_bytes": 437,
+      "current_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/coding.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412",
+      "original_bytes": 351,
+      "current_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/artifact.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888",
+      "original_bytes": 345,
+      "current_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/critic.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee",
+      "original_bytes": 390,
+      "current_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/data.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7",
+      "original_bytes": 421,
+      "current_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/doctor.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac",
+      "original_bytes": 308,
+      "current_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac"
+    },
+    {
+      "before": "examples/co-scientist-workflow/agents/checklists/platform.md",
+      "after": "examples/co-scientist-workflow/agents/checklists/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82",
+      "original_bytes": 304,
+      "current_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/data_gaps.md",
+      "after": "examples/co-scientist-workflow/research_plan/data_gaps.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5",
+      "original_bytes": 133,
+      "current_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/provenance.md",
+      "after": "examples/co-scientist-workflow/research_plan/provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "bf522b4a142b19860c2024e5b2bb5eb8d1f472b3e7be5f543aace7bfcaddfbd1",
+      "original_bytes": 13,
+      "current_sha256": "bf522b4a142b19860c2024e5b2bb5eb8d1f472b3e7be5f543aace7bfcaddfbd1"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/open_questions.md",
+      "after": "examples/co-scientist-workflow/research_plan/open_questions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9f230502d8249708bbb4fb3353df17d41afa4e2bbdd0080d31b20d3e522d819f",
+      "original_bytes": 17,
+      "current_sha256": "9f230502d8249708bbb4fb3353df17d41afa4e2bbdd0080d31b20d3e522d819f"
+    },
+    {
+      "before": "examples/software-map/skills/literature-review.md",
+      "after": "examples/software-map/skills/literature-review.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e",
+      "original_bytes": 512,
+      "current_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e"
+    },
+    {
+      "before": "examples/software-map/skills/repo-contract.md",
+      "after": "examples/software-map/skills/repo-contract.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1",
+      "original_bytes": 94,
+      "current_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1"
+    },
+    {
+      "before": "examples/software-map/skills/citations.md",
+      "after": "examples/software-map/skills/citations.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466",
+      "original_bytes": 256,
+      "current_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466"
+    },
+    {
+      "before": "examples/software-map/skills/rail-platform.md",
+      "after": "examples/software-map/skills/rail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6a38447933463f87d2eefe8e49db866aea568b7118d0f331e7be7d15594f6a22",
+      "original_bytes": 2663,
+      "current_sha256": "6a38447933463f87d2eefe8e49db866aea568b7118d0f331e7be7d15594f6a22"
+    },
+    {
+      "before": "examples/software-map/skills/policy-analysis.md",
+      "after": "examples/software-map/skills/policy-analysis.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a",
+      "original_bytes": 373,
+      "current_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a"
+    },
+    {
+      "before": "examples/software-map/skills/verification.md",
+      "after": "examples/software-map/skills/verification.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a",
+      "original_bytes": 1009,
+      "current_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a"
+    },
+    {
+      "before": "examples/software-map/skills/source-inventory.md",
+      "after": "examples/software-map/skills/source-inventory.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6",
+      "original_bytes": 420,
+      "current_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6"
+    },
+    {
+      "before": "examples/software-map/skills/econometric-design.md",
+      "after": "examples/software-map/skills/econometric-design.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677",
+      "original_bytes": 424,
+      "current_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677"
+    },
+    {
+      "before": "examples/software-map/skills/krail-platform.md",
+      "after": "examples/software-map/skills/krail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d",
+      "original_bytes": 448,
+      "current_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d"
+    },
+    {
+      "before": "examples/software-map/skills/data-provenance.md",
+      "after": "examples/software-map/skills/data-provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a",
+      "original_bytes": 327,
+      "current_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a"
+    },
+    {
+      "before": "examples/software-map/skills/semantic-auditing.md",
+      "after": "examples/software-map/skills/semantic-auditing.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093",
+      "original_bytes": 865,
+      "current_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093"
+    },
+    {
+      "before": "examples/software-map/skills/web-research.md",
+      "after": "examples/software-map/skills/web-research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28",
+      "original_bytes": 890,
+      "current_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28"
+    },
+    {
+      "before": "packages/rail-py/krail/resources/contracts/krail.provider.v1/README.md",
+      "after": "packages/rail-py/krail/resources/contracts/krail.provider.v1/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "1b34d47a8a9f50c5e28082f35e51d8cd8e10e9ed9d3e630eb1ab2caa2bd298c2",
+      "original_bytes": 5049,
+      "current_sha256": "1b34d47a8a9f50c5e28082f35e51d8cd8e10e9ed9d3e630eb1ab2caa2bd298c2"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/methodology.md",
+      "after": "examples/co-scientist-workflow/research_plan/methodology.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "80604b0b178ffd89c5404592accf0625ecd6f7370d029de4e79df0e32c95ec3d",
+      "original_bytes": 14,
+      "current_sha256": "80604b0b178ffd89c5404592accf0625ecd6f7370d029de4e79df0e32c95ec3d"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/literature-review.md",
+      "after": "examples/co-scientist-workflow/skills/literature-review.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e",
+      "original_bytes": 512,
+      "current_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/repo-contract.md",
+      "after": "examples/co-scientist-workflow/skills/repo-contract.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1",
+      "original_bytes": 94,
+      "current_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/citations.md",
+      "after": "examples/co-scientist-workflow/skills/citations.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466",
+      "original_bytes": 256,
+      "current_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/rail-platform.md",
+      "after": "examples/co-scientist-workflow/skills/rail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ba3335910cce60839a2a48883678ee1921ffbc066290a7ea7f5d3cd036ca0ad5",
+      "original_bytes": 2700,
+      "current_sha256": "ba3335910cce60839a2a48883678ee1921ffbc066290a7ea7f5d3cd036ca0ad5"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/policy-analysis.md",
+      "after": "examples/co-scientist-workflow/skills/policy-analysis.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a",
+      "original_bytes": 373,
+      "current_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/verification.md",
+      "after": "examples/co-scientist-workflow/skills/verification.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a",
+      "original_bytes": 1009,
+      "current_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/source-inventory.md",
+      "after": "examples/co-scientist-workflow/skills/source-inventory.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6",
+      "original_bytes": 420,
+      "current_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/econometric-design.md",
+      "after": "examples/co-scientist-workflow/skills/econometric-design.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677",
+      "original_bytes": 424,
+      "current_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/krail-platform.md",
+      "after": "examples/co-scientist-workflow/skills/krail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d",
+      "original_bytes": 448,
+      "current_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/data-provenance.md",
+      "after": "examples/co-scientist-workflow/skills/data-provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a",
+      "original_bytes": 327,
+      "current_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/semantic-auditing.md",
+      "after": "examples/co-scientist-workflow/skills/semantic-auditing.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093",
+      "original_bytes": 865,
+      "current_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093"
+    },
+    {
+      "before": "examples/co-scientist-workflow/skills/web-research.md",
+      "after": "examples/co-scientist-workflow/skills/web-research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28",
+      "original_bytes": 890,
+      "current_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28"
+    },
+    {
+      "before": "examples/co-scientist-workflow/research_plan/graph/summary.md",
+      "after": "examples/co-scientist-workflow/research_plan/graph/summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "22449170385d28e57bf718e1ac13688526b416e10b8fcd8e3940446c6246587f",
+      "original_bytes": 374,
+      "current_sha256": "22449170385d28e57bf718e1ac13688526b416e10b8fcd8e3940446c6246587f"
+    },
+    {
+      "before": "examples/company-brain/topics/billing-ownership.md",
+      "after": "examples/company-brain/topics/billing-ownership.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9d9930490172962f0aa8d49c7f61fb2ee767cdf929b7bd30e1eba5f925f2c895",
+      "original_bytes": 523,
+      "current_sha256": "9d9930490172962f0aa8d49c7f61fb2ee767cdf929b7bd30e1eba5f925f2c895"
+    },
+    {
+      "before": "examples/company-brain/topics/brief.md",
+      "after": "examples/company-brain/topics/brief.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c2382911362d16a5fb649ad9e27a233acdf5ac1efeeae58d917cd363af5a47a0",
+      "original_bytes": 894,
+      "current_sha256": "c2382911362d16a5fb649ad9e27a233acdf5ac1efeeae58d917cd363af5a47a0"
+    },
+    {
+      "before": "examples/company-brain/topics/company_overview.md",
+      "after": "examples/company-brain/topics/company_overview.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b62b5d87d4f69237a360be16cda6b86e3fbe7e30ba511a47227832b546e96067",
+      "original_bytes": 1111,
+      "current_sha256": "b62b5d87d4f69237a360be16cda6b86e3fbe7e30ba511a47227832b546e96067"
+    },
+    {
+      "before": "examples/company-brain/topics/revops_stack.md",
+      "after": "examples/company-brain/topics/revops_stack.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "100d966a9376734674a51887924a2a7df12305e67329c20fb7564b47178692ab",
+      "original_bytes": 1100,
+      "current_sha256": "100d966a9376734674a51887924a2a7df12305e67329c20fb7564b47178692ab"
+    },
+    {
+      "before": "examples/company-brain/expected/ownership-update.md",
+      "after": "examples/company-brain/expected/ownership-update.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7c6f09b20762ad895c53729abd756d9585ae30523dcbcf0de67f75fc5f11af30",
+      "original_bytes": 663,
+      "current_sha256": "7c6f09b20762ad895c53729abd756d9585ae30523dcbcf0de67f75fc5f11af30"
+    },
+    {
+      "before": "examples/company-brain/README.md",
+      "after": "examples/company-brain/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "a688d866cd6e707dc6a007b6d11698c6e17ca9d874433ab10ee75a6bb4c319bf",
+      "original_bytes": 2251,
+      "current_sha256": "a688d866cd6e707dc6a007b6d11698c6e17ca9d874433ab10ee75a6bb4c319bf"
+    },
+    {
+      "before": "examples/company-brain/research_plan/open_questions.md",
+      "after": "examples/company-brain/research_plan/open_questions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7997d7655d1ee553e1006cc8205c6621e5226d29d4dd5493679db30cd8050ef8",
+      "original_bytes": 18,
+      "current_sha256": "7997d7655d1ee553e1006cc8205c6621e5226d29d4dd5493679db30cd8050ef8"
+    },
+    {
+      "before": "examples/company-brain/research_plan/rerun_options.md",
+      "after": "examples/company-brain/research_plan/rerun_options.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d3290f319e676fa9270f3c6d8e675c26a19c04f3d5a78d4b5b0b4253e4dc7132",
+      "original_bytes": 17,
+      "current_sha256": "d3290f319e676fa9270f3c6d8e675c26a19c04f3d5a78d4b5b0b4253e4dc7132"
+    },
+    {
+      "before": "examples/company-brain/research_plan/source_registry.md",
+      "after": "examples/company-brain/research_plan/source_registry.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c4ee96906769c3dd14b1789cd8bfc8121331e5e45bf95236e7c8819cfbb61781",
+      "original_bytes": 509,
+      "current_sha256": "c4ee96906769c3dd14b1789cd8bfc8121331e5e45bf95236e7c8819cfbb61781"
+    },
+    {
+      "before": "examples/company-brain/research_plan/decisions.md",
+      "after": "examples/company-brain/research_plan/decisions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9203ea09519d0709696890bae34fde1b9d7f2a33460e39d5f3bde19cbe87068",
+      "original_bytes": 13,
+      "current_sha256": "b9203ea09519d0709696890bae34fde1b9d7f2a33460e39d5f3bde19cbe87068"
+    },
+    {
+      "before": "examples/company-brain/research_plan/claim_evidence.md",
+      "after": "examples/company-brain/research_plan/claim_evidence.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c1831b5c8ff2b7fd82087abaa46147c21b965155b4293f74ba3c3b06f1f0d28e",
+      "original_bytes": 18,
+      "current_sha256": "c1831b5c8ff2b7fd82087abaa46147c21b965155b4293f74ba3c3b06f1f0d28e"
+    },
+    {
+      "before": "examples/company-brain/research_plan/verification_summary.md",
+      "after": "examples/company-brain/research_plan/verification_summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ead686f86f284524efd103b139ccf0bf2304e7cded2572de55b4b86d1577df5b",
+      "original_bytes": 24,
+      "current_sha256": "ead686f86f284524efd103b139ccf0bf2304e7cded2572de55b4b86d1577df5b"
+    },
+    {
+      "before": "examples/company-brain/research_plan/current_plan.md",
+      "after": "examples/company-brain/research_plan/current_plan.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "38660a0f146a6d71b9d4c4c19223f48c6bbb04c9b854d223a017a102fe75cde5",
+      "original_bytes": 718,
+      "current_sha256": "38660a0f146a6d71b9d4c4c19223f48c6bbb04c9b854d223a017a102fe75cde5"
+    },
+    {
+      "before": "examples/company-brain/research_plan/task_board.md",
+      "after": "examples/company-brain/research_plan/task_board.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e",
+      "original_bytes": 182,
+      "current_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e"
+    },
+    {
+      "before": "examples/company-brain/research_plan/target_state.md",
+      "after": "examples/company-brain/research_plan/target_state.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c",
+      "original_bytes": 152,
+      "current_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/context_brief_vertical/topics/issue.md",
+      "after": "packages/rail-py/tests/fixtures/context_brief_vertical/topics/issue.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "bb1a1574f047fb014e3b33d4e0e4ab927890232920ec4a66736c9f0c6a180f09",
+      "original_bytes": 274,
+      "current_sha256": "bb1a1574f047fb014e3b33d4e0e4ab927890232920ec4a66736c9f0c6a180f09"
+    },
+    {
+      "before": "examples/company-brain/skills/literature-review.md",
+      "after": "examples/company-brain/skills/literature-review.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e",
+      "original_bytes": 512,
+      "current_sha256": "8043732a0c3bfbec3b721ad13f87a47e8c811601bc7a47a578fe9fe95864277e"
+    },
+    {
+      "before": "examples/company-brain/skills/repo-contract.md",
+      "after": "examples/company-brain/skills/repo-contract.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1",
+      "original_bytes": 94,
+      "current_sha256": "b9e8841a768af2bca3c584055657676575e0c1e4a40117f9143a93ec815184d1"
+    },
+    {
+      "before": "examples/company-brain/skills/citations.md",
+      "after": "examples/company-brain/skills/citations.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466",
+      "original_bytes": 256,
+      "current_sha256": "f8e70421ce892a5861c9bd1b0557b6a7bfa36bab69479ce384bebb9ccbb5b466"
+    },
+    {
+      "before": "examples/company-brain/skills/rail-platform.md",
+      "after": "examples/company-brain/skills/rail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6a38447933463f87d2eefe8e49db866aea568b7118d0f331e7be7d15594f6a22",
+      "original_bytes": 2663,
+      "current_sha256": "6a38447933463f87d2eefe8e49db866aea568b7118d0f331e7be7d15594f6a22"
+    },
+    {
+      "before": "examples/company-brain/skills/policy-analysis.md",
+      "after": "examples/company-brain/skills/policy-analysis.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a",
+      "original_bytes": 373,
+      "current_sha256": "c340c547dba92a82465158a524e90364f3965efd70e15ad7056ba22c075c928a"
+    },
+    {
+      "before": "examples/company-brain/skills/verification.md",
+      "after": "examples/company-brain/skills/verification.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a",
+      "original_bytes": 1009,
+      "current_sha256": "90157c04bb31f837430cdffae7520762cd6ee30dec01c000958d14c4c84a7c9a"
+    },
+    {
+      "before": "examples/company-brain/skills/source-inventory.md",
+      "after": "examples/company-brain/skills/source-inventory.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6",
+      "original_bytes": 420,
+      "current_sha256": "79998159fd79fe973800ea49477e3ce874db2428cacea6ccf3b0a2cf6a8b32e6"
+    },
+    {
+      "before": "examples/company-brain/skills/econometric-design.md",
+      "after": "examples/company-brain/skills/econometric-design.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677",
+      "original_bytes": 424,
+      "current_sha256": "ca6953e9d24847e7bc031acd650aae30085d305a16d25d366df3248264ebd677"
+    },
+    {
+      "before": "examples/company-brain/skills/krail-platform.md",
+      "after": "examples/company-brain/skills/krail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d",
+      "original_bytes": 448,
+      "current_sha256": "c1787d91ad6e20217058dd76bc5534ca3d2be3ef8f711e076570345b8f7b0f1d"
+    },
+    {
+      "before": "examples/company-brain/skills/data-provenance.md",
+      "after": "examples/company-brain/skills/data-provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a",
+      "original_bytes": 327,
+      "current_sha256": "51f6cfcd557820731fb71fa48a5fbf0bb3b2e27301ae4d70822fb3dac1b44b8a"
+    },
+    {
+      "before": "examples/company-brain/skills/semantic-auditing.md",
+      "after": "examples/company-brain/skills/semantic-auditing.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093",
+      "original_bytes": 865,
+      "current_sha256": "c01063f2372f5599814d11c4cc07e7f7d32ccf6575952c8b188740e0d3c11093"
+    },
+    {
+      "before": "examples/company-brain/skills/web-research.md",
+      "after": "examples/company-brain/skills/web-research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28",
+      "original_bytes": 890,
+      "current_sha256": "d5a984c78a26033f3213a3d045c862f459741d7cfe9ad0042d618d2d2098ad28"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/health.md",
+      "after": "examples/company-brain/agents/prompts/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866",
+      "original_bytes": 953,
+      "current_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/planner.md",
+      "after": "examples/company-brain/agents/prompts/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d",
+      "original_bytes": 2725,
+      "current_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/research.md",
+      "after": "examples/company-brain/agents/prompts/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93",
+      "original_bytes": 617,
+      "current_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/coding.md",
+      "after": "examples/company-brain/agents/prompts/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45",
+      "original_bytes": 145,
+      "current_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/artifact.md",
+      "after": "examples/company-brain/agents/prompts/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0",
+      "original_bytes": 149,
+      "current_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/critic.md",
+      "after": "examples/company-brain/agents/prompts/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4",
+      "original_bytes": 661,
+      "current_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/data.md",
+      "after": "examples/company-brain/agents/prompts/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd",
+      "original_bytes": 141,
+      "current_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/doctor.md",
+      "after": "examples/company-brain/agents/prompts/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355",
+      "original_bytes": 802,
+      "current_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355"
+    },
+    {
+      "before": "examples/company-brain/agents/prompts/platform.md",
+      "after": "examples/company-brain/agents/prompts/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9",
+      "original_bytes": 781,
+      "current_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/private-unrelated.md",
+      "after": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/private-unrelated.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ea0fba34ddb083e5713f93c583c246560cc65f562db671cac52e575c6eb8fe6b",
+      "original_bytes": 129,
+      "current_sha256": "ea0fba34ddb083e5713f93c583c246560cc65f562db671cac52e575c6eb8fe6b"
+    },
+    {
+      "before": "examples/company-brain/research_plan/methodology.md",
+      "after": "examples/company-brain/research_plan/methodology.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "682d56afa368b335c8556ec2cba8e15e8bdcae8afb9c9c4238f5604514698c38",
+      "original_bytes": 15,
+      "current_sha256": "682d56afa368b335c8556ec2cba8e15e8bdcae8afb9c9c4238f5604514698c38"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/build-current.md",
+      "after": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/build-current.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "59b60f7eec8922f239170a1bb2171a3cc00250868f0faf8fbac9055053ab5230",
+      "original_bytes": 234,
+      "current_sha256": "59b60f7eec8922f239170a1bb2171a3cc00250868f0faf8fbac9055053ab5230"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/build-stale.md",
+      "after": "packages/rail-py/tests/fixtures/context_brief_vertical/sources/build-stale.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "29a88672cb19b9d9d96761def965dddcda60bc124a1d2f9496a3a659a31e28ea",
+      "original_bytes": 135,
+      "current_sha256": "29a88672cb19b9d9d96761def965dddcda60bc124a1d2f9496a3a659a31e28ea"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/health.md",
+      "after": "examples/software-map/agents/checklists/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14",
+      "original_bytes": 347,
+      "current_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/planner.md",
+      "after": "examples/software-map/agents/checklists/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c",
+      "original_bytes": 716,
+      "current_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/research.md",
+      "after": "examples/software-map/agents/checklists/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196",
+      "original_bytes": 437,
+      "current_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/coding.md",
+      "after": "examples/software-map/agents/checklists/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412",
+      "original_bytes": 351,
+      "current_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/artifact.md",
+      "after": "examples/software-map/agents/checklists/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888",
+      "original_bytes": 345,
+      "current_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/critic.md",
+      "after": "examples/software-map/agents/checklists/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee",
+      "original_bytes": 390,
+      "current_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/data.md",
+      "after": "examples/software-map/agents/checklists/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7",
+      "original_bytes": 421,
+      "current_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/doctor.md",
+      "after": "examples/software-map/agents/checklists/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac",
+      "original_bytes": 308,
+      "current_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac"
+    },
+    {
+      "before": "examples/software-map/agents/checklists/platform.md",
+      "after": "examples/software-map/agents/checklists/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82",
+      "original_bytes": 304,
+      "current_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82"
+    },
+    {
+      "before": "examples/company-brain/research_plan/data_gaps.md",
+      "after": "examples/company-brain/research_plan/data_gaps.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5",
+      "original_bytes": 133,
+      "current_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5"
+    },
+    {
+      "before": "examples/company-brain/research_plan/provenance.md",
+      "after": "examples/company-brain/research_plan/provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "4b3f2ecd95bd91cd2fe1422903a0ef934109b023ef4af5ce9f6977512c8846e3",
+      "original_bytes": 14,
+      "current_sha256": "4b3f2ecd95bd91cd2fe1422903a0ef934109b023ef4af5ce9f6977512c8846e3"
+    },
+    {
+      "before": "examples/minimal-project/README.md",
+      "after": "examples/minimal-project/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "175719c439c47088f986cff4122b6fdbeec6f3c3893f7e6959957c4bab747482",
+      "original_bytes": 1643,
+      "current_sha256": "175719c439c47088f986cff4122b6fdbeec6f3c3893f7e6959957c4bab747482"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/health.md",
+      "after": "examples/software-map/agents/prompts/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866",
+      "original_bytes": 953,
+      "current_sha256": "c50f9bb16009e2c55fd5ecfdafa02a708ef99b1a1baa6e8509e5b5f04d787866"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/planner.md",
+      "after": "examples/software-map/agents/prompts/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d",
+      "original_bytes": 2725,
+      "current_sha256": "ce75e9b37b74ee02b40248f2fa11598313a0cc996688bf1523680864a3d6fd8d"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/research.md",
+      "after": "examples/software-map/agents/prompts/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93",
+      "original_bytes": 617,
+      "current_sha256": "bb654c3664ec70dc7d618b7a7413072fc6f93ae3fcec55be2592d21752f73f93"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/coding.md",
+      "after": "examples/software-map/agents/prompts/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45",
+      "original_bytes": 145,
+      "current_sha256": "5e926a7ccabe2aa464c8ee20b86cd0e285a56c741588afab89c233493ed1ec45"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/artifact.md",
+      "after": "examples/software-map/agents/prompts/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0",
+      "original_bytes": 149,
+      "current_sha256": "6fc1397418df860fd9ce865810d93fedf12a0425a7cf8679fd187350f37af0a0"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/critic.md",
+      "after": "examples/software-map/agents/prompts/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4",
+      "original_bytes": 661,
+      "current_sha256": "304bd3fb6b18570997526ed3fb4f7de4b8d1a2bb1c0852f766d0e17373287fc4"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/data.md",
+      "after": "examples/software-map/agents/prompts/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd",
+      "original_bytes": 141,
+      "current_sha256": "3715c4d3c20dd675b83965a2f6eff83775459b8522294aeda313a7ead19422bd"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/doctor.md",
+      "after": "examples/software-map/agents/prompts/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355",
+      "original_bytes": 802,
+      "current_sha256": "afabe2a9f212c828ed935e0d3f26dc4a1f1c929d15678a2185be641c391c9355"
+    },
+    {
+      "before": "examples/software-map/agents/prompts/platform.md",
+      "after": "examples/software-map/agents/prompts/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9",
+      "original_bytes": 781,
+      "current_sha256": "e322c9b42e75e29d6f9603a5a4a0bef417b2a95cbdc1e66fbc4ad04a6a4dc7e9"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/health.md",
+      "after": "examples/company-brain/agents/checklists/health.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14",
+      "original_bytes": 347,
+      "current_sha256": "f9c6991c58f153140959c7eec9ef18649fddb8295b7785aefae1d7d5e6247b14"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/planner.md",
+      "after": "examples/company-brain/agents/checklists/planner.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c",
+      "original_bytes": 716,
+      "current_sha256": "2042e90ab157f038c51cdd199cb0dc572e9cdc14d027aea8ea9afb3a85245e3c"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/research.md",
+      "after": "examples/company-brain/agents/checklists/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196",
+      "original_bytes": 437,
+      "current_sha256": "14dff84f51b6dfab8466ba76994366883d54cc9325f3cb0d5fb8c98884d1a196"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/coding.md",
+      "after": "examples/company-brain/agents/checklists/coding.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412",
+      "original_bytes": 351,
+      "current_sha256": "07e00df24b41c8504d538f9087ded3bedba0a1b6d739098e7492844ade669412"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/artifact.md",
+      "after": "examples/company-brain/agents/checklists/artifact.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888",
+      "original_bytes": 345,
+      "current_sha256": "cb9aca5d2ec5e47a19cf93f50f38db3ec325859b5faf58f0b87545818da86888"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/critic.md",
+      "after": "examples/company-brain/agents/checklists/critic.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee",
+      "original_bytes": 390,
+      "current_sha256": "b4ac2a14959a3c37ed4381a4eb49cfcd33221dfff1c3d42522f7379ee2f939ee"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/data.md",
+      "after": "examples/company-brain/agents/checklists/data.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7",
+      "original_bytes": 421,
+      "current_sha256": "b9f403c63fd3a8683e3da5484fba72049e321d06fd553dcf29adc260fe4e18a7"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/doctor.md",
+      "after": "examples/company-brain/agents/checklists/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac",
+      "original_bytes": 308,
+      "current_sha256": "7a24867119cdd8c0071e97930bb16193ba4368c7eb1cc6c88b474dce343e7eac"
+    },
+    {
+      "before": "examples/company-brain/agents/checklists/platform.md",
+      "after": "examples/company-brain/agents/checklists/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82",
+      "original_bytes": 304,
+      "current_sha256": "240b63e832341502922d69cccc0c942674f4413d67701d227c3b8a9fd0e16c82"
+    },
+    {
+      "before": "packages/rail-py/tests/fixtures/context_brief_vertical/docs/repository.md",
+      "after": "packages/rail-py/tests/fixtures/context_brief_vertical/docs/repository.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "3d1a0788dd7fd746efd8da649850a3c7fdb677680f14c7ffd1d7b308d8696946",
+      "original_bytes": 202,
+      "current_sha256": "3d1a0788dd7fd746efd8da649850a3c7fdb677680f14c7ffd1d7b308d8696946"
+    },
+    {
+      "before": "examples/software-map/research_plan/decisions.md",
+      "after": "examples/software-map/research_plan/decisions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b9203ea09519d0709696890bae34fde1b9d7f2a33460e39d5f3bde19cbe87068",
+      "original_bytes": 13,
+      "current_sha256": "b9203ea09519d0709696890bae34fde1b9d7f2a33460e39d5f3bde19cbe87068"
+    },
+    {
+      "before": "examples/minimal-project/topics/brief.md",
+      "after": "examples/minimal-project/topics/brief.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9952c4c4d37177819ba7bde80be88cb9a3bdd7e7ea096e3453c8a90f4c31f949",
+      "original_bytes": 560,
+      "current_sha256": "9952c4c4d37177819ba7bde80be88cb9a3bdd7e7ea096e3453c8a90f4c31f949"
+    },
+    {
+      "before": "examples/company-brain/research_plan/graph/summary.md",
+      "after": "examples/company-brain/research_plan/graph/summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7fef373efc3d0873924a83d2fd53f143e7f3d315a98d4038d392f34834bc01d9",
+      "original_bytes": 622,
+      "current_sha256": "7fef373efc3d0873924a83d2fd53f143e7f3d315a98d4038d392f34834bc01d9"
+    },
+    {
+      "before": "examples/minimal-project/skills/krail-platform.md",
+      "after": "examples/minimal-project/skills/krail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9eebdd3e4cc87cc7fa7ca9fbbdade1c3358520c80706051f52fc5391dce15f36",
+      "original_bytes": 330,
+      "current_sha256": "9eebdd3e4cc87cc7fa7ca9fbbdade1c3358520c80706051f52fc5391dce15f36"
+    },
+    {
+      "before": "examples/company-brain/research_plan/assumptions.md",
+      "after": "examples/company-brain/research_plan/assumptions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "58f39bc39ba7747dd624610c661c754b901c00016825646ac44b43ffd3b0c8a2",
+      "original_bytes": 15,
+      "current_sha256": "58f39bc39ba7747dd624610c661c754b901c00016825646ac44b43ffd3b0c8a2"
+    },
+    {
+      "before": "examples/software-map/research_plan/rerun_options.md",
+      "after": "examples/software-map/research_plan/rerun_options.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d3290f319e676fa9270f3c6d8e675c26a19c04f3d5a78d4b5b0b4253e4dc7132",
+      "original_bytes": 17,
+      "current_sha256": "d3290f319e676fa9270f3c6d8e675c26a19c04f3d5a78d4b5b0b4253e4dc7132"
+    },
+    {
+      "before": "examples/software-map/research_plan/source_registry.md",
+      "after": "examples/software-map/research_plan/source_registry.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d92cf088f6be5ace47c213edc0011c631c62acafb38a4e97658d6801b13ab08c",
+      "original_bytes": 96,
+      "current_sha256": "d92cf088f6be5ace47c213edc0011c631c62acafb38a4e97658d6801b13ab08c"
+    },
+    {
+      "before": "examples/minimal-project/agents/prompts/doctor.md",
+      "after": "examples/minimal-project/agents/prompts/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "6a4a219b6679c943e20af629c3af75853b8cf6e53ed72782484c588b3a4c6dee",
+      "original_bytes": 315,
+      "current_sha256": "6a4a219b6679c943e20af629c3af75853b8cf6e53ed72782484c588b3a4c6dee"
+    },
+    {
+      "before": "examples/minimal-project/agents/prompts/platform.md",
+      "after": "examples/minimal-project/agents/prompts/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "69af2b3fd3d696d88412a8bd7d9f498e2989cba6bebafae9c07b09f84f419ed3",
+      "original_bytes": 286,
+      "current_sha256": "69af2b3fd3d696d88412a8bd7d9f498e2989cba6bebafae9c07b09f84f419ed3"
+    },
+    {
+      "before": "examples/software-map/research_plan/claim_evidence.md",
+      "after": "examples/software-map/research_plan/claim_evidence.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c1831b5c8ff2b7fd82087abaa46147c21b965155b4293f74ba3c3b06f1f0d28e",
+      "original_bytes": 18,
+      "current_sha256": "c1831b5c8ff2b7fd82087abaa46147c21b965155b4293f74ba3c3b06f1f0d28e"
+    },
+    {
+      "before": "examples/software-map/research_plan/verification_summary.md",
+      "after": "examples/software-map/research_plan/verification_summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "ead686f86f284524efd103b139ccf0bf2304e7cded2572de55b4b86d1577df5b",
+      "original_bytes": 24,
+      "current_sha256": "ead686f86f284524efd103b139ccf0bf2304e7cded2572de55b4b86d1577df5b"
+    },
+    {
+      "before": "examples/software-map/research_plan/current_plan.md",
+      "after": "examples/software-map/research_plan/current_plan.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7d40cd570b48678ee73ec35b969dd95d7f60c259f2b19911a9c890dad8d5171e",
+      "original_bytes": 359,
+      "current_sha256": "7d40cd570b48678ee73ec35b969dd95d7f60c259f2b19911a9c890dad8d5171e"
+    },
+    {
+      "before": "examples/software-map/research_plan/task_board.md",
+      "after": "examples/software-map/research_plan/task_board.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e",
+      "original_bytes": 182,
+      "current_sha256": "35234e5ec91be228d9f30fc63af01f8786fd6c84cc2e9e15ffcabab19983288e"
+    },
+    {
+      "before": "examples/software-map/research_plan/target_state.md",
+      "after": "examples/software-map/research_plan/target_state.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c",
+      "original_bytes": 152,
+      "current_sha256": "f2ae0b108e484a20d3a2f6e1cd041a4df199917541576a3b2b9d475fe0a39f4c"
+    },
+    {
+      "before": "examples/software-map/research_plan/open_questions.md",
+      "after": "examples/software-map/research_plan/open_questions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7997d7655d1ee553e1006cc8205c6621e5226d29d4dd5493679db30cd8050ef8",
+      "original_bytes": 18,
+      "current_sha256": "7997d7655d1ee553e1006cc8205c6621e5226d29d4dd5493679db30cd8050ef8"
+    },
+    {
+      "before": "examples/software-map/research_plan/assumptions.md",
+      "after": "examples/software-map/research_plan/assumptions.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "58f39bc39ba7747dd624610c661c754b901c00016825646ac44b43ffd3b0c8a2",
+      "original_bytes": 15,
+      "current_sha256": "58f39bc39ba7747dd624610c661c754b901c00016825646ac44b43ffd3b0c8a2"
+    },
+    {
+      "before": "examples/software-map/research_plan/methodology.md",
+      "after": "examples/software-map/research_plan/methodology.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "682d56afa368b335c8556ec2cba8e15e8bdcae8afb9c9c4238f5604514698c38",
+      "original_bytes": 15,
+      "current_sha256": "682d56afa368b335c8556ec2cba8e15e8bdcae8afb9c9c4238f5604514698c38"
+    },
+    {
+      "before": "examples/software-map/research_plan/provenance.md",
+      "after": "examples/software-map/research_plan/provenance.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "4b3f2ecd95bd91cd2fe1422903a0ef934109b023ef4af5ce9f6977512c8846e3",
+      "original_bytes": 14,
+      "current_sha256": "4b3f2ecd95bd91cd2fe1422903a0ef934109b023ef4af5ce9f6977512c8846e3"
+    },
+    {
+      "before": "examples/software-map/research_plan/data_gaps.md",
+      "after": "examples/software-map/research_plan/data_gaps.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5",
+      "original_bytes": 133,
+      "current_sha256": "9297290f591de3e13478fa113b49df82a21bd9ee7f25079ebc1e63aa3effe0e5"
+    },
+    {
+      "before": "examples/software-map/README.md",
+      "after": "examples/software-map/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "5d3e46bdb08aeaa9c97923edd3de99c6c15f0adbc75336cab03a0449f55780e5",
+      "original_bytes": 2126,
+      "current_sha256": "5d3e46bdb08aeaa9c97923edd3de99c6c15f0adbc75336cab03a0449f55780e5"
+    },
+    {
+      "before": "examples/software-map/sources/sample-service/docs/adr/0001-http-surface.md",
+      "after": "examples/software-map/sources/sample-service/docs/adr/0001-http-surface.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "30b7d61bb7262b5205c3d2109cf60eb5d3cc41b0da895c7e17bc4e02796250fe",
+      "original_bytes": 168,
+      "current_sha256": "30b7d61bb7262b5205c3d2109cf60eb5d3cc41b0da895c7e17bc4e02796250fe"
+    },
+    {
+      "before": "examples/minimal-project/research_plan/current_plan.md",
+      "after": "examples/minimal-project/research_plan/current_plan.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "52cf4f9e5784aff5ff1f4948ba97fb4be906a5c725659c55fdf55bd1bb50c2fa",
+      "original_bytes": 504,
+      "current_sha256": "52cf4f9e5784aff5ff1f4948ba97fb4be906a5c725659c55fdf55bd1bb50c2fa"
+    },
+    {
+      "before": "examples/minimal-project/agents/checklists/platform.md",
+      "after": "examples/minimal-project/agents/checklists/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "7973e2cef37a9053a57766c940175724c9b7cfa93a37eb853ae279f92e11c192",
+      "original_bytes": 243,
+      "current_sha256": "7973e2cef37a9053a57766c940175724c9b7cfa93a37eb853ae279f92e11c192"
+    },
+    {
+      "before": "examples/minimal-project/agents/checklists/doctor.md",
+      "after": "examples/minimal-project/agents/checklists/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "fc0546f4d018fea6aecb55d1c6099bec659dca6d4d85e6056b8d33ab0c33aed2",
+      "original_bytes": 208,
+      "current_sha256": "fc0546f4d018fea6aecb55d1c6099bec659dca6d4d85e6056b8d33ab0c33aed2"
+    },
+    {
+      "before": "examples/software-map/research_plan/graph/summary.md",
+      "after": "examples/software-map/research_plan/graph/summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "d8b92098979c7ee898cf8e3125cddf4c916cda5d539873f262b8e8e89b3bcda7",
+      "original_bytes": 666,
+      "current_sha256": "d8b92098979c7ee898cf8e3125cddf4c916cda5d539873f262b8e8e89b3bcda7"
+    },
+    {
+      "before": "examples/minimal-project/research_plan/graph/summary.md",
+      "after": "examples/minimal-project/research_plan/graph/summary.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "76ae2827cf56e98f8a270fc99c4fb575eb2a710686e768f5b4ba0c9fe0136ffa",
+      "original_bytes": 393,
+      "current_sha256": "76ae2827cf56e98f8a270fc99c4fb575eb2a710686e768f5b4ba0c9fe0136ffa"
+    },
+    {
+      "before": "examples/robotics-memory/topics/brief.md",
+      "after": "examples/robotics-memory/topics/brief.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "70cfd32694334f81cc1483418d24f28f717b448b4aeb603b39242388d265f5d6",
+      "original_bytes": 708,
+      "current_sha256": "70cfd32694334f81cc1483418d24f28f717b448b4aeb603b39242388d265f5d6"
+    },
+    {
+      "before": "examples/robotics-memory/AGENTS.md",
+      "after": "examples/robotics-memory/AGENTS.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "70fe63492325aa3fd895aa7362c6346f6a4e152ba2b32a5b05c463999fe18e1c",
+      "original_bytes": 612,
+      "current_sha256": "70fe63492325aa3fd895aa7362c6346f6a4e152ba2b32a5b05c463999fe18e1c"
+    },
+    {
+      "before": "examples/robotics-memory/skills/krail-platform.md",
+      "after": "examples/robotics-memory/skills/krail-platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "e7e155bd1d29a88dd6d5cec0a0ec8a36677426888df748794cb1b84ff7898907",
+      "original_bytes": 395,
+      "current_sha256": "e7e155bd1d29a88dd6d5cec0a0ec8a36677426888df748794cb1b84ff7898907"
+    },
+    {
+      "before": "examples/robotics-memory/README.md",
+      "after": "examples/robotics-memory/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b1be419d8f026df17daa05e1eccaa95a237fe348a689a5fd8a1d48b5d90c91ad",
+      "original_bytes": 3696,
+      "current_sha256": "b1be419d8f026df17daa05e1eccaa95a237fe348a689a5fd8a1d48b5d90c91ad"
+    },
+    {
+      "before": "examples/robotics-memory/agents/prompts/research.md",
+      "after": "examples/robotics-memory/agents/prompts/research.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "32b4c90fe4c790e344e6127feac645e12eeb33eeefcd374fa6e8cc86eb1ffe8b",
+      "original_bytes": 626,
+      "current_sha256": "32b4c90fe4c790e344e6127feac645e12eeb33eeefcd374fa6e8cc86eb1ffe8b"
+    },
+    {
+      "before": "examples/robotics-memory/agents/prompts/doctor.md",
+      "after": "examples/robotics-memory/agents/prompts/doctor.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "b1f5d2a5afa13bd2d74a4f3352a7843df53056ba1241bc5264ec680f9376efd0",
+      "original_bytes": 256,
+      "current_sha256": "b1f5d2a5afa13bd2d74a4f3352a7843df53056ba1241bc5264ec680f9376efd0"
+    },
+    {
+      "before": "examples/robotics-memory/agents/prompts/platform.md",
+      "after": "examples/robotics-memory/agents/prompts/platform.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "fed6e4b9c5f1cec0cad86e9d20bf9075acdcd2cbec58d8eddf1a985fe5f046ef",
+      "original_bytes": 176,
+      "current_sha256": "fed6e4b9c5f1cec0cad86e9d20bf9075acdcd2cbec58d8eddf1a985fe5f046ef"
+    },
+    {
+      "before": "examples/robotics-memory/coding-agents.md",
+      "after": "examples/robotics-memory/coding-agents.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "2c75411f5145ff8b897f25fabaf8f09dbcf7337c164db2528a9c55d9f2d0cf9b",
+      "original_bytes": 2843,
+      "current_sha256": "2c75411f5145ff8b897f25fabaf8f09dbcf7337c164db2528a9c55d9f2d0cf9b"
+    },
+    {
+      "before": "examples/robotics-memory/artifacts/README.md",
+      "after": "examples/robotics-memory/artifacts/README.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "c90fd39790206dbdbbca2033b26ca367bef384028680380a557da6b3ad91b143",
+      "original_bytes": 327,
+      "current_sha256": "c90fd39790206dbdbbca2033b26ca367bef384028680380a557da6b3ad91b143"
+    },
+    {
+      "before": "examples/robotics-memory/research_plan/current_plan.md",
+      "after": "examples/robotics-memory/research_plan/current_plan.md",
+      "category": "preserved-design-evidence-example-or-runtime-resource",
+      "action": "retain",
+      "original_sha256": "cb82b299d99b2a576c2a430effa9d2227f175911b2f724ba2d61d9741d0f874c",
+      "original_bytes": 496,
+      "current_sha256": "cb82b299d99b2a576c2a430effa9d2227f175911b2f724ba2d61d9741d0f874c"
+    }
+  ],
+  "validation": {
+    "new_missing_local_link_targets": 0,
+    "original_markdown_backup_hashes_verified": 261,
+    "runtime_and_test_changes_in_cleanup": false
+  },
+  "added_or_replacement_entry_points": [
+    "AGENTS.md",
+    "README.md",
+    "docs/vision.md",
+    "docs/README.md",
+    "docs/launch-kit.md",
+    "docs/architecture.md",
+    "start.md"
+  ]
+}

@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # Reviewed source reuse across two Runs
 
 On 2026-09-19, the [Knowledge #31 acceptance fixture](../../scripts/qualify_reviewed_source_reuse.py)

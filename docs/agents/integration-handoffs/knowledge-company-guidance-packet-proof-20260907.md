@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../../README.md).
+
 # Company guidance packet v1 handoff
 
 Knowledge publishes the separately negotiated `krail.company-guidance-packet`
