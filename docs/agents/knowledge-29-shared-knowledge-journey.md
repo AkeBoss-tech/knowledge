@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # #29 local connected-Git shared-knowledge journey
 
 `rail.shared_knowledge.SharedKnowledgeWorkspace` is a standalone local

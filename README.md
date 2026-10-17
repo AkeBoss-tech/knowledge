@@ -4,7 +4,12 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Durable, evidence-backed memory for AI agents.**
+**An adaptable and extensible knowledge and data backbone.**
+
+That is the [product vision](docs/vision.md). Agent memory is one use of the
+backbone; datasets, domain knowledge, provenance, and extensions also matter.
+See the [documentation map](docs/README.md) for current contracts and evidence.
+The release lanes below describe supported implementation, not the full vision.
 
 KRAIL turns a project workspace into reusable knowledge. Capture source material,
 organize it into topics and claims, retrieve evidence with citations, and review

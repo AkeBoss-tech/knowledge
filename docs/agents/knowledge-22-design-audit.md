@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # Knowledge #22 design evidence audit
 
 This maps the original issue #22 design deliverables and acceptance criteria to

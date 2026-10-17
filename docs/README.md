@@ -1,53 +1,46 @@
-# KRAIL Docs
+# KRAIL documentation map
 
-The latest published stable local runtime is 1.1.13. Matching 1.2.0rc2
-prereleases are available for KRAIL and rail-mcp; current main can contain
-additional source-only behavior with the same metadata version. The
-[root README](../README.md#release-and-support-status) defines these lanes.
-The hosted API and engine packages remain outside the stable v1 contract.
+Start with [the vision](vision.md): an adaptable and extensible knowledge and
+data backbone. Akash's explicit project-chat statements and newer corrections
+outrank generated plans. Current code, contracts, and scoped evidence establish
+supported behavior; the vision establishes direction.
 
-## Local-Runtime Contract Docs
+The [root README](../README.md#release-and-support-status) records release lanes.
+Do not infer that a source-only extension ships in a published wheel. This
+cleanup did not independently reverify package publication or hosted operation.
 
-- [Architecture](architecture.md)
-- [Management Protocol v1](management-v1.md)
-- [Knowledge Operations Foundations](knowledge-operations.md)
-- [1.1.13 Release Notes](releases/1.1.13.md)
-- [1.1.12 Release Notes](releases/1.1.12.md)
-- [1.1 Migration Guide](migrations/1.1.md)
-- [Project Layout](project-layout.md)
-- [Knowledge Modes](knowledge-modes.md)
-- [Supported Use Cases](use-cases.md)
-- [Demo Script](demo-script.md)
-- [API Runtime](api-runtime.md)
-- [Release Checklist](../RELEASE.md)
+## Find the owning reference
 
-## Integration Guides
+| Area | References | Interpretation |
+| --- | --- | --- |
+| Architecture and storage | [Architecture](architecture.md), [storage authority](storage-authority.md), [hosted composition](hosted-storage.md) | Preserve declared writers and deployment boundaries while allowing deliberate evolution. |
+| Structured data | [Dataset catalog](dataset-catalog.md), [project layout](project-layout.md) | Data has source, schema, version, and cache semantics; not everything is a Markdown memory. |
+| Extensibility | [Extension registry](extension-registry.md), [knowledge modes](knowledge-modes.md), [capability publication](capability-publication.md) | Different domains and operators share explicit contracts; current trusted-local limits remain scoped. |
+| Semantics and time | [Semantic foundation](semantic-foundation.md), [semantic operations](semantic-operations.md), [temporal records](temporal-records.md) | Existing domain slices are foundations, not a closed set of possible domains. |
+| Evidence and learning | [Knowledge operations](knowledge-operations.md), [verification/outcomes](verification-and-outcome-evidence.md), [procedural memory](procedural-memory.md), [Core provenance](core-provenance.md) | Keep candidates, observed results, review, and supported knowledge distinguishable. |
+| Consumer interfaces | [Provider v1](provider-v1.md), [authorized context](authorized-context.md), [context briefs](context-briefs.md), [API](api-runtime.md) | KRAIL can serve different consumers; neither an API nor a UI becomes the sole knowledge authority. |
+| Additional provider surfaces | [Rich domain reads](provider-rich-domain-read-v1.md), [asset reads](provider-asset-read-v1.md), [observed artifacts](observed-run-artifact.md) | Check each document's proposed/implemented scope and negotiation requirements. |
+| Ingestion and operation | [Ingestion](ingestion-os.md), [listeners](listeners.md), [management v1](management-v1.md), [retention](shared-knowledge-retention.md) | Existing knowledge workflows remain supported; do not assume a universal execution engine. |
+| Getting started | [Examples](../examples/README.md), [use cases](use-cases.md), [local onboarding](local-project-onboarding.md), [demo](demo-script.md) | Examples demonstrate bounded workflows; their repeated prompts and fixtures are intentional resources. |
+| Integrations | [Integration index](integrations/README.md) | CLI, SDK, MCP and client guides. |
+| Verification and releases | [Invariants](testing/invariants.md), [release checklist](../RELEASE.md), [release notes](releases/), [migration](migrations/1.1.md) | Version-scoped evidence, not whole-product acceptance. |
+| Repository hygiene | [Generated-project hygiene](generated-project-hygiene.md) | Source knowledge and reusable fixtures are not disposable just because generated. |
+| Historical plans | [Archive manifest](archive/manifest.json) | Prior growth/launch plans, machine handoffs, and planner logs; not an active queue. |
 
-- [Integration Guide Index](integrations/README.md)
-- [KRAIL + Codex](integrations/codex.md)
-- [KRAIL + Claude Code](integrations/claude-code.md)
-- [KRAIL + Cursor](integrations/cursor.md)
-- [KRAIL MCP Server](integrations/mcp-server.md)
-- [KRAIL For Literature Reviews](integrations/literature-reviews.md)
-- [KRAIL For Software Architecture Memory](integrations/software-architecture-memory.md)
+## What changed in the October 17 cleanup
 
-## Planning And Roadmap
+Inventoried 261 nonignored Markdown files and scanned authority/status cues.
+Substantive review focused on direction, planning, and relevant architecture.
+Archived nine old growth/launch, readiness, and handoff/planner documents. The
+old launch-kit path remains as a short navigation pointer for the issue template.
 
-- [Growth Plan](growth-plan.md)
-- [Knowledge Ingestion Operating System](ingestion-os.md)
-- [Launch Kit](launch-kit.md)
-- [V1 Readiness Triage](v1-readiness-triage.md)
+Retained data/semantic/provider contracts, release records, examples, tests,
+source knowledge, and implementation evidence. Repeated example prompts are
+working project resources, not duplicate product plans. Dated agent proof reports
+are historical evidence, not current assignments or deployment claims.
 
-## Draft Launch Material
-
-- [Launch Posts](launch-posts.md)
-- [Blog Post Draft](blog-post.md)
-
-## Reference And Operations
-
-- [Mac mini Codex Handoff](mac-mini-codex-handoff.md)
-- [Launch Tracker](launch-tracker.md)
-- [Listeners And Event Triggers](listeners.md)
-- [Generated Project Hygiene](generated-project-hygiene.md)
-
-Examples: [outcomes, requirements, and verification](../examples/README.md).
+The [manifest](archive/manifest.json) records all original paths and hashes and
+a recovery backup. Existing robotics-example work and other uncommitted changes
+were excluded. This was not an exhaustive review of all historical chats or a
+fresh runtime qualification. Update owning references instead of creating
+another broad roadmap or generated product brief.

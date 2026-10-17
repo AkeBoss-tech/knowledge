@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # Knowledge #19 acceptance audit
 
 Audited against the original GitHub issue wording on 2026-09-07. This file is

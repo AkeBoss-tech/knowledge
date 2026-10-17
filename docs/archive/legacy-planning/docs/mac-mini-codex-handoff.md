@@ -1,3 +1,7 @@
+> **Historical reference.** Archived October 17, 2026. Plans, assignments,
+> deadlines, and status statements below belong to their original context. They
+> do not override the [product vision](../../../vision.md) or current user instructions.
+
 # Mac mini Codex Handoff
 
 This runbook hands the enterprise AI operating-system workspace to a developer

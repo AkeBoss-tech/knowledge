@@ -1,3 +1,7 @@
+> **Historical reference.** Archived October 17, 2026. Plans, assignments,
+> deadlines, and status statements below belong to their original context. They
+> do not override the [product vision](../../../../vision.md) or current user instructions.
+
 # Local-Direct Git Writer & Connected→Local Activation — Handoff
 
 Scope: complete the local-direct Git writer and connected→local mode
@@ -286,7 +290,7 @@ test_rejects_untrusted_checkout_and_authorizes_before_return PASSED
 
 - `packages/rail-py/rail/shared_knowledge.py`
 - `packages/rail-py/tests/test_shared_knowledge.py`
-- `docs/agents/local-writer-handoff.md` (this file)
+- `docs/archive/legacy-planning/docs/agents/local-writer-handoff.md` (this file)
 
 No commits were made; the working tree has these edits uncommitted for root
 review, per instructions. `.antigravitycli/` was left untouched and unread.

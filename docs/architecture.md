@@ -1,5 +1,9 @@
 # Architecture
 
+Product direction: [an adaptable and extensible knowledge and data backbone](vision.md).
+The local-runtime and versioned contracts below describe implementation choices,
+not permanent limits on domains, data types, or consumers.
+
 KRAIL is a headless knowledge runtime. The core should work locally from a
 project repository without requiring a hosted database or a bundled web app.
 
@@ -95,7 +99,10 @@ Durable project truth should stay in the project repo:
 This is the v1 product contract: the local repo is the source of truth, while
 API and MCP surfaces are adapters over that state.
 
-## Next Refactors
+## Historical refactor suggestions
+
+These suggestions are not an accepted current work queue. Inspect the owning
+code and the user’s current priorities before adopting them.
 
 - Rename packages toward `krail-core`, `krail-cli`, `krail-api`, and `krail-mcp`.
 - Move economics defaults into `examples/economics-rail` or templates.

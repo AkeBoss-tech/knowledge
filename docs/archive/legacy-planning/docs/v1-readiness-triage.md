@@ -1,3 +1,7 @@
+> **Historical reference.** Archived October 17, 2026. Plans, assignments,
+> deadlines, and status statements below belong to their original context. They
+> do not override the [product vision](../../../vision.md) or current user instructions.
+
 # KRAIL v1 Readiness Triage
 
 Date: 2026-07-11
@@ -80,7 +84,7 @@ The original three release blockers are closed:
 3. CI release-gates offline trust-lifecycle and nested-project smoke scripts.
 
 The remaining release-owner actions are operational, not implementation work:
-run the checklist in [`RELEASE.md`](../RELEASE.md), push the reviewed branch,
+run the checklist in [`RELEASE.md`](../../../../RELEASE.md), push the reviewed branch,
 create the `v1.0.0` tag, and publish through the configured release workflow.
 Future work should start from an issue or a new design note rather than this
 closed pre-v1 plan.

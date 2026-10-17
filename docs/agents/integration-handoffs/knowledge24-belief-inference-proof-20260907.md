@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../../README.md).
+
 # Knowledge issue 24: explicit belief and factor layer
 
 Date: 2026-09-07

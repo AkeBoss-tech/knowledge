@@ -1,3 +1,7 @@
+> **Scoped implementation evidence.** Status and assignments below belong to
+> the recorded checkpoint. Recheck current source before relying on them as
+> current readiness. See the [documentation map](../README.md).
+
 # #20 local current-state and spatial projection slice
 
 `rail.spatial_current_projection.SpatialCurrentProjection` is an in-memory,
