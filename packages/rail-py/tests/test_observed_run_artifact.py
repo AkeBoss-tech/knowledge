@@ -187,3 +187,20 @@ def test_core_adapter_never_forwards_human_bearer_on_redirect_or_decodes_respons
         for thread in threads:
             thread.join(timeout=2)
             assert not thread.is_alive()
+
+
+def test_workflow_observe_replay_and_recall_revalidate_authority(tmp_path):
+    """K21-OPAQUE-RUN-ARTIFACT: subsequent steps receive exact authorized outcomes."""
+    source, authorizer = Source(b'backlog: 3 overdue'), Authorizer()
+    repo = ObservedRunArtifactRepository(str(tmp_path / 'evidence.json'), tenant_id='t', project_id='p')
+    first = repo.observe('run_1', source=source, authorizer=authorizer, at=NOW)
+    reopened = ObservedRunArtifactRepository(str(tmp_path / 'evidence.json'), tenant_id='t', project_id='p')
+    assert reopened.observe('run_1', source=source, authorizer=authorizer, at=NOW) == first
+    assert reopened.recall((first.exact_ref(),), source=source, authorizer=authorizer) == (first,)
+    authorizer.denied.add('art_1')
+    with pytest.raises(PermissionError):
+        reopened.recall((first.exact_ref(),), source=source, authorizer=authorizer)
+    authorizer.denied.clear()
+    source.artifact = b'changed bytes'
+    with pytest.raises(ValueError):
+        reopened.recall((first.exact_ref(),), source=source, authorizer=authorizer)
