@@ -148,6 +148,31 @@ class ObservedRunArtifactRepository:
         self.tenant_id = tenant_id
         self.project_id = project_id
 
+    def observe(self, run_id: str, *, source: TrustedRunArtifactSource,
+                authorizer: RunArtifactAuthorizer, at: datetime,
+                input_refs: tuple[ResourceRef, ...] = ()) -> ObservedRunArtifactEvidence:
+        """Idempotent observe-and-retain boundary for durable workflow consumers.
+
+        Replays revalidate exact source bytes and current access; neither a prior
+        receipt nor persisted evidence bypasses authorization.
+        """
+        evidence = record_observed_run_artifact(
+            run_id, source=source, authorizer=authorizer, input_refs=input_refs)
+        return self.save(evidence, source=source, authorizer=authorizer, at=at)
+
+    def recall(self, refs: tuple[ResourceRef, ...], *, source: TrustedRunArtifactSource,
+               authorizer: RunArtifactAuthorizer) -> tuple[ObservedRunArtifactEvidence, ...]:
+        """Read exact prior outcomes for a subsequent step; fail closed as a set.
+
+        This is evidence recall, not a permission grant or outcome certification.
+        No cached byte payload or stale authorization is reused.
+        """
+        if not isinstance(refs, tuple) or len(refs) > 32:
+            raise ValueError("outcome recall requires at most 32 exact references")
+        result = tuple(self.read_exact(ref, source=source, authorizer=authorizer) for ref in refs)
+        _authorize(authorizer, refs)
+        return result
+
     def save(self, evidence: ObservedRunArtifactEvidence, *, source: TrustedRunArtifactSource,
              authorizer: RunArtifactAuthorizer, at: datetime) -> ObservedRunArtifactEvidence:
         if at.tzinfo is None or at.utcoffset() is None:

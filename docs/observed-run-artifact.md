@@ -78,3 +78,21 @@ returned guidance after explicit signed fixture reviews. An invalid Core bearer
 then denied guidance. The runtime source and original-state preservation are
 hash checked. The predecessor and reviews remain fixtures: this is not actual
 human acceptance, production input-grant qualification, or Core activation.
+
+## Durable workflow consumers
+
+`ObservedRunArtifactRepository.observe` combines current-authority observation
+and idempotent retention. `recall` reads a bounded tuple of exact evidence refs
+and revalidates source bytes and authorization before returning the set. A
+consumer can therefore retain its own execution checkpoint separately: replaying
+an observation after a checkpoint failure does not duplicate the evidence row.
+
+These methods are domain-independent: a native analysis result and a software
+artifact have the same opaque provenance semantics. They do not certify an
+outcome, approve work, schedule an agent or copy artifact byte authority into
+KRAIL. OpenSaddle's persistent project agent uses these methods between steps;
+other consumers may use the same repository without importing OpenSaddle.
+
+`test_workflow_observe_replay_and_recall_revalidate_authority` in
+`packages/rail-py/tests/test_observed_run_artifact.py` verifies reopen/replay, exact
+recall, revocation and changed-byte rejection under K21-OPAQUE-RUN-ARTIFACT.
