@@ -283,3 +283,23 @@ inside site-packages after the run. The source fixture harness is separate.
 This is personal SQLite and synthetic review qualification, not real-user
 acceptance or hosted PostgreSQL result-review support. The candidates remain
 unpublished at this checkpoint.
+
+## K-GOAL-REVIEWED-RUN-PROCEDURE-1 — ordinary Goal artifacts retain exact human review
+
+An ordinary completed Goal Run qualifies for reviewed artifact observation only
+through an exact accepted artifact/digest/lease record in its canonical passive
+Core audit. Legacy Run-only acceptance is insufficient. The observer pins the
+original event sequence, revision and snapshot digest; the latest authorized
+audit snapshot must retain that same review. Reading evidence does not reconcile,
+wake or admit a Goal. Current identity/source authority and artifact bytes are
+rechecked on reuse. Historical observation is not outcome certification or
+procedure activation; promotion requires its separate signed review.
+
+Six owning checks in `test_opensaddle_goal_run_artifact.py` pass with actual
+PostgreSQL, service tick, Seatbelt execution, independently verified downloaded
+result, exact fixture-human decision, evidence retention, signed fixture
+promotion, reopen and source-change denial. The configuration predecessor uses
+a separately authenticated local Core with distinct authority and explicit
+reference delegation. This mixed-deployment profile is not a claim that the
+local configuration dispatched or configures the PostgreSQL Goal. Live account,
+financial action and one-hosted-deployment acceptance remain separate.

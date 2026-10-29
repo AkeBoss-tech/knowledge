@@ -7,9 +7,10 @@ origin, current human bearer, stable local installation authority, and Project
 ID in the trusted local process. The bearer is kept in memory; evidence stores
 no token, locator, result body, or HTTP origin.
 
-This adapter currently requires the personal SQLite Core result-review route;
-hosted PostgreSQL advertises that route as unavailable. It does not provision
-an identity, create a Run, or call a provider.
+This adapter requires a supported generic-agent Core result-review route.
+SQLite supports it; PostgreSQL support is scoped to hosted-agent lineage and
+does not cover ordinary Project Goal Runs. It does not provision an identity,
+create a Run, or call a provider.
 
 `record_observed_run_artifact(run_id, source=..., authorizer=...,
 input_refs=(...))` binds the current final-lease artifact ID to a SHA-256 of
@@ -179,3 +180,55 @@ inside site-packages; source files supplied only the test harness. The broader
 source/wheel/installed parity and retained-context lifecycle check also passed.
 These unpublished candidate wheels are separate from the currently public
 release lane; see K-REVIEWED-RUN-PROCEDURE-1 for qualification limits.
+
+## Exact human acceptance of an ordinary Project Goal result
+
+`rail.opensaddle_goal_run_artifact.OpenSaddleGoalReviewedRunArtifactSource`
+subclasses the reviewed-result adapter for ordinary Project Goal Runs. Its `pin`
+requires the Goal ID, Run ID, authenticated observer subject, exact accepted Goal
+revision, artifact ID and SHA-256. Core must have recorded
+`opensaddle.project-goal-result-review.v1` through the existing Goal control
+command with all three explicit selectors: `artifact_id`,
+`expected_artifact_digest`, and `expected_lease_epoch`. Legacy Run-only
+`accept_result` remains lower assurance and cannot supply this binding.
+
+Core's exact review binds the final worker publication and later completion
+sequences, assigned worker/current lease, retained artifact bytes, human actor,
+review time, actual terminal Run update timestamp, and committed Goal revision.
+This establishes which bytes the authenticated human accepted; it does not prove
+business correctness or financial impact. An independent result verifier and
+separate signed exact-version procedure review remain necessary.
+
+The source uses only capabilities, the existing passive Goal audit, and exact
+artifact-content GETs. It does not call Goal GET, digest, wake, Run GET or
+work-execution. Audit pages have a 1,000,000-byte transport limit, at most 100
+items per page and 32 pages per observation, with bounded deadlines. Histories
+outside those limits fail closed. The original acceptance event's sequence,
+revision and snapshot digest are pinned in a `goal-result-review` ResourceRef;
+the latest audit snapshot must retain the same accepted exact review. Current
+Core membership, selected source/context authority and observer identity are
+rechecked on each read and before/after byte release. The artifact-content
+handler internally uses Core's existing Run lookup; deadline reconciliation has
+no eligible row for this already-terminal completed Run. This is not a general
+guarantee that every Core artifact endpoint is transactionally read-only.
+
+Use `source.observe(...)`, `source.authorizer(live_inputs)`, the existing
+`ObservedProcedureCandidateService`, and the existing signed
+`ProcedureReviewService`. Reopening the semantic store and reconstructed frozen
+binding still requires live Core access. Raw evidence remains
+`caller_observed_unverified`, provider metadata remains `not_attested`, and the
+successor remains `desired` until separate explicit promotion. There is no
+activation or scheduler permission. HTTP observations are not atomic; a
+revocation after release cannot retract bytes already delivered.
+
+`test_opensaddle_goal_run_artifact.py` qualifies a synthetic ordinary Goal with
+real PostgreSQL, service tick, enrolled worker, macOS Seatbelt execution,
+authorized artifact download, independent reconciliation CLI verification,
+explicit exact human fixture acceptance, HTTP audit binding, evidence retention,
+desired successor, signed fixture promotion, reopen and source-change denial.
+The procedure predecessor is a genuinely registered configuration from a
+**separate local Core deployment**, with its own current production trust
+adapter and explicit exact-reference delegation into the KRAIL Project. It does
+not claim that local configuration dispatched or configures the PostgreSQL Goal.
+This is mixed-deployment qualification: the current PostgreSQL repository lacks
+the environment API used to register that predecessor in one hosted deployment.
