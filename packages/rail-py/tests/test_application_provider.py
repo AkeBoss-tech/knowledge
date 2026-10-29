@@ -23,7 +23,7 @@ from krail.provider.v1 import (
     RetrieveEvidenceRequest,
     SearchRequest,
 )
-from rail import cli as rail_cli
+from rail import __version__, cli as rail_cli
 from rail.bootstrap import bootstrap_future_project
 from rail.knowledge import KnowledgeRuntime
 from rail.local import LocalEngine
@@ -125,7 +125,7 @@ def test_provider_reports_installed_distribution_skew(tmp_path: Path, monkeypatc
     result = project.provider.provider_info(ProviderInfoRequest(consumer_version="1.2.0rc2"))
 
     assert result.compatible is False
-    assert result.provider_version == "1.2.0rc2"
+    assert result.provider_version == __version__
     assert result.installed_distribution_version == "0.2.1"
     assert "installation skew" in result.diagnostic
 
@@ -167,4 +167,4 @@ def test_krail_version_is_available_without_loading_a_project(monkeypatch, capsy
     rail_cli.main()
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"name": "KRAIL", "version": "1.2.0rc2"}
+    assert payload == {"name": "KRAIL", "version": __version__}
