@@ -25,7 +25,7 @@ workflows.
 | --- | --- | --- |
 | **Stable** | Published `krail==1.1.13` local-runtime contract. The matching MCP adapter is available from source tag `v1.1.13`; there is no `rail-mcp==1.1.13` PyPI release. | [1.1.13 notes](docs/releases/1.1.13.md), [local example](examples/minimal-project/README.md) |
 | **Preview** | Published matching `krail==1.2.0rc2` and `rail-mcp==1.2.0rc2` prereleases. A prerelease is not a promise that every main-branch feature is in its wheel. | [preview package](https://pypi.org/project/krail/1.2.0rc2/), [MCP package](https://pypi.org/project/rail-mcp/1.2.0rc2/) |
-| **Development** | Source behavior at a pinned Git revision; this checkout may contain changes after the August prerelease even though package metadata still says `1.2.0rc2`. | [examples index](examples/README.md), [qualification evidence](docs/observed-run-artifact.md) |
+| **Development** | Source behavior at a pinned Git revision; this checkout declares the unpublished coordinated `1.2.0rc3` SDK/MCP candidate; see [RELEASE.md](RELEASE.md). Source capabilities still require exact artifact qualification. | [examples index](examples/README.md), [qualification evidence](docs/observed-run-artifact.md) |
 
 Check `git rev-parse HEAD` before following a development example. Its README
 states the minimum source revision and the fixture or integration boundary.

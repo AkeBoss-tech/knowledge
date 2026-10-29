@@ -4,12 +4,16 @@
 Run from an unrelated directory in a disposable installed-wheel environment.
 The synthetic worker consumes public Core packet APIs and publishes deterministic
 provenance, without claiming a model/provider turn.
+
+K-PACKAGED-CONTEXT-1: exact source, wheel and installed-package bytes must
+agree before the existing real HTTP lifecycle can issue a release receipt.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+from email.parser import BytesParser
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.metadata
@@ -22,9 +26,13 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
+import zipfile
 
 import httpx
 import uvicorn
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 
 OWNER = {"x-opensaddle-subject": "fixture-owner", "x-opensaddle-roles": "requester"}
@@ -91,10 +99,12 @@ def source_free_imports(forbidden: tuple[Path, ...]) -> dict[str, str]:
     import krail
     import opensaddle
     import rail
+    import rail_mcp
 
     imports = {"krail": str(Path(krail.__file__).resolve()),
                "opensaddle": str(Path(opensaddle.__file__).resolve()),
-               "rail": str(Path(rail.__file__).resolve())}
+               "rail": str(Path(rail.__file__).resolve()),
+               "rail_mcp": str(Path(rail_mcp.__file__).resolve())}
     environment = Path(sys.prefix).resolve()
     for name, imported in imports.items():
         path = Path(imported)
@@ -103,6 +113,117 @@ def source_free_imports(forbidden: tuple[Path, ...]) -> dict[str, str]:
         if any(root.resolve() == path or root.resolve() in path.parents for root in forbidden):
             raise AssertionError(f"{name} imported from a source checkout: {path}")
     return imports
+
+
+def qualify_artifacts(*, knowledge_root: Path, core_root: Path,
+                      wheels: dict[str, Path]) -> dict:
+    """Bind trusted-local build inputs to exact artifacts and installed bytes.
+
+    This is byte parity and local Git provenance, not a signed publisher or a
+    reproducible-build attestation. Unrelated dirty source files are reported,
+    never silently treated as part of an immutable commit.
+    """
+    packages = {
+        "krail": (knowledge_root, "packages/rail-py", ("rail/", "krail/")),
+        "rail-mcp": (knowledge_root, "packages/mcp-server", ("rail_mcp/",)),
+        "opensaddle": (core_root, "", ("opensaddle/",)),
+    }
+    results = {}
+    for name, (root, relative, prefixes) in packages.items():
+        root = root.resolve(strict=True)
+        project = root / relative
+        config = tomllib.loads((project / "pyproject.toml").read_text())
+        if canonicalize_name(config["project"]["name"]) != name:
+            raise AssertionError(f"unexpected source distribution for {name}")
+        head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        dirty = bool(subprocess.check_output(["git", "-C", str(root), "status", "--porcelain"], text=True))
+        wheel = wheels[name].resolve(strict=True)
+        archive_bytes = wheel.read_bytes()
+        installed = importlib.metadata.distribution(name)
+        package_root = project / ("src" if name == "opensaddle" else "")
+        included = config.get("tool", {}).get("hatch", {}).get("build", {}).get("targets", {}).get("wheel", {}).get("force-include", {})
+        digest = hashlib.sha256()
+        with zipfile.ZipFile(wheel) as archive:
+            names = archive.namelist()
+            if len(set(names)) != len(names):
+                raise AssertionError(f"duplicate wheel member for {name}")
+            metadata_paths = [path for path in names if path.endswith(".dist-info/METADATA")]
+            if len(metadata_paths) != 1:
+                raise AssertionError(f"one distribution metadata document required for {name}")
+            metadata_bytes = archive.read(metadata_paths[0])
+            metadata = BytesParser().parsebytes(metadata_bytes)
+            version = config["project"]["version"]
+            if (canonicalize_name(metadata["Name"]) != name
+                    or metadata["Version"] != version or installed.version != version):
+                raise AssertionError(f"source/wheel/installed version mismatch for {name}")
+            def dependency_key(value: Requirement) -> tuple:
+                return (canonicalize_name(value.name),
+                        tuple(sorted(canonicalize_name(extra) for extra in value.extras)),
+                        str(value.specifier), str(value.marker) if value.marker else None, value.url)
+
+            declared = {dependency_key(Requirement(value)) for value in config["project"].get("dependencies", [])}
+            wheel_requirements = [Requirement(value) for value in metadata.get_all("Requires-Dist", [])]
+            # Published extras add their own marker; base dependency metadata
+            # must still match the selected project's declarations exactly.
+            base_requirements = {dependency_key(value) for value in wheel_requirements
+                                 if value.marker is None or "extra" not in str(value.marker)}
+            if (base_requirements != declared
+                    or metadata["Requires-Python"] != config["project"].get("requires-python")):
+                raise AssertionError(f"source/wheel dependency metadata mismatch for {name}")
+            if installed.read_text("METADATA").encode() != metadata_bytes:
+                raise AssertionError(f"installed metadata differs from wheel for {name}")
+            members = sorted(path for path in names if path.startswith(prefixes) and not path.endswith("/"))
+            if not members:
+                raise AssertionError(f"wheel has no public package files for {name}")
+            for member in members:
+                path = Path(member)
+                if path.is_absolute() or ".." in path.parts:
+                    raise AssertionError("unsafe wheel package path")
+                content = archive.read(member)
+                source = package_root / path
+                # Core's declared Hatch mapping intentionally installs root
+                # contract resources under opensaddle/_contracts in the wheel.
+                for origin, destination in sorted(included.items(), key=lambda item: -len(item[1])):
+                    if member == destination or member.startswith(destination.rstrip("/") + "/"):
+                        source = project / origin / member[len(destination):].lstrip("/")
+                        break
+                target = Path(installed.locate_file(member)).resolve(strict=True)
+                if Path(sys.prefix).resolve() not in target.parents:
+                    raise AssertionError(f"package file outside installed environment: {name}/{member}")
+                if not source.is_file() or source.read_bytes() != content:
+                    raise AssertionError(f"wheel differs from source: {name}/{member}")
+                if target.read_bytes() != content:
+                    raise AssertionError(f"installed file differs from wheel: {name}/{member}")
+                digest.update(member.encode() + b"\0" + content + b"\0")
+            source_python = {
+                str(path.relative_to(package_root))
+                for prefix in prefixes
+                for path in (package_root / prefix).rglob("*.py")
+                if "__pycache__" not in path.parts
+            }
+            if not source_python <= set(members):
+                raise AssertionError(f"wheel omits source Python files for {name}")
+        results[name] = {
+            "version": version, "wheel_filename": wheel.name,
+            "wheel_sha256": hashlib.sha256(archive_bytes).hexdigest(),
+            "source_revision": head, "source_dirty": dirty,
+            "pyproject_sha256": hashlib.sha256((project / "pyproject.toml").read_bytes()).hexdigest(),
+            "verified_package_files": len(members),
+            "package_content_sha256": digest.hexdigest(),
+        }
+    import rail
+    import rail_mcp
+    if rail.__version__ != results["krail"]["version"] or rail_mcp.__version__ != results["rail-mcp"]["version"]:
+        raise AssertionError("public module version differs from distribution metadata")
+    if results["krail"]["version"] != results["rail-mcp"]["version"]:
+        raise AssertionError("KRAIL and MCP candidate versions must match")
+    sdk_requirements = [Requirement(value) for value in importlib.metadata.requires("rail-mcp") or []
+                        if canonicalize_name(Requirement(value).name) == "krail"]
+    if len(sdk_requirements) != 1 or results["krail"]["version"] not in sdk_requirements[0].specifier:
+        raise AssertionError("installed MCP dependency does not accept the qualified SDK")
+    return {"packages": results, "installed_bytes_match_wheels": True,
+            "wheel_package_bytes_match_sources": True,
+            "publication_verified": False, "reproducible_build_verified": False}
 
 
 def compose(root: Path, project_id: str, workspace: Path):
@@ -325,9 +446,9 @@ def journey(root: Path, forbidden: tuple[Path, ...]) -> dict:
         raise AssertionError("withdrawal replay created an additional Run")
     reopened_client.close()
     return {
-        "schema_version": "krail.reviewed-source-reuse-qualification.v1",
+        "schema_version": "krail.reviewed-source-reuse-qualification.v2",
         "package_versions": {name: importlib.metadata.version(name)
-                             for name in ("opensaddle", "krail")},
+                             for name in ("opensaddle", "krail", "rail-mcp")},
         "installed_imports": imports,
         "project_count": 2, "reviewed_source_reused": True,
         "wrong_project_and_unreviewed_denied": True,
@@ -343,18 +464,40 @@ def journey(root: Path, forbidden: tuple[Path, ...]) -> dict:
 
 
 def main() -> int:
+    qualifier_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--forbid-import-root", action="append", type=Path, default=[])
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--knowledge-source-root", type=Path, required=True)
+    parser.add_argument("--core-source-root", type=Path, required=True)
+    parser.add_argument("--krail-wheel", type=Path, required=True)
+    parser.add_argument("--mcp-wheel", type=Path, required=True)
+    parser.add_argument("--core-wheel", type=Path, required=True)
     args = parser.parse_args()
     if args.receipt.exists():
         raise SystemExit("receipt already exists")
+    # Check import isolation before trusting any installed implementation.
+    forbidden = (*args.forbid_import_root, args.knowledge_source_root, args.core_source_root)
+    source_free_imports(tuple(forbidden))
+    artifacts = qualify_artifacts(knowledge_root=args.knowledge_source_root,
+        core_root=args.core_source_root, wheels={"krail": args.krail_wheel,
+            "rail-mcp": args.mcp_wheel, "opensaddle": args.core_wheel})
     with tempfile.TemporaryDirectory(prefix="reviewed-source-reuse-") as raw:
         try:
-            result = journey(Path(raw), tuple(args.forbid_import_root))
+            result = journey(Path(raw), tuple(forbidden))
         finally:
             for client in reversed(ACTIVE_CLIENTS):
                 client.close()
+    # No receipt if build-source or installed bytes changed during the journey.
+    after = qualify_artifacts(knowledge_root=args.knowledge_source_root,
+        core_root=args.core_source_root, wheels={"krail": args.krail_wheel,
+            "rail-mcp": args.mcp_wheel, "opensaddle": args.core_wheel})
+    if after != artifacts:
+        raise AssertionError("artifact/source identity changed during qualification")
+    if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != qualifier_digest:
+        raise AssertionError("qualification script changed during the journey")
+    result["artifact_qualification"] = artifacts
+    result["qualifier_sha256"] = qualifier_digest
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
     args.receipt.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))

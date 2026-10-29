@@ -1,13 +1,62 @@
-# Release Checklist
+# Release checklist
 
-Target: `v1.1.12`
+## Current candidate: 1.2.0rc3
 
-Release train: stable local-runtime v1 for `krail` and `rail-mcp`.
+The SDK (`krail`) and MCP adapter (`rail-mcp`) now declare the coordinated next
+prerelease `1.2.0rc3`; their public module versions match. The adapter requires
+`krail>=1.2.0rc3,<2.0.0`. This is source metadata for an unpublished candidate,
+not evidence of PyPI publication, a tag, a desktop bundle or hosted deployment.
+The last published lanes remain recorded in [README](README.md#release-and-support-status).
+Do not silently reuse the `1.2.0rc2` identity for current source wheels.
 
-KRAIL v1 is an honest local-runtime release: the repo-backed workflow that
-works today, with unfinished platform surfaces clearly excluded from the
-promise. `packages/api/` and `packages/engine/` retain their independent
-development versions and are not published or supported by this checklist.
+### Candidate gates
+
+1. Record the exact Knowledge and Core source revisions, dirty state and source
+   package bytes; build SDK, MCP and Core wheels from those inputs. Use a fresh
+   output directory and retain each wheel's SHA-256. A dirty source candidate
+   must remain labelled dirty until a clean committed build is separately run.
+2. Check the local lockfile without resolving dependencies. SDK/MCP metadata,
+   `rail.__version__`, `rail_mcp.__version__` and the MCP SDK requirement must
+   agree. The SDK lockfile's editable project version is `1.2.0rc3`; dependencies
+   are unchanged by this candidate version update.
+3. Install the exact wheels into a fresh environment outside all source roots.
+   Never use editable installs or `PYTHONPATH` to manufacture an installed pass.
+   Run the existing [reviewed-source reuse qualifier](docs/agents/knowledge-31-reviewed-source-reuse.md)
+   with all three wheel files and both source roots. It validates version and
+   byte parity before and after the real local Core HTTP lifecycle. It refuses
+   old/mutated wheels, source drift, missing packaged Python files and changed
+   installed bytes before issuing the v2 receipt.
+4. The lifecycle must preserve two independent Runs and their exact reviewed
+   source provenance across Core/KRAIL recomposition, then deny source and
+   derived artifact reads after withdrawal, including another recomposition.
+   Unreviewed and wrong-project sources must be denied. This uses a synthetic
+   deterministic worker; it does not establish model quality, crash recovery,
+   provider-side erasure or deployed multiplayer.
+5. Run the owning context/provider and MCP suites plus the stable local smoke
+   below. Retain raw results and qualify each supported Python version before
+   advertising that environment. Passing source tests alone is insufficient.
+6. Only after those gates pass, prepare the matching immutable release tag and
+   use the existing trusted-publishing workflow. No tag or publication is
+   created merely by editing these files or running local qualification.
+
+Build commands from the Knowledge root, using an already provisioned builder:
+
+```sh
+python -m build --wheel --outdir /absolute/fresh-artifacts packages/rail-py
+python -m build --wheel --outdir /absolute/fresh-artifacts packages/mcp-server
+# Build the selected Core checkout into that same directory separately.
+```
+
+The qualifier records local source/package parity, not a signed build
+attestation or reproducible-build guarantee. It never installs dependencies,
+publishes packages, changes a user's project or grants source access.
+
+## Stable local-runtime baseline
+
+The following checks describe the existing v1 local-runtime contract. They remain
+useful regression checks but are not the complete 1.2.0rc3 acceptance gate.
+`packages/api/` and `packages/engine/` retain independent development versions;
+this checklist does not publish them.
 
 ## Contract
 
@@ -38,7 +87,7 @@ The v1 release does not promise:
 - mature external pack registries
 - perfect semantic retrieval or reranking
 
-## Fresh Smoke
+## Stable smoke reference
 
 The packages require Python 3.11 or newer. The release gate explicitly tests
 Python 3.11, 3.12, and 3.13; newer compatible interpreters may be used but are
@@ -146,9 +195,9 @@ PYTHONPATH=packages/rail-py:packages/mcp-server pytest -q \
 - Manual `workflow_dispatch` runs may verify a ref, but publish jobs only run
   from `v*` tag refs
 
-## Tag
+## Publication boundary
 
-```bash
-git tag -a v1.1.12 -m "KRAIL v1.1.12"
-git push origin v1.1.12
-```
+The existing release workflow publishes both distributions from matching `v*`
+tag refs after verification. A manual workflow dispatch only verifies its ref.
+Check publication permissions and approvals in the configured release environment
+at action time. This document does not authorize a tag or publish an artifact.
