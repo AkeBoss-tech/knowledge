@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -50,6 +51,36 @@ class Inputs:
             raise PermissionError('exact fixture delegation is absent: ' + ref.resource_type)
 
 
+def assert_live_audit_response_faults_deny(source, monkeypatch):
+    """Mutate responses only after actual authenticated PG HTTP reads."""
+    import copy
+    import httpx
+    for fault in ('missing_pinned','sequence','snapshot','ordering','cursor','replaced_review'):
+        original_send = httpx.Client.send
+        def changed(client, request, **options):
+            response = original_send(client,request,**options)
+            if request.url.path.endswith('/audit') and response.status_code == 200:
+                value = json.loads(response.read())
+                first = value['items'][0]
+                if fault == 'missing_pinned': value['items'] = []
+                elif fault == 'sequence': first['sequence'] += 1
+                elif fault == 'snapshot': first['snapshot_digest'] = '0'*64
+                elif fault == 'ordering': value['items'].append(copy.deepcopy(first))
+                elif fault == 'cursor': value['next_cursor'] = first['sequence'] - 1
+                elif fault == 'replaced_review':
+                    later = copy.deepcopy(first)
+                    later['sequence'] += 1; later['revision'] += 1
+                    later['payload']['runs'][-1]['result_review']['artifact_digest'] = '0'*64
+                    value['items'].append(later)
+                response.close()
+                return httpx.Response(200,stream=httpx.ByteStream(json.dumps(value).encode()),request=request)
+            return response
+        with monkeypatch.context() as patch:
+            patch.setattr(httpx.Client,'send',changed)
+            with pytest.raises((PermissionError,ValueError)):
+                source.identify(source.binding.run_id)
+
+
 @pytest.mark.parametrize("configuration_deployment", ["separate-local", "same-hosted"])
 def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement, scheduler, tmp_path, monkeypatch, configuration_deployment):
     repo, api, call, project, source_metadata, workers, *_ = placement
@@ -57,7 +88,9 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
     worker = workers[0]
     with OutboundWorkerClient(client_config(worker), transport=api._transport) as client:
         assert WorkSessionWorker(client, {'project_id':project}, worktree=tmp_path, state_dir=tmp_path/'state').attest()['accepted']
-        state = call('POST', root(project), sandbox_goal(source_metadata, tmp_path), status=201)
+        state = call('POST', root(project), {**sandbox_goal(source_metadata, tmp_path),
+            'expected_source_revision':source_metadata['revision'],
+            'expected_source_digest':source_metadata['snapshot_digest']}, status=201)
         assert api.post(PATH, headers=headers).status_code == 200
         with RuntimeStore(tmp_path/'journal.db') as journal:
             execution = FencedWorkerLoop(client, OutboundCodexWorkerExecutor(client, NeverStartModel(), journal, workspace=tmp_path)).run_once()
@@ -67,6 +100,12 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
     state = api.app.state.project_goal_loop.read(state['agent_id'])
     page = call('GET', f'runs/{execution.run_id}/work-execution')
     artifact = page['artifacts'][-1]
+    history_pairs = 40 if configuration_deployment == 'same-hosted' else 0
+    for index in range(history_pairs):
+        for action in ('pause','resume'):
+            state = call('POST',root(project)+'/'+state['agent_id']+'/control', {
+                'action':action,'expected_revision':state['revision'],
+                'idempotency_key':f'history-{index}-{action}'})
     token = api.app.state.control_plane_settings.authenticator.verifier.token
     downloaded = api.get(f'/api/v2/runs/{execution.run_id}/artifacts/{artifact["artifact_id"]}/content', headers={'Authorization':'Bearer '+token})
     assert downloaded.status_code == 200
@@ -84,14 +123,25 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
     accepted = call('POST', root(project)+'/'+state['agent_id']+'/control', body)
     assert accepted['human_acceptance'] is True
     loopback = fixture_api.LoopbackClient(api.app)
-    seen = []
+    seen, audit_responses, measurements = [], [], []
     import httpx
     original_send = httpx.Client.send
     def record_reads(client, request, **options):
         seen.append((request.method, request.url.path, request.url.netloc))
-        return original_send(client, request, **options)
+        response = original_send(client, request, **options)
+        if request.url.path.endswith('/audit') and request.url.netloc == loopback.client.base_url.netloc:
+            audit_responses.append((request.url.query.decode(),response))
+        return response
     monkeypatch.setattr(httpx.Client, 'send', record_reads)
-    kwargs = dict(goal_id=state['agent_id'], run_id=execution.run_id, observer_subject=state['owner'],
+    def measured(name, operation):
+        start, before = time.monotonic(),len(audit_responses)
+        try: return operation()
+        finally:
+            rows = audit_responses[before:]
+            measurements.append({'operation':name,'elapsed_seconds':time.monotonic()-start,
+                'audit_pages':len(rows),'audit_bytes':sum(response.num_bytes_downloaded for query,response in rows),
+                'queries':[query for query,response in rows]})
+    kwargs = dict(goal_id=state['agent_id'], run_id=execution.run_id, observer_subject=state.get('owner',state.get('owner_subject')),
         expected_review_revision=accepted['revision'], expected_artifact_id=artifact['artifact_id'],
         expected_artifact_digest=artifact['content_digest'], base_url=str(loopback.client.base_url).rstrip('/'),
         bearer_token=token, authority='opensaddle://goal-review-fixture', project_id=project)
@@ -101,13 +151,20 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
                       {'bearer_token':'invalid-fixture'},{'project_id':'other-project'}):
             with pytest.raises((PermissionError, ValueError)):
                 OpenSaddleGoalReviewedRunArtifactSource.pin(**{**kwargs, **patch})
+        pin_start = len(audit_responses)
         source = OpenSaddleGoalReviewedRunArtifactSource.pin(**kwargs)
+        assert audit_responses[pin_start][0] == 'after=0'
+        assert audit_responses[-1][0] == 'after=' + str(source.binding.audit_sequence-1)
+        if configuration_deployment == 'same-hosted':
+            assert_live_audit_response_faults_deny(source,monkeypatch)
         access = Inputs()
-        observation = source.identify(execution.run_id)
+        observation = measured('identify-1',lambda:source.identify(execution.run_id))
+        assert measured('identify-2',lambda:source.identify(execution.run_id)) == observation
+        assert measured('read-artifact',lambda:source.read_artifact(observation.artifact_ref,max_bytes=512000)) == downloaded.content
         access.grant(observation.run_ref, observation.artifact_ref)
         path = str(tmp_path/'knowledge.json')
         observations = ObservedRunArtifactRepository(path, tenant_id='personal', project_id=project)
-        evidence = source.observe(observations, authorizer=access, at=datetime.now(timezone.utc))
+        evidence = measured('observe',lambda:source.observe(observations, authorizer=access, at=datetime.now(timezone.utc)))
         assert evidence.evidence_state == 'caller_observed_unverified'
         assert source.binding.review_ref in evidence.input_refs
         access.grant(evidence.exact_ref())
@@ -163,19 +220,36 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
         reopened_source = OpenSaddleGoalReviewedRunArtifactSource(binding=source.binding, **{k:kwargs[k] for k in ('base_url','bearer_token','authority','project_id')})
         reopened = CoreProvenanceRepository(path,tenant_id='personal',project_id=project,
             observed_source=reopened_source,observed_authorizer=reopened_source.authorizer(access))
-        assert ProcedureExplanationService(repository=reopened).actionable_guidance(request,authorizer=reopened_source.authorizer(access)) is not None
+        assert measured('reopened-guidance',lambda:ProcedureExplanationService(repository=reopened).actionable_guidance(request,authorizer=reopened_source.authorizer(access))) is not None
         pg_reads = [(method, route) for method, route, host in seen if host == loopback.client.base_url.netloc]
         configuration_path = '/api/v2/projects/' + project + '/environment/changes'
         assert [(method, route) for method, route in pg_reads if method != 'GET'] == (
             [('POST', configuration_path)] if configuration_deployment == 'same-hosted' else [])
         assert all(route.endswith(('/audit','/capabilities','/content','/provenance-observation'))
             for method, route in pg_reads if method == 'GET')
+        # Actual current membership revocation must deny even a pinned event.
+        with repo._connect() as connection:
+            connection.execute('UPDATE control_plane_memberships SET role=%s WHERE project_id=%s AND subject=%s',
+                ('auditor',project,kwargs['observer_subject']))
+        try:
+            with pytest.raises(PermissionError): source.identify(execution.run_id)
+        finally:
+            with repo._connect() as connection:
+                connection.execute('UPDATE control_plane_memberships SET role=%s WHERE project_id=%s AND subject=%s',
+                    ('owner',project,kwargs['observer_subject']))
         # Deliberate authority fault injection models selected source withdrawal.
         with repo._connect() as connection:
             connection.execute('UPDATE control_plane_sources SET revision=%s WHERE source_id=%s', ('c'*40,source_metadata['source_id']))
         with pytest.raises(PermissionError):
             ProcedureExplanationService(repository=reopened).actionable_guidance(request,authorizer=reopened_source.authorizer(access))
     finally:
+        output = os.environ.get('FK_GOAL_AUDIT_METRICS')
+        if output:
+            directory = Path(output);directory.mkdir(parents=True,exist_ok=True)
+            import rail.opensaddle_goal_run_artifact as implementation
+            (directory/(configuration_deployment+'.json')).write_text(json.dumps({
+                'implementation_sha256':sha256(Path(implementation.__file__).read_bytes()).hexdigest(),
+                'history_controls':history_pairs*2,'deployment':configuration_deployment,'measurements':measurements},indent=2)+'\n')
         if 'local_core' in locals(): local_core.close()
         loopback.close()
 

@@ -79,9 +79,12 @@ class OpenSaddleGoalReviewedRunArtifactSource(OpenSaddleReviewedRunArtifactSourc
         return value
 
     @staticmethod
-    def _current_goal(source, goal_id, run_id, observer_subject, expected_revision):
+    def _current_goal(source, goal_id, run_id, observer_subject, expected_revision, expected_binding=None):
         prefix = f"/api/v2/projects/{quote(source.project_id, safe='')}/goal-loop/{quote(goal_id, safe='')}/audit"
-        cursor, total, accepted, latest = 0, 0, None, None
+        # Only a previously authenticated frozen binding may skip earlier history.
+        # Re-read the original event itself, then every following current snapshot.
+        cursor = expected_binding.audit_sequence - 1 if expected_binding is not None else 0
+        total, accepted, latest = 0, None, None
         deadline = time.monotonic() + source.timeout_seconds
         with source._client() as client:
             if source._json(client, "/api/v2/capabilities").get("authenticated_subject") != observer_subject:
@@ -98,6 +101,11 @@ class OpenSaddleGoalReviewedRunArtifactSource(OpenSaddleReviewedRunArtifactSourc
                             or (latest is not None and event["revision"] <= latest["revision"])
                             or not isinstance(event.get("payload"), dict)):
                         raise ValueError("Core Goal audit ordering or identity differs")
+                    if expected_binding is not None and total == 0:
+                        if (event["sequence"] != expected_binding.audit_sequence
+                                or event["revision"] != expected_binding.review_revision
+                                or event.get("snapshot_digest") != expected_binding.snapshot_digest):
+                            raise PermissionError("pinned Goal acceptance audit changed")
                     cursor, latest = event["sequence"], event
                     total += 1
                     if total > 3200 or time.monotonic() > deadline:
@@ -183,7 +191,7 @@ class OpenSaddleGoalReviewedRunArtifactSource(OpenSaddleReviewedRunArtifactSourc
         if run_id != self.binding.run_id:
             raise PermissionError("Run is outside pinned Goal review")
         current, observation = self._current_goal(self, self.binding.goal_id, run_id,
-            self.binding.observer_subject, self.binding.review_revision)
+            self.binding.observer_subject, self.binding.review_revision, self.binding)
         if current != self.binding:
             raise PermissionError("pinned Goal review changed")
         return observation

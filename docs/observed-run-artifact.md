@@ -205,7 +205,13 @@ work-execution. Audit pages have a 1,000,000-byte transport limit, at most 100
 items per page and 32 pages per observation, with bounded deadlines. Histories
 outside those limits fail closed. The original acceptance event's sequence,
 revision and snapshot digest are pinned in a `goal-result-review` ResourceRef;
-the latest audit snapshot must retain the same accepted exact review. Current
+the latest audit snapshot must retain the same accepted exact review. Initial
+pinning scans the bounded history from zero. A reconstructed pinned source starts
+at `audit_sequence - 1`, re-reads the original acceptance event itself, and
+requires its exact sequence, revision and snapshot digest before scanning all
+later snapshots. It never caches authority or skips the current retained review.
+Missing/reordered acceptance events, changed snapshots, invalid cursors and
+replacement reviews deny access. Current
 Core membership, selected source/context authority and observer identity are
 rechecked on each read and before/after byte release. The artifact-content
 handler internally uses Core's existing Run lookup; deadline reconciliation has
@@ -244,3 +250,15 @@ verify downloaded bytes, retain exact accepted-review evidence, require signed
 promotion, reopen the store, and deny guidance when selected source authority
 changes. These are local synthetic qualifications, not deployed product or actual
 user acceptance claims.
+
+A local real-HTTP performance qualification built 80 actual pause/resume commands
+before accepting a synthetic sandbox Goal. Repeated identification downloaded
+1,082,285 audit bytes in two pages before the pinned cursor change and 18,486
+bytes in one page afterward (98.3% fewer audit bytes). Reopened guidance retained
+all 31 live review checks while reducing audit pages from 62 to 31 and bytes from
+33,550,835 to 573,066. Observed wall time fell from 2.52s to 0.92s in that run;
+these are local observations, not deployment latency guarantees. The initial pin
+still performs its full bounded scan. The same real journey checks membership
+revocation and selected source change; HTTP response fault cases cover missing,
+changed or reordered pinned events, invalid cursors and a replaced retained
+review. Bounds and live authorization checks are unchanged.
