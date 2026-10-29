@@ -259,3 +259,27 @@ review, guidance, three exact invalidations, and Core/input withdrawal through
 the public Knowledge services. The Core artifact source is a deterministic
 external-adapter fixture; it does not prove a new provider turn or Core
 environment activation.
+
+## K-REVIEWED-RUN-PROCEDURE-1 — exact current Core review gates reusable evidence
+
+The opt-in reviewed-Run adapter pins the actual authenticated human subject,
+Project/Run, exact accepted review ID/revision and final artifact identity/digest.
+Completed, unreviewed or rejected results are not equivalent. Every subsequent
+observation rechecks current identity, review and input authority. Replacement,
+rejection, changed identity and in-read withdrawal deny release. The configured
+Core provenance verifier compares the actual Core-registered receipt, rather
+than trusting a caller-generated internally consistent receipt.
+
+Observed artifact evidence remains `caller_observed_unverified`; a desired
+procedure successor requires its own signed exact-version procedure review
+before promotion. No financial effect, provider execution, Core activation or
+new standing access follows from recording evidence.
+
+`packages/rail-py/tests/test_opensaddle_reviewed_run_artifact.py` uses real
+loopback Core HTTP, fixture authentication, retained source/result bytes and
+signed fixture procedure review. Its four tests also pass against isolated SDK
+rc3/Core rc6/MCP rc3 installed wheels: 208 loaded implementation modules remained
+inside site-packages after the run. The source fixture harness is separate.
+This is personal SQLite and synthetic review qualification, not real-user
+acceptance or hosted PostgreSQL result-review support. The candidates remain
+unpublished at this checkpoint.

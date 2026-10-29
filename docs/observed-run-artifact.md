@@ -171,3 +171,11 @@ intentional, and this is not an interactive-latency qualification. Logs remain
 in the integration task's ignored Knowledge evidence directory. A wheel built
 before this module existed must be rebuilt and separately qualified; this
 source result does not publish a package or activate a consumer.
+
+October29 installed-artifact qualification: all four reviewed-adapter HTTP
+checks passed with SDK `1.2.0rc3`, Core `1.2.0rc6` and MCP `1.2.0rc3` in a new
+isolated environment. Before/after origin checks kept SDK/Core/MCP implementations
+inside site-packages; source files supplied only the test harness. The broader
+source/wheel/installed parity and retained-context lifecycle check also passed.
+These unpublished candidate wheels are separate from the currently public
+release lane; see K-REVIEWED-RUN-PROCEDURE-1 for qualification limits.
