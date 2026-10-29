@@ -304,3 +304,15 @@ at that same authenticated origin. A separate mixed-deployment variant retains
 distinct local authority and explicit reference delegation. Neither configuration
 receipt asserts that it dispatched the Goal, observed execution or activated a
 runtime. Live account acceptance and financial actions remain unqualified.
+
+The frozen October29 Core `499cb45` / Knowledge `f2feb7e` bundle also passes
+these seven Goal cases from installed wheels on Python3.11.13,3.12.11 and
+3.13.11:21 passes total, no skips. Production SDK/Core/MCP module origins are
+checked before/after inside each private environment's site-packages. A separate
+strict qualifier verifies105 SDK,331 Core and2 MCP package files against their
+source, wheel and installed bytes on all three profiles. The broad SDK source
+suite passes1,016 checks without skips against the new installed Core/MCP.
+These are separate scoped profiles; neither aggregates into a supported-platform
+release claim. The candidates remain unpublished. Evidence stays in the private
+Interface campaign `knowledge/final-backoffice-v1/`; its manifest binds the
+immutable wheel hashes,59-distribution profiles, origins and raw logs.
