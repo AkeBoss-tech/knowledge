@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 pytest.importorskip("opensaddle.control_plane.api", reason="requires optional actual Core runtime")
@@ -49,7 +50,8 @@ class Inputs:
             raise PermissionError('exact fixture delegation is absent: ' + ref.resource_type)
 
 
-def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement, scheduler, tmp_path, monkeypatch):
+@pytest.mark.parametrize("configuration_deployment", ["separate-local", "same-hosted"])
+def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement, scheduler, tmp_path, monkeypatch, configuration_deployment):
     repo, api, call, project, source_metadata, workers, *_ = placement
     headers, _ = scheduler
     worker = workers[0]
@@ -109,20 +111,31 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
         assert evidence.evidence_state == 'caller_observed_unverified'
         assert source.binding.review_ref in evidence.input_refs
         access.grant(evidence.exact_ref())
-        # Explicit mixed-deployment predecessor: genuine separate local Core,
-        # separate installation authority, separate authenticated trust adapter.
-        # Its project-a configuration is delegated to this KRAIL Project; it is
-        # not a claim that it dispatched or configures the PostgreSQL Goal.
-        local_root = tmp_path/'local-configuration-core'; local_root.mkdir()
-        local_core = LiveCore(local_root)
-        receipt = local_core.configuration()
-        local_trust = local_core.pin(local_core.review())
-        assert local_trust.authority != source.authority
-        local_trust.verify(receipt)
+        if configuration_deployment == 'separate-local':
+            # Genuine separate origin/authority, explicitly delegated local
+            # Project configuration; not evidence of the PG Goal's dispatch.
+            local_root = tmp_path/'local-configuration-core'; local_root.mkdir()
+            local_core = LiveCore(local_root)
+            receipt = local_core.configuration()
+            configuration_trust = local_core.pin(local_core.review())
+            assert configuration_trust.authority != source.authority
+        else:
+            # Genuine PostgreSQL configuration lifecycle on this Goal's origin.
+            # Registering a command is configuration only, not invocation proof.
+            facade = SimpleNamespace(app=api.app,project=project,invoices=value['invoices'],bank=value['bank'])
+            def configuration_call(method, route, status=200, body=None):
+                return fixture_api.checked(loopback,method,route,status,
+                    headers={'Authorization':'Bearer '+token},**({'json':body} if body is not None else {}))
+            facade.call = configuration_call
+            receipt = LiveCore.configuration(facade)
+            configuration_trust = source
+            assert receipt.environment_ref.resource_id == 'opensaddle/environment-revision/' + project
+        assert receipt.execution_verified is False and receipt.activation_observed is False
+        configuration_trust.verify(receipt)
         access.grant(receipt.command_ref, receipt.environment_ref)
         repository = CoreProvenanceRepository(path, tenant_id='personal', project_id=project,
             observed_source=source, observed_authorizer=source.authorizer(access))
-        initial = CoreProvenanceService(repository=repository).ingest(receipt, authorizer=access, trust=local_trust).record
+        initial = CoreProvenanceService(repository=repository).ingest(receipt, authorizer=access, trust=configuration_trust).record
         verification = ResourceRef(authority='krail://fixture-verification', resource_type='test',
             resource_id='independent-exact-invoice-check',version='1',digest='sha256:'+sha256(verification_json).hexdigest())
         access.grant(verification)
@@ -152,8 +165,11 @@ def test_real_goal_verified_download_exact_human_review_and_withdrawal(placement
             observed_source=reopened_source,observed_authorizer=reopened_source.authorizer(access))
         assert ProcedureExplanationService(repository=reopened).actionable_guidance(request,authorizer=reopened_source.authorizer(access)) is not None
         pg_reads = [(method, route) for method, route, host in seen if host == loopback.client.base_url.netloc]
-        assert all(method == 'GET' for method, route in pg_reads)
-        assert all(route.endswith(('/audit','/capabilities','/content')) for method, route in pg_reads)
+        configuration_path = '/api/v2/projects/' + project + '/environment/changes'
+        assert [(method, route) for method, route in pg_reads if method != 'GET'] == (
+            [('POST', configuration_path)] if configuration_deployment == 'same-hosted' else [])
+        assert all(route.endswith(('/audit','/capabilities','/content','/provenance-observation'))
+            for method, route in pg_reads if method == 'GET')
         # Deliberate authority fault injection models selected source withdrawal.
         with repo._connect() as connection:
             connection.execute('UPDATE control_plane_sources SET revision=%s WHERE source_id=%s', ('c'*40,source_metadata['source_id']))

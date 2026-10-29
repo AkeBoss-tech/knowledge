@@ -295,11 +295,12 @@ wake or admit a Goal. Current identity/source authority and artifact bytes are
 rechecked on reuse. Historical observation is not outcome certification or
 procedure activation; promotion requires its separate signed review.
 
-Six owning checks in `test_opensaddle_goal_run_artifact.py` pass with actual
+Seven owning checks in `test_opensaddle_goal_run_artifact.py` pass with actual
 PostgreSQL, service tick, Seatbelt execution, independently verified downloaded
 result, exact fixture-human decision, evidence retention, signed fixture
-promotion, reopen and source-change denial. The configuration predecessor uses
-a separately authenticated local Core with distinct authority and explicit
-reference delegation. This mixed-deployment profile is not a claim that the
-local configuration dispatched or configures the PostgreSQL Goal. Live account,
-financial action and one-hosted-deployment acceptance remain separate.
+promotion, reopen and source-change denial. The same-hosted-Core variant registers
+a genuine configuration predecessor and verifies its configuration-only receipt
+at that same authenticated origin. A separate mixed-deployment variant retains
+distinct local authority and explicit reference delegation. Neither configuration
+receipt asserts that it dispatched the Goal, observed execution or activated a
+runtime. Live account acceptance and financial actions remain unqualified.

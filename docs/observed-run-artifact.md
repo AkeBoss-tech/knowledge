@@ -226,9 +226,21 @@ real PostgreSQL, service tick, enrolled worker, macOS Seatbelt execution,
 authorized artifact download, independent reconciliation CLI verification,
 explicit exact human fixture acceptance, HTTP audit binding, evidence retention,
 desired successor, signed fixture promotion, reopen and source-change denial.
-The procedure predecessor is a genuinely registered configuration from a
-**separate local Core deployment**, with its own current production trust
-adapter and explicit exact-reference delegation into the KRAIL Project. It does
-not claim that local configuration dispatched or configures the PostgreSQL Goal.
-This is mixed-deployment qualification: the current PostgreSQL repository lacks
-the environment API used to register that predecessor in one hosted deployment.
+Two variants cover genuine configuration predecessors. The **same hosted
+PostgreSQL deployment** variant registers the command and environment through
+Core's actual configuration API, then uses the Goal source's production
+`verify` facet to compare the receipt against that same authenticated origin.
+The receipt remains configuration-only: `execution_verified` and
+`activation_observed` are false. Registering that configuration after a completed
+Goal does not establish that it dispatched the Goal. Invocation-ID provenance
+is outside this PostgreSQL qualification.
+
+The **mixed-deployment** variant uses a genuinely registered configuration from
+a separate local Core deployment, with its own current production trust adapter,
+distinct installation authority and explicit exact-reference delegation into the
+KRAIL Project. It does not claim that local configuration dispatched or configures
+the PostgreSQL Goal. Both variants independently execute the real sandbox Goal,
+verify downloaded bytes, retain exact accepted-review evidence, require signed
+promotion, reopen the store, and deny guidance when selected source authority
+changes. These are local synthetic qualifications, not deployed product or actual
+user acceptance claims.
