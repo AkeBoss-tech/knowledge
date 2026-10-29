@@ -96,3 +96,78 @@ other consumers may use the same repository without importing OpenSaddle.
 `test_workflow_observe_replay_and_recall_revalidate_authority` in
 `packages/rail-py/tests/test_observed_run_artifact.py` verifies reopen/replay, exact
 recall, revocation and changed-byte rejection under K21-OPAQUE-RUN-ARTIFACT.
+
+## Pinning an actual accepted Core result review
+
+`rail.opensaddle_reviewed_run_artifact.OpenSaddleReviewedRunArtifactSource`
+adds a read-only opt-in boundary over the existing Core HTTP adapter. Its `pin`
+factory requires the exact Project/Run, observer subject, review ID/revision,
+artifact ID and artifact digest the caller inspected. It checks Core's
+`/api/v2/capabilities` authenticated subject and the real Run/result-review
+responses; a completed but unreviewed or rejected result cannot be pinned.
+The configured origin follows the existing HTTPS or loopback-HTTP policy, with
+redirects disabled and bounded response reads.
+
+The frozen `AcceptedCoreResultReviewBinding` contains selectors and an exact
+`agent-result-review` ResourceRef. The ref hashes immutable review metadata and
+the note digest. It is not a portable signed Core receipt, standing grant or
+outcome certification. Reconstructing a source from that binding still reads
+Core on every observation: subject, Project/Run, final artifact and accepted
+current review must match. Replacing a review with another accepted decision
+also invalidates the older binding. Bearers, HTTP origins, notes and artifact
+bytes are not written into KRAIL evidence.
+
+Use `source.observe(repository, authorizer=live_input_authorizer, at=...,
+input_refs=(...))` to retain ordinary opaque Run evidence with that exact review
+ref added to its dependencies. Use `source.authorizer(live_input_authorizer)`
+when reopening the observation or configuring `CoreProvenanceRepository`.
+The wrapper checks the pinned review dependency against live Core and delegates
+all other exact-input checks to the supplied current authorizer. It does not
+mint source grants. Protected Core outputs retain their existing packet-access
+checks; declared inputs outside such a packet still require the caller's real
+source authorizer.
+
+The same source implements the existing `CoreProvenanceTrust.verify(receipt)`
+interface for its configured Project. It reads only Core's fixed authenticated
+provenance-observation endpoint, with exact command/environment/invocation
+selectors, and compares the entire returned typed receipt. An internally
+consistent caller-created digest is insufficient. Pinned observer and accepted
+review checks bracket that read. Core's configuration-only
+`execution_verified=false` and `activation_observed=false` values remain intact;
+this supplies an authenticated transport trust boundary, not a portable signature.
+
+The raw observation remains **`caller_observed_unverified`**, with provider
+metadata not attested. The separate authenticated fact is that the configured
+Core currently reports an exact human-accepted result review. Neither that
+review nor a read grant is a `procedure.review` permission. Existing
+`ObservedProcedureCandidateService` still creates only a `desired` successor
+of an explicitly reviewed Core-configuration predecessor. Existing exact-version
+procedure review, verification evidence and signed review authorization remain
+necessary for promotion. No command is installed, activated or scheduled by
+this adapter, and no financial or business-impact claim is inferred.
+
+The real HTTP integration tests in
+`packages/rail-py/tests/test_opensaddle_reviewed_run_artifact.py` use a disposable
+Core with bearer-authenticated fixture identity, a reviewed Git source, an actual
+invoice recipe result and canonical result-review writes. The predecessor is
+obtained from Core's registered command/environment and provenance APIs; review
+permissions and judgments remain explicit fixture decisions, not real user
+acceptance. Tests cover changed/rejected reviews, changed account/Project,
+invalid bearer, repository reopening, source withdrawal and a review rejection
+injected after artifact delivery but before the observer's final checks.
+
+Core and KRAIL reads/writes are separate transactions. Rechecking before and
+after the bounded read cannot make the entire HTTP sequence linearizable or
+retract bytes already returned before a later revocation. The adapter does not
+claim provider-side erasure, production qualification or independently verified
+model correctness.
+
+The October 29 local owning run passed all 10 tests across the new adapter,
+existing opaque observation and observed-procedure candidate suites, with no
+skips. The full-flow test uses the production adapter as `CoreProvenanceTrust`
+and rejects a self-consistent forged receipt before accepting Core's actual
+receipt. The run took about 282 seconds: repeated live authorization checks are
+intentional, and this is not an interactive-latency qualification. Logs remain
+in the integration task's ignored Knowledge evidence directory. A wheel built
+before this module existed must be rebuilt and separately qualified; this
+source result does not publish a package or activate a consumer.
