@@ -129,3 +129,23 @@ so a later mutation remains possible. The v3 file and marker are distinct from
 v2: existing `SelectedSourceIndex` and its file retain their behavior, and v3
 never migrates, assigns, or deletes a v2 index automatically. V3 is opt-in and
 requires explicit caller integration; it is not itself a user interface.
+
+## Selected-file descriptor reader
+
+`rail.local_selected_file_source.LocalSelectedFileSource` reads one explicitly
+selected regular file through a borrowed, host-held descriptor using bounded
+`pread`; it does not open a parent directory or traverse sibling paths. The
+trusted host supplies the basename label, authority and live authorization
+callback, retains and closes the descriptor, and must verify the chosen pathname
+still refers to the held device/inode before and after each operation. The reader
+rejects hard-linked or special files, verifies identity and source bytes, and
+supports both legacy line and opt-in exact byte-offset citations. Checks are
+sequential and cannot prevent later mutation or pathname replacement.
+
+This is a trusted-code capability, not an OS sandbox: a compromised process
+running with the same user's normal filesystem permissions may read other files.
+It does not itself register desktop IPC, implement a native chooser, provide
+persistent grants or qualify the packaged runtime. The tests in
+`packages/rail-py/tests/test_local_selected_file_source.py` cover sibling
+reference denial, updates, authorization, descriptor safety, UTF-8 offsets,
+mid-read changes and concurrent reads without shared-offset interference.
