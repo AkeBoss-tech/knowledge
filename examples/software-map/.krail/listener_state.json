@@ -11,7 +11,7 @@
         "sources/sample-service/app/main.py": "sha256:9ebf44132b99ea7d5817a89c3292019b4c91c467f75c07db70114d2008dfc6e2",
         "sources/sample-service/app/routes/health.py": "sha256:40c76edd56f6b698c9004501f86131475ddf618e82f7e8992cdd454054312305",
         "sources/sample-service/docs/adr/0001-http-surface.md": "sha256:30b7d61bb7262b5205c3d2109cf60eb5d3cc41b0da895c7e17bc4e02796250fe",
-        "sources/sample-service/package.json": "sha256:d97bdb693a502355acf45ae485b2529cd14016b96d6b5f2e423fe37d80638322",
+        "sources/sample-service/package.json": "sha256:8c42f99c710c5227b78302b4953e69f8fb4d3ab3089bfa414e3df946bb7514ac",
         "sources/sample-service/pyproject.toml": "sha256:adddcb7fe2a011cb17871fdaaa24e85e229fcabd9e3a43dc6e34f545b690db67",
         "sources/sample-service/tests/test_health.py": "sha256:8c745dedc30809ca608dfc1bb7e02da531abc1772b9316ceba9210a7785a8114"
       },
