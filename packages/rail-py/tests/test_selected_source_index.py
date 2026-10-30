@@ -164,3 +164,34 @@ def test_older_index_format_fails_closed(tmp_path):
         db.execute("UPDATE metadata SET value='krail.selected-source-index.v1' WHERE key='marker'")
     with pytest.raises(ValueError,match='metadata'):
         index.search('Atlas')
+
+
+def test_unicode_queries_use_live_reader_with_exact_citations_and_freshness(tmp_path):
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    jp=root/'日本語.md';jp.write_text('予定\n日本語の計画は金曜日\n')
+    fr=root/'café.md';fr.write_text('Résumé: réunion lundi\n')
+    index=make_index(root,state)
+    japanese=index.evidence('日本語');assert len(japanese)==1
+    assert japanese[0].locator=='%E6%97%A5%E6%9C%AC%E8%AA%9E.md#L2'
+    assert japanese[0].source.verifies(jp.read_bytes())
+    accent=index.evidence('RÉSUMÉ');assert len(accent)==1
+    assert accent[0].locator=='caf%C3%A9.md#L1' and 'Résumé' in accent[0].excerpt
+    old=index.snapshot_token();fr.write_text('Résumé: réunion mardi\n')
+    with pytest.raises(PermissionError): index.revalidate_snapshot(old)
+    assert 'mardi' in index.evidence('RÉSUMÉ')[0].excerpt
+    jp.unlink()
+    assert index.evidence('日本語')==()
+    assert make_index(root,state).evidence('日本語')==()
+
+
+def test_unicode_live_fallback_fails_closed_on_revocation_and_midread_change(tmp_path,monkeypatch):
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'x.md';source.write_text('日本語 old\n');allowed={'yes':True}
+    index=make_index(root,state,lambda:allowed['yes'])
+    original=index.reader.evidence
+    def changing(query,*,limit):
+        items=original(query,limit=limit); source.write_text('日本語 changed\n'); return items
+    monkeypatch.setattr(index.reader,'evidence',changing)
+    with pytest.raises(PermissionError): index.evidence('日本語')
+    allowed['yes']=False
+    with pytest.raises(PermissionError): index.evidence('日本語')

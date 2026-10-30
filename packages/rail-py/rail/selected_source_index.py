@@ -34,6 +34,7 @@ class SelectedReader(Protocol):
     def snapshot_token(self) -> str: ...
     def revalidate_snapshot(self, token: str) -> None: ...
     def read_selected(self) -> tuple[tuple[str, bytes], ...]: ...
+    def evidence(self, query: str, *, limit: int = 20) -> tuple[EvidenceItem, ...]: ...
     def get_resource(self, request): ...
 
 
@@ -242,6 +243,25 @@ class SelectedSourceIndex:
         finally:
             connection.close()
         source_map = dict(rows)
+        if not query.isascii():
+            # The existing persisted term format is ASCII-only. Use the live
+            # authorized reader for Unicode queries without changing the index
+            # format or trusting old excerpts. Its lexical matching semantics
+            # (casefolded substrings) differ from the ASCII index.
+            items = self.reader.evidence(query, limit=limit)
+            if not isinstance(items, tuple) or len(items) > limit:
+                raise ValueError('invalid live evidence')
+            for item in items:
+                if (not isinstance(item, EvidenceItem) or item.source.authority != self.authority
+                        or item.source.resource_type != 'local.file'
+                        or item.source.resource_id not in source_map
+                        or not item.source.verifies(source_map[item.source.resource_id])):
+                    raise ValueError('live evidence source mismatch')
+            self.reader.revalidate_snapshot(token)
+            if tuple(sorted(self.discover())) != tuple(sorted(source_map)):
+                raise PermissionError('selected folder changed')
+            self.authorize()
+            return items
         best = {}
         for (path,line),count in matches.items():
             if path not in source_map: raise ValueError('index source mismatch')
