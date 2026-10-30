@@ -56,3 +56,13 @@ folder consumer must rediscover and compare the folder selection as well.
 The selected root must be a canonical absolute directory with no symbolic-link
 ancestor. Descriptor traversal also rejects symlink substitution while opening
 root components. File names alone cannot establish that content is non-secret.
+
+A trusted local host can instead pass an already-open directory descriptor to
+`LocalProjectSources` and `discover_text_files`. The descriptor is borrowed,
+not an authority grant, and the supplied root path is only a display label;
+reads and discovery reopen relative to the descriptor with no-follow traversal.
+The host remains responsible for choosing the directory, binding the descriptor
+to the current identity, and keeping it open. `read_selected()` returns bounded
+selected bytes only to an authorized local consumer and rechecks the full
+selection; persistence and withdrawal are that consumer's responsibility. The
+checks remain sequential and do not prevent mutation after return.

@@ -35,6 +35,23 @@ def _open_canonical_root(path: Path) -> int:
         raise
 
 
+def _open_selected_fd(fd: int) -> int:
+    """Reopen an already-authorized directory independently of its path.
+
+    Opening ``.`` relative to the borrowed directory FD creates a new directory
+    stream, unlike ``dup`` which shares the caller's directory offset. The
+    caller owns the borrowed FD and must keep it open for the operation.
+    """
+    if type(fd) is not int or fd < 0 or not stat.S_ISDIR(os.fstat(fd).st_mode):
+        raise ValueError('selected root descriptor must be an open directory')
+    opened = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    before, after = os.fstat(fd), os.fstat(opened)
+    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        os.close(opened)
+        raise PermissionError('selected root descriptor changed')
+    return opened
+
+
 _DEFAULT_TEXT_EXTENSIONS = frozenset({'.md', '.txt', '.rst', '.py', '.js', '.jsx', '.ts', '.tsx',
                                       '.json', '.csv', '.yaml', '.yml', '.toml'})
 _EXCLUDED_DIRS = frozenset({'node_modules', 'vendor', 'build', 'dist', '__pycache__'})
@@ -42,26 +59,32 @@ _SENSITIVE_NAME = re.compile(r'(?:^|[._-])(?:secret|secrets|credential|credentia
 
 
 def discover_text_files(root: str | Path, *, max_files: int = 256, max_entries: int = 4096,
-                        max_depth: int = 12) -> tuple[str, ...]:
+                        max_depth: int = 12, root_fd: int | None = None) -> tuple[str, ...]:
     """Propose text paths below a selected folder; discovery grants no read access.
 
     Hidden names, common generated directories, secret-like names, symlinks,
-    hard links and special files are omitted. Limits fail closed rather than silently
+    hard links and special files are omitted. When supplied, root_fd is a trusted
+    already-open directory and the root path is only a label. Limits fail closed rather than silently
     presenting a partial inventory. Callers must still explicitly select and
     authorize every file they pass to LocalProjectSources.
     """
     if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY'):
         raise OSError('safe folder discovery is unavailable on this platform')
     requested = Path(root)
-    if not requested.is_absolute() or requested.is_symlink():
-        raise ValueError('root must be an absolute, non-symlink directory')
+    if not requested.is_absolute() or Path(os.path.normpath(requested)) != requested:
+        raise ValueError('root must be an absolute canonical directory')
     if not 1 <= max_files <= 256 or not 1 <= max_entries <= 16384 or not 0 <= max_depth <= 32:
         raise ValueError('folder discovery bounds are invalid')
-    root_path = requested.resolve(strict=True)
-    if Path(os.path.normpath(requested)) != root_path:
-        raise ValueError('root must be canonical and contain no symlink ancestors')
-    root_fd = _open_canonical_root(root_path)
-    root_device = os.fstat(root_fd).st_dev
+    if root_fd is None:
+        if requested.is_symlink():
+            raise ValueError('root must be an absolute, non-symlink directory')
+        root_path = requested.resolve(strict=True)
+        if requested != root_path:
+            raise ValueError('root must be canonical and contain no symlink ancestors')
+        opened_root = _open_canonical_root(root_path)
+    else:
+        opened_root = _open_selected_fd(root_fd)
+    root_device = os.fstat(opened_root).st_dev
     paths: list[str] = []
     visited = 0
     def visit(fd: int, prefix: str, depth: int) -> None:
@@ -97,9 +120,9 @@ def discover_text_files(root: str | Path, *, max_files: int = 256, max_entries: 
                 if len(paths) > max_files:
                     raise ValueError('folder discovery exceeds file bound')
     try:
-        visit(root_fd, '', 0)
+        visit(opened_root, '', 0)
     finally:
-        os.close(root_fd)
+        os.close(opened_root)
     return tuple(sorted(paths))
 
 
@@ -109,24 +132,34 @@ class LocalProjectSources:
     Every search reads the selected bytes afresh. Exact refs cannot be used
     after a file changes or disappears. The caller's authorization callback is
     called before each read and before return; it must raise on denial.
-    POSIX descriptor traversal rejects symlinks and special files. No retained
+    A supplied root_fd is borrowed from the trusted caller for this reader's lifetime;
+    when supplied, the path is a label and is never reopened. POSIX descriptor
+    traversal rejects symlinks and special files. No retained
     plaintext or historical version is stored by this adapter.
     """
     def __init__(self, *, root: str | Path, authority: str, selected_paths: tuple[str, ...],
                  authorize: Callable[[str], None], max_file_bytes: int = MAX_RESOURCE_BYTES,
-                 max_total_bytes: int = 8 * MAX_RESOURCE_BYTES) -> None:
+                 max_total_bytes: int = 8 * MAX_RESOURCE_BYTES, root_fd: int | None = None) -> None:
         if not callable(authorize):
             raise ValueError('a live authorization callback is required')
         if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY'):
             raise OSError('safe selected-file traversal is unavailable on this platform')
         requested = Path(root)
-        if not requested.is_absolute() or requested.is_symlink():
-            raise ValueError('root must be an absolute, non-symlink directory')
-        self._root = requested.resolve(strict=True)
-        if Path(os.path.normpath(requested)) != self._root:
-            raise ValueError('root must be canonical and contain no symlink ancestors')
-        if not self._root.is_dir():
-            raise ValueError('root must be a directory')
+        if not requested.is_absolute() or Path(os.path.normpath(requested)) != requested:
+            raise ValueError('root must be an absolute canonical directory')
+        self._root_fd = root_fd
+        if root_fd is None:
+            if requested.is_symlink():
+                raise ValueError('root must be an absolute, non-symlink directory')
+            self._root = requested.resolve(strict=True)
+            if requested != self._root:
+                raise ValueError('root must be canonical and contain no symlink ancestors')
+            if not self._root.is_dir():
+                raise ValueError('root must be a directory')
+        else:
+            # The trusted caller supplies the selected, already-open directory;
+            # this lexical path is only an output label and is never reopened.
+            self._root = requested
         if not 1 <= len(selected_paths) <= 256 or len(set(selected_paths)) != len(selected_paths):
             raise ValueError('select 1..256 distinct files')
         self._paths = tuple(self._validate_path(p) for p in selected_paths)
@@ -158,7 +191,7 @@ class LocalProjectSources:
         return value
 
     def _open_root(self) -> int:
-        return _open_canonical_root(self._root)
+        return _open_canonical_root(self._root) if self._root_fd is None else _open_selected_fd(self._root_fd)
 
     def _read(self, path: str) -> bytes:
         self._authorize(path)
@@ -268,6 +301,31 @@ class LocalProjectSources:
             raise ValueError('invalid selected source snapshot token')
         if not hmac.compare_digest(token, self.snapshot_token()):
             raise PermissionError('selected sources changed')
+
+    def read_selected(self) -> tuple[tuple[str, bytes], ...]:
+        """Read explicitly selected current files for an authorized local consumer.
+
+        Missing files are omitted after their current authorization check. Every
+        available file is read under the byte bounds, and the entire selection
+        is revalidated before return. No text is retained here. The caller owns
+        persistence and must preserve access/withdrawal boundaries. Checks are
+        sequential, not an atomic snapshot; later changes remain possible.
+        """
+        token = self.snapshot_token()
+        items: list[tuple[str, bytes]] = []
+        total = 0
+        for path in self._paths:
+            try:
+                data = self._read(path)
+            except FileNotFoundError:
+                self._authorize(path)
+                continue
+            total += len(data)
+            if total > self._max_total_bytes:
+                raise ValueError('selected sources exceed total byte bound')
+            items.append((path, data))
+        self.revalidate_snapshot(token)
+        return tuple(items)
 
     def _find(self, query: str) -> list[tuple[ResourceRef, str, int, float]]:
         terms = set(re.findall(r'\w+', query.casefold()))

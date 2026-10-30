@@ -174,3 +174,82 @@ def test_root_with_symlink_ancestor_is_not_accepted(tmp_path):
         LocalProjectSources(root=root, authority='local-project://fixture', selected_paths=('ok.md',), authorize=lambda path: None)
     with pytest.raises(ValueError, match='no symlink ancestors'):
         discover_text_files(root)
+
+
+def test_descriptor_selection_survives_adversarial_path_swap_without_reading_replacement(tmp_path):
+    from rail.local_project_sources import discover_text_files
+    root = tmp_path / 'selected'; root.mkdir()
+    (root / 'plan.md').write_text('Aurora approved original\n')
+    replacement = tmp_path / 'replacement'; replacement.mkdir()
+    (replacement / 'secret.md').write_text('Aurora replacement private\n')
+    held = tmp_path / 'held'
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        root.rename(held); replacement.rename(root)
+        # Both scans must open a new independent directory stream from the
+        # same borrowed descriptor; they never inspect the replacement path.
+        assert discover_text_files(root, root_fd=fd) == ('plan.md',)
+        assert discover_text_files(root, root_fd=fd) == ('plan.md',)
+        reader = LocalProjectSources(root=root, root_fd=fd, authority='local-project://fixture',
+                                     selected_paths=('plan.md',), authorize=lambda _: None)
+        found = reader.evidence('Aurora')
+        assert [item.excerpt for item in found] == ['Aurora approved original']
+        assert dict(reader.read_selected()) == {'plan.md': b'Aurora approved original\n'}
+        assert 'replacement' not in str(found)
+        root.rename(replacement); held.rename(root)
+        assert reader.evidence('Aurora')[0].excerpt == 'Aurora approved original'
+    finally:
+        os.close(fd)
+
+
+def test_descriptor_reader_rejects_non_directory_and_preserves_caller_fd(tmp_path):
+    from rail.local_project_sources import discover_text_files
+    file = tmp_path / 'file.txt'; file.write_text('text')
+    fd = os.open(file, os.O_RDONLY)
+    try:
+        with pytest.raises(ValueError, match='descriptor'):
+            discover_text_files(tmp_path, root_fd=fd)
+        with pytest.raises(ValueError, match='descriptor'):
+            LocalProjectSources(root=tmp_path, root_fd=fd, authority='local-project://fixture',
+                                selected_paths=('file.txt',), authorize=lambda _: None)
+        assert os.read(fd, 4) == b'text'
+    finally:
+        os.close(fd)
+
+
+def test_read_selected_returns_current_bounded_bytes_and_honors_revocation(project):
+    root, reader, allowed = project
+    assert dict(reader.read_selected()) == {
+        'docs/launch.md': b'# Launch\nAtlas launches on Monday.\n',
+        'budget.txt': b'Atlas launch budget: 500 dollars.\n',
+    }
+    (root / 'budget.txt').unlink()
+    assert [path for path, _ in reader.read_selected()] == ['docs/launch.md']
+    allowed.remove('budget.txt')
+    with pytest.raises(PermissionError, match='revoked'):
+        reader.read_selected()
+
+
+def test_read_selected_rejects_change_during_read(project, monkeypatch):
+    root, reader, _ = project
+    original = reader._read
+    count = 0
+    def change(path):
+        nonlocal count
+        count += 1
+        value = original(path)
+        # First four reads are snapshot_token's two full selection scans.
+        if count == 5:
+            (root / 'docs' / 'launch.md').write_text('changed during selection')
+        return value
+    monkeypatch.setattr(reader, '_read', change)
+    with pytest.raises(PermissionError, match='changed'):
+        reader.read_selected()
+
+
+def test_read_selected_obeys_aggregate_byte_bound(project):
+    root, _, _ = project
+    reader = LocalProjectSources(root=root, authority='local-project://fixture',
+        selected_paths=('docs/launch.md', 'budget.txt'), authorize=lambda _: None, max_total_bytes=12)
+    with pytest.raises(ValueError, match='total byte bound'):
+        reader.read_selected()
