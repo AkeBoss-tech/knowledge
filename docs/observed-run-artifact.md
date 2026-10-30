@@ -262,3 +262,25 @@ still performs its full bounded scan. The same real journey checks membership
 revocation and selected source change; HTTP response fault cases cover missing,
 changed or reordered pinned events, invalid cursors and a replaced retained
 review. Bounds and live authorization checks are unchanged.
+
+### Local exact Goal evidence command
+
+`python -m rail.goal_evidence_cli capture` and `recall` are owner-operated,
+loopback-only adapters to the exact accepted Goal review source and existing
+project-scoped observation repository. Each invocation requires the existing
+Core owner bearer in an owner-only regular file (`--token-file`), an explicit
+`--core-origin` using numeric loopback and port, `--authority`, `--project-id`,
+`--goal-id`, `--run-id`, `--observer`, `--review-revision`, `--artifact-id`,
+`--artifact-digest`, `--tenant`, and `--store`. Recall also requires the exact
+`--evidence-digest` returned by capture. Both `--trust-local-core` and `--dedicated-short-lived-credential` must be supplied explicitly. These are operator assertions: loopback does not authenticate the server or prove credential lifetime. Only use a dedicated short-lived bearer for a listener whose ownership the operator has verified; a rogue loopback listener can receive it. The store directory must already exist, be owner-only and have no symlink path, and existing store and lock files must be owner-only regular files. These checks protect against other local users, not a malicious process running as the same user. Tokens never appear in arguments or stored evidence. The command does not create a Core credential or Goal grant.
+
+Capture returns an exact evidence reference; recall rechecks the live Core
+identity, accepted review, membership, source and artifact and returns bounded
+base64 opaque bytes. Output remains `caller_observed_unverified`: human review
+is not proof of business truth. The caller is responsible for protecting recall
+output and the selected local store. Neither command wakes or changes a Goal,
+promotes a procedure, or supplies authority to another task. Cross-service
+revocation cannot retract bytes already returned. The opt-in integration test
+`packages/rail-py/tests/test_goal_evidence_cli.py` uses disposable PostgreSQL,
+loopback HTTP, synthetic identity, and Seatbelt; it does not establish hosted
+production identity or deployment.

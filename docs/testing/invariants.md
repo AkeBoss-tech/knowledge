@@ -293,7 +293,7 @@ original event sequence, revision and snapshot digest; the latest authorized
 audit snapshot must retain that same review. Reading evidence does not reconcile,
 wake or admit a Goal. Current identity/source authority and artifact bytes are
 rechecked on reuse. Historical observation is not outcome certification or
-procedure activation; promotion requires its separate signed review.
+procedure activation; promotion requires its separate signed review. The owner-operated loopback CLI in `test_goal_evidence_cli.py` captures and recalls the exact accepted artifact across actual HTTP and disposable PostgreSQL; duplicate capture, source withdrawal, membership revocation, wrong digest and insecure credential-file mode are checked. Identity is synthetic and this is not hosted production qualification.
 
 Seven owning checks in `test_opensaddle_goal_run_artifact.py` pass with actual
 PostgreSQL, service tick, Seatbelt execution, independently verified downloaded
