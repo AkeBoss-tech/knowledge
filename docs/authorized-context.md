@@ -66,3 +66,26 @@ to the current identity, and keeping it open. `read_selected()` returns bounded
 selected bytes only to an authorized local consumer and rechecks the full
 selection; persistence and withdrawal are that consumer's responsibility. The
 checks remain sequential and do not prevent mutation after return.
+
+## Rebuildable selected-source lexical index
+
+`rail.selected_source_index.SelectedSourceIndex` is an opt-in local cache for
+an explicitly selected source set. A caller supplies a private owner-only state
+directory outside the selected source tree, a selection-bound reader, current
+discovery, and live authorization callbacks. The SQLite cache stores relative
+paths, content digests, line numbers and salted hashes of lexical terms, not
+source excerpts. These hashes and paths are still sensitive and dictionary-
+guessable: owner-only permissions are not encryption or secure deletion.
+
+Search re-reads and reauthorizes the full selected corpus, atomically rebuilds
+its postings when a snapshot changes, and returns exact current source lines
+with digests. It detects inconsistent cache generations and fails closed rather
+than using stale cached text. A new reader must be constructed when the selected
+folder's file set changes; opening the index does not itself grant access.
+Interrupted writes recover transactionally or fail closed; a damaged index may
+require operator repair. Callers must protect the state directory from concurrent
+same-account tampering, bind the matching reader authority, and treat sequential
+checks as observations rather than an atomic filesystem snapshot. There is no
+remote embedding provider, semantic search, automatic file watcher or UI in this
+component. `packages/rail-py/tests/test_selected_source_index.py` covers restart,
+update, removal, addition, revoked authority, corruption and interrupted writes.

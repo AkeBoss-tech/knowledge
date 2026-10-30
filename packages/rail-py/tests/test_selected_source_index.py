@@ -1,0 +1,142 @@
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from krail.provider.v1 import GetResourceRequest
+from rail.local_project_sources import LocalProjectSources, discover_text_files
+from rail.selected_source_index import SelectedSourceIndex
+
+
+def make_index(root, state, allowed=lambda: True):
+    def auth(path=None):
+        if not allowed():
+            raise PermissionError('revoked')
+    def discover():
+        return discover_text_files(root)
+    reader = LocalProjectSources(root=root, authority='local-project://fixture', selected_paths=discover(), authorize=auth)
+    return SelectedSourceIndex(state_dir=state, source_root=root, reader=reader, discover=discover, authorize=auth, authority='local-project://fixture')
+
+
+def test_restart_edits_add_delete_revocation_and_citations(tmp_path):
+    root = tmp_path/'project'; root.mkdir()
+    state = tmp_path/'state'; state.mkdir(mode=0o700)
+    (root/'a.md').write_text('Atlas launch Monday.\n')
+    (root/'b.txt').write_text('Atlas budget 500 dollars.\n')
+    (root/'c.txt').write_text('Unrelated word.\n')
+    idx = make_index(root, state)
+    items = idx.evidence('Atlas')
+    assert {i.locator for i in items} == {'a.md#L1', 'b.txt#L1'}
+    assert all(i.source.verifies((root/i.source.resource_id).read_bytes()) for i in items)
+    assert idx.get_resource(GetResourceRequest(ref=items[0].source)).resource.content
+    old_token = idx.snapshot_token()
+    assert b'Atlas launch Monday' not in idx.path.read_bytes()
+    assert b'500 dollars' not in idx.path.read_bytes()
+    assert idx.path.stat().st_mode & 0o077 == 0
+    (root/'b.txt').write_text('Atlas budget 800 dollars.\n')
+    (root/'c.txt').write_text('Atlas owner is Ada.\n')
+    with pytest.raises(PermissionError): idx.revalidate_snapshot(old_token)
+    with pytest.raises(PermissionError): idx.get_resource(GetResourceRequest(ref=next(i.source for i in items if i.source.resource_id=='b.txt')))
+    updated = make_index(root,state).evidence('Atlas')
+    assert {i.locator for i in updated} == {'a.md#L1','b.txt#L1','c.txt#L1'}
+    assert all('500' not in i.excerpt for i in updated)
+    (root/'a.md').unlink()
+    (root/'d.md').write_text('Atlas deadline Friday.\n')
+    with pytest.raises(PermissionError): idx.evidence('Atlas')
+    fresh = make_index(root,state).evidence('Atlas')
+    assert {i.source.resource_id for i in fresh} == {'b.txt','c.txt','d.md'}
+    with pytest.raises(PermissionError): make_index(root,state,lambda:False).evidence('Atlas')
+    # Reopen from a separate interpreter with no in-memory generation.
+    code = '''from pathlib import Path\nfrom rail.local_project_sources import LocalProjectSources,discover_text_files\nfrom rail.selected_source_index import SelectedSourceIndex\nimport sys\nr=Path(sys.argv[1]); s=Path(sys.argv[2]); d=lambda:discover_text_files(r)\nx=LocalProjectSources(root=r,authority="local-project://fixture",selected_paths=d(),authorize=lambda p:None)\ni=SelectedSourceIndex(state_dir=s,source_root=r,reader=x,discover=d,authorize=lambda:None,authority="local-project://fixture")\nprint(",".join(sorted(e.source.resource_id for e in i.evidence("Atlas"))))'''
+    result = subprocess.run([sys.executable,'-c',code,str(root),str(state)],capture_output=True,text=True,check=True)
+    assert result.stdout.strip() == 'b.txt,c.txt,d.md'
+
+
+def test_unrelated_and_corrupt_database_fail_closed_without_mutation(tmp_path):
+    root=tmp_path/'project'; root.mkdir(); (root/'a.txt').write_text('atlas')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    path=state/'selected-source-index.sqlite'
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE important(data TEXT)'); db.execute("INSERT INTO important VALUES ('preserve')")
+    path.chmod(0o600)
+    before=path.read_bytes()
+    with pytest.raises(ValueError): make_index(root,state).search('atlas')
+    assert path.read_bytes()==before
+    path.unlink()
+    index=make_index(root,state); index.search('atlas')
+    with sqlite3.connect(path) as db: db.execute("UPDATE metadata SET value='bad' WHERE key='checksum'")
+    before=path.read_bytes()
+    with pytest.raises(ValueError): index.search('atlas')
+    assert path.read_bytes()==before
+
+
+def test_mid_build_change_rolls_back_generation(tmp_path, monkeypatch):
+    root=tmp_path/'project'; root.mkdir(); source=root/'a.txt'; source.write_text('atlas old')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    index=make_index(root,state); index.search('atlas')
+    with sqlite3.connect(index.path) as db: before=dict(db.execute('SELECT key,value FROM metadata'))
+    source.write_text('atlas new')
+    original=SelectedSourceIndex._write_generation
+    def mutate(db, rows, salt, token):
+        original(db,rows,salt,token)
+        source.write_text('atlas newer')
+    monkeypatch.setattr(SelectedSourceIndex,'_write_generation',staticmethod(mutate))
+    with pytest.raises(PermissionError): index.search('atlas')
+    with sqlite3.connect(index.path) as db: after=dict(db.execute('SELECT key,value FROM metadata'))
+    assert before==after
+
+
+def test_folder_addition_during_answer_invalidates_snapshot(tmp_path):
+    root=tmp_path/'project'; root.mkdir(); (root/'a.md').write_text('Atlas old')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    index=make_index(root,state)
+    token=index.snapshot_token()
+    (root/'new.md').write_text('Atlas additional')
+    with pytest.raises(PermissionError): index.revalidate_snapshot(token)
+    assert {e.source.resource_id for e in make_index(root,state).evidence('Atlas')} == {'a.md','new.md'}
+
+
+def test_index_rejects_symlink_and_mutated_postings(tmp_path):
+    root=tmp_path/'project'; root.mkdir(); (root/'a.md').write_text('Atlas old')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    target=tmp_path/'unrelated'; target.write_text('leave untouched')
+    path=state/'selected-source-index.sqlite'; path.symlink_to(target)
+    with pytest.raises(PermissionError): make_index(root,state).search('Atlas')
+    assert target.read_text() == 'leave untouched'
+    path.unlink()
+    index=make_index(root,state); index.search('Atlas')
+    with sqlite3.connect(path) as db: db.execute('DELETE FROM postings')
+    with pytest.raises(ValueError,match='checksum'): index.search('Atlas')
+
+
+def test_process_exit_mid_generation_never_returns_stale_output(tmp_path):
+    root=tmp_path/'project'; root.mkdir(); source=root/'a.md'; source.write_text('Atlas original')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    make_index(root,state).search('Atlas')
+    source.write_text('Atlas current')
+    code='''from pathlib import Path\nfrom rail.local_project_sources import LocalProjectSources,discover_text_files\nfrom rail.selected_source_index import SelectedSourceIndex\nimport os,sys\nr=Path(sys.argv[1]); s=Path(sys.argv[2]); d=lambda:discover_text_files(r)\nx=LocalProjectSources(root=r,authority="local-project://fixture",selected_paths=d(),authorize=lambda p:None)\ni=SelectedSourceIndex(state_dir=s,source_root=r,reader=x,discover=d,authorize=lambda:None,authority="local-project://fixture")\nold=SelectedSourceIndex._write_generation\ndef crash(db,rows,salt,token):\n old(db,rows,salt,token); os._exit(23)\nSelectedSourceIndex._write_generation=staticmethod(crash)\ni.search("Atlas")'''
+    result=subprocess.run([sys.executable,'-c',code,str(root),str(state)])
+    assert result.returncode==23
+    try:
+        evidence=make_index(root,state).search('Atlas')
+    except ValueError as exc:
+        assert 'index unavailable or corrupt' in str(exc)
+    else:
+        assert [item.excerpt for item in evidence] == ['Atlas current']
+
+
+@pytest.mark.parametrize('key,value', [
+    ('salt', 'a'*64),
+    ('snapshot', 'sha256:'+'b'*64),
+    ('generation', '42'),
+])
+def test_valid_looking_metadata_corruption_fails_closed(tmp_path, key, value):
+    root=tmp_path/'project'; root.mkdir(); (root/'a.md').write_text('Atlas current')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    index=make_index(root,state); assert index.search('Atlas')
+    with sqlite3.connect(index.path) as db:
+        db.execute('UPDATE metadata SET value=? WHERE key=?', (value,key))
+    with pytest.raises(ValueError,match='checksum'):
+        index.search('Atlas')
