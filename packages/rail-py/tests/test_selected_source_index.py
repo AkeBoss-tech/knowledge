@@ -140,3 +140,27 @@ def test_valid_looking_metadata_corruption_fails_closed(tmp_path, key, value):
         db.execute('UPDATE metadata SET value=? WHERE key=?', (value,key))
     with pytest.raises(ValueError,match='checksum'):
         index.search('Atlas')
+
+
+@pytest.mark.parametrize('separator', ['\r\n', '\r', '\u2028'])
+def test_citation_lines_match_live_reader_on_all_supported_separators(tmp_path, separator):
+    root=tmp_path/'project'; root.mkdir()
+    (root/'a.md').write_bytes(('preface'+separator+'Atlas target'+separator+'tail').encode())
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    index=make_index(root,state)
+    indexed=index.evidence('Atlas')
+    live=index.reader.evidence('Atlas')
+    assert len(indexed)==len(live)==1
+    assert indexed[0].locator==live[0].locator=='a.md#L2'
+    assert indexed[0].excerpt==live[0].excerpt=='Atlas target'
+    assert indexed[0].source==live[0].source
+
+
+def test_older_index_format_fails_closed(tmp_path):
+    root=tmp_path/'project'; root.mkdir(); (root/'a.md').write_text('Atlas current')
+    state=tmp_path/'state'; state.mkdir(mode=0o700)
+    index=make_index(root,state); index.search('Atlas')
+    with sqlite3.connect(index.path) as db:
+        db.execute("UPDATE metadata SET value='krail.selected-source-index.v1' WHERE key='marker'")
+    with pytest.raises(ValueError,match='metadata'):
+        index.search('Atlas')

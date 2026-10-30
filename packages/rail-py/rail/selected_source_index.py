@@ -24,7 +24,7 @@ from krail.provider.v1 import EvidenceItem, MAX_EVIDENCE_ITEM_BYTES, ResourceRef
 from rail.vector_store import tokenize
 
 _APP_ID = 0x4B524149
-_MARKER = 'krail.selected-source-index.v1'
+_MARKER = 'krail.selected-source-index.v2'
 _MAX_SOURCES = 256
 _MAX_BYTES = 8 * 1_048_576
 _MAX_POSTINGS = 200_000
@@ -196,7 +196,7 @@ class SelectedSourceIndex:
         count = 0
         for path, raw in rows:
             connection.execute('INSERT INTO files VALUES (?,?)',(path,'sha256:'+sha256(raw).hexdigest()))
-            for line, text in enumerate(raw.decode('utf-8').split('\n'),1):
+            for line, text in enumerate(raw.decode('utf-8').splitlines(),1):
                 hashes = {_term_hash(salt, term) for term in tokenize(text)}
                 count += len(hashes)
                 if count > _MAX_POSTINGS: raise ValueError('index exceeds posting bound')
@@ -251,9 +251,9 @@ class SelectedSourceIndex:
         items = []
         for path,(count,line) in sorted(best.items(), key=lambda item:(-item[1][0],item[0]))[:limit]:
             raw = source_map[path]
-            lines = raw.decode('utf-8').split('\n')
+            lines = raw.decode('utf-8').splitlines()
             if not 1 <= line <= len(lines): raise ValueError('index line mismatch')
-            excerpt = lines[line-1].removesuffix('\r').encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8',errors='ignore')
+            excerpt = lines[line-1].encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8',errors='ignore')
             if not excerpt: continue
             digest = 'sha256:'+sha256(raw).hexdigest()
             ref = ResourceRef(authority=self.authority,resource_type='local.file',resource_id=path,version=digest,digest=digest)

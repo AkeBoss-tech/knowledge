@@ -70,7 +70,8 @@ checks remain sequential and do not prevent mutation after return.
 ## Rebuildable selected-source lexical index
 
 `rail.selected_source_index.SelectedSourceIndex` is an opt-in local cache for
-an explicitly selected source set. A caller supplies a private owner-only state
+an explicitly selected source set. Its terms use the existing ASCII-oriented
+KRAIL tokenizer; this is lexical retrieval, not multilingual semantic search. A caller supplies a private owner-only state
 directory outside the selected source tree, a selection-bound reader, current
 discovery, and live authorization callbacks. The SQLite cache stores relative
 paths, content digests, line numbers and salted hashes of lexical terms, not
@@ -89,3 +90,8 @@ checks as observations rather than an atomic filesystem snapshot. There is no
 remote embedding provider, semantic search, automatic file watcher or UI in this
 component. `packages/rail-py/tests/test_selected_source_index.py` covers restart,
 update, removal, addition, revoked authority, corruption and interrupted writes.
+
+The current selected-source index uses the v2 marker, with line splitting aligned
+to the live reader for CRLF, bare CR and Unicode separators. A v1 prototype cache
+is rejected rather than silently reused; choose a fresh private state directory
+or explicitly manage the old cache. No automatic removal of user files occurs.
