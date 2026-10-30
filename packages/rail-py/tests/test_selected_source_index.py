@@ -234,3 +234,139 @@ def test_index_offset_anchors_exact_token_not_earlier_substring(tmp_path):
     # A hyphen-delimited component is also an actual indexed term.
     source.write_text('needleword '+('x '*10000)+'pre-needle-post\n')
     assert 'pre-needle-post' in index.evidence_offset('needle',limit=1,excerpt_window_bytes=128)[0].excerpt
+
+
+def make_scoped(root,state,*,kind='directory',name=None,authority='local-project://fixture',allow=lambda:True):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    def auth(path=None):
+        if not allow(): raise PermissionError('revoked')
+    def discover():
+        if kind=='file': return (name,) if (root/name).is_file() else ()
+        return discover_text_files(root)
+    reader=LocalProjectSources(root=root,authority=authority,selected_paths=discover(),authorize=auth)
+    return ScopedSelectedSourceIndex(state_dir=state,source_root=root,reader=reader,discover=discover,authorize=auth,scope_kind=kind,selected_file=name,authority=authority)
+
+
+def test_scoped_v3_cross_root_file_authority_and_legacy_preservation(tmp_path):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    a=tmp_path/'a';a.mkdir();b=tmp_path/'b';b.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    (a/'a.md').write_text('Atlas in A');(b/'b.md').write_text('Atlas in B')
+    legacy=make_index(a,state);legacy.search('Atlas');legacy_bytes=legacy.path.read_bytes()
+    idx=make_scoped(a,state);assert idx.search('Atlas')
+    assert legacy.path.read_bytes()==legacy_bytes
+    v3_before=idx.path.read_bytes()
+    with pytest.raises(ValueError,match='metadata'): make_scoped(b,state).search('Atlas')
+    with pytest.raises(ValueError,match='metadata'): make_scoped(a,state,kind='file',name='a.md').search('Atlas')
+    with pytest.raises(ValueError,match='metadata'): make_scoped(a,state,authority='local-project://other').search('Atlas')
+    (b/'b.md').unlink()
+    with pytest.raises(ValueError,match='metadata'):
+        ScopedSelectedSourceIndex.clear_empty(state_dir=state,source_root=b,discover=lambda:(),authorize=lambda:None,authority='local-project://fixture')
+    assert idx.path.read_bytes()==v3_before and legacy.path.read_bytes()==legacy_bytes
+    (a/'a.md').unlink()
+    ScopedSelectedSourceIndex.clear_empty(state_dir=state,source_root=a,discover=lambda:discover_text_files(a),authorize=lambda:None,authority='local-project://fixture')
+    with sqlite3.connect(idx.path) as db:
+        assert db.execute('SELECT COUNT(*) FROM files').fetchone()[0]==0
+        assert db.execute('SELECT COUNT(*) FROM postings').fetchone()[0]==0
+    assert legacy.path.read_bytes()==legacy_bytes
+    (a/'fresh.md').write_text('Atlas new')
+    assert make_scoped(a,state).search('Atlas')[0].excerpt=='Atlas new'
+
+
+def test_scoped_empty_absent_foreign_symlink_and_revocation_are_safe(tmp_path,monkeypatch):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    params=dict(state_dir=state,source_root=root,discover=lambda:(),authorize=lambda:None,authority='local-project://fixture')
+    ScopedSelectedSourceIndex.clear_empty(**params)
+    db=state/'scoped-selected-source-index.sqlite';assert not db.exists()
+    with sqlite3.connect(db) as c:c.execute('CREATE TABLE unrelated(secret TEXT)')
+    db.chmod(0o600);before=db.read_bytes()
+    with pytest.raises(ValueError):ScopedSelectedSourceIndex.clear_empty(**params)
+    assert db.read_bytes()==before
+    db.unlink();outside=tmp_path/'outside';outside.write_text('untouched');db.symlink_to(outside)
+    with pytest.raises(PermissionError):ScopedSelectedSourceIndex.clear_empty(**params)
+    assert outside.read_text()=='untouched';db.unlink()
+    source=root/'a.md';source.write_text('Atlas');idx=make_scoped(root,state);idx.search('Atlas');source.unlink()
+    with sqlite3.connect(idx.path) as c:before=list(c.execute('SELECT * FROM metadata'))
+    calls={'n':0}
+    def revoked():
+        calls['n']+=1
+        if calls['n']>=4:raise PermissionError('revoked')
+    with pytest.raises(PermissionError):ScopedSelectedSourceIndex.clear_empty(**{**params,'authorize':revoked})
+    with sqlite3.connect(idx.path) as c:assert list(c.execute('SELECT * FROM metadata'))==before
+    original=ScopedSelectedSourceIndex._write_generation
+    def add_during_write(db,rows,salt,token):
+        original(db,rows,salt,token);source.write_text('new')
+    monkeypatch.setattr(ScopedSelectedSourceIndex,'_write_generation',staticmethod(add_during_write))
+    with pytest.raises(PermissionError):ScopedSelectedSourceIndex.clear_empty(**params | {'discover':lambda:discover_text_files(root)})
+    with sqlite3.connect(idx.path) as c:assert list(c.execute('SELECT * FROM metadata'))==before
+
+
+def test_scoped_file_missing_and_root_replacement_fail_closed(tmp_path):
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'a.md';source.write_text('Atlas');idx=make_scoped(root,state,kind='file',name='a.md');idx.search('Atlas')
+    source.unlink()
+    with pytest.raises(PermissionError):idx.search('Atlas')
+    moved=tmp_path/'moved';root.rename(moved);root.mkdir();(root/'a.md').write_text('Atlas')
+    with pytest.raises(PermissionError):idx.search('Atlas')
+
+
+def test_scoped_clear_process_crash_and_restart_never_crosses_scope(tmp_path):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'a.md';source.write_text('Atlas old');idx=make_scoped(root,state);idx.search('Atlas');source.unlink()
+    code='''from pathlib import Path\nfrom rail.local_project_sources import discover_text_files\nfrom rail.selected_source_index import ScopedSelectedSourceIndex as I\nimport os,sys\nr=Path(sys.argv[1]);s=Path(sys.argv[2]);old=I._write_generation\ndef crash(db,rows,salt,token):\n old(db,rows,salt,token);os._exit(23)\nI._write_generation=staticmethod(crash)\nI.clear_empty(state_dir=s,source_root=r,discover=lambda:discover_text_files(r),authorize=lambda:None,authority="local-project://fixture")'''
+    result=subprocess.run([sys.executable,'-c',code,str(root),str(state)])
+    assert result.returncode==23
+    # A rollback journal may be recovered on reopen or conservatively rejected.
+    try:
+        ScopedSelectedSourceIndex.clear_empty(state_dir=state,source_root=root,discover=lambda:discover_text_files(root),authorize=lambda:None,authority='local-project://fixture')
+    except ValueError as exc:
+        assert 'index unavailable or corrupt' in str(exc)
+    else:
+        with sqlite3.connect(idx.path) as db:
+            assert db.execute('SELECT COUNT(*) FROM files').fetchone()[0]==0
+            assert db.execute('SELECT COUNT(*) FROM postings').fetchone()[0]==0
+        source.write_text('Atlas current')
+        assert make_scoped(root,state).search('Atlas')[0].excerpt=='Atlas current'
+
+
+def test_scoped_search_rechecks_root_before_commit_and_rolls_back(tmp_path,monkeypatch):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'a.md';source.write_text('Atlas old');index=make_scoped(root,state);index.search('Atlas')
+    with sqlite3.connect(index.path) as db:before=dict(db.execute('SELECT key,value FROM metadata'))
+    source.write_text('Atlas updated')
+    original=ScopedSelectedSourceIndex._check_scope;calls={'count':0}
+    def swap_on_precommit(self,db):
+        calls['count']+=1
+        if calls['count']==2:
+            root.rename(tmp_path/'old');root.mkdir();(root/'a.md').write_text('Atlas replacement')
+        return original(self,db)
+    monkeypatch.setattr(ScopedSelectedSourceIndex,'_check_scope',swap_on_precommit)
+    with pytest.raises(PermissionError): index.search('Atlas')
+    assert calls['count']==2
+    with sqlite3.connect(index.path) as db:assert dict(db.execute('SELECT key,value FROM metadata'))==before
+
+
+def test_scoped_search_rechecks_root_before_releasing_evidence(tmp_path,monkeypatch):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    (root/'a.md').write_text('Atlas source');index=make_scoped(root,state)
+    original=ScopedSelectedSourceIndex._check_release_scope
+    def swap(self):
+        root.rename(tmp_path/'old');root.mkdir();(root/'a.md').write_text('Atlas replacement')
+        return original(self)
+    monkeypatch.setattr(ScopedSelectedSourceIndex,'_check_release_scope',swap)
+    with pytest.raises(PermissionError): index.search('Atlas')
+
+
+def test_scoped_checksum_rejects_scope_corrupted_to_another_valid_root(tmp_path):
+    from rail.selected_source_index import ScopedSelectedSourceIndex
+    a=tmp_path/'a';a.mkdir();b=tmp_path/'b';b.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    (a/'a.md').write_text('Atlas source');index=make_scoped(a,state);index.search('Atlas')
+    other=ScopedSelectedSourceIndex(state_dir=state,source_root=b,reader=None,discover=lambda:(),authorize=lambda:None,scope_kind='directory',authority='local-project://fixture')
+    with sqlite3.connect(index.path) as db: db.execute("UPDATE metadata SET value=? WHERE key='scope'",(other._scope_digest,))
+    before=index.path.read_bytes()
+    with pytest.raises(ValueError,match='checksum'):
+        ScopedSelectedSourceIndex.clear_empty(state_dir=state,source_root=b,discover=lambda:(),authorize=lambda:None,authority='local-project://fixture')
+    assert index.path.read_bytes()==before

@@ -108,3 +108,24 @@ The current selected-source index uses the v2 marker, with line splitting aligne
 to the live reader for CRLF, bare CR and Unicode separators. A v1 prototype cache
 is rejected rather than silently reused; choose a fresh private state directory
 or explicitly manage the old cache. No automatic removal of user files occurs.
+
+`ScopedSelectedSourceIndex` is an explicit v3 alternative. Its separate
+`scoped-selected-source-index.sqlite` binds the canonical source-root path and
+device/inode, authority, and selection kind; a single-file scope also binds the
+selected basename. A mismatch, replaced root, corrupt cache, or revoked authority
+fails closed. Use a dedicated owner-only state directory per selection. The
+state directory and path must remain trusted and stable against other processes
+under the same OS account: the scope marker and checksum detect accidental
+changes, not deliberate same-account tampering. The v3 index does not support
+descriptor-bound selections.
+
+For a v3 directory selection, `ScopedSelectedSourceIndex.clear_empty(...)`
+checks that the folder is still empty and authorized, then logically clears the
+matching cache's paths and postings in a transaction. It does not create a cache
+when none exists, and it rejects another scope or an unrelated database. Logical
+deletion is not a guarantee of physical erasure from storage artifacts, backups,
+or filesystem snapshots. Checks across the filesystem and SQLite are sequential,
+so a later mutation remains possible. The v3 file and marker are distinct from
+v2: existing `SelectedSourceIndex` and its file retain their behavior, and v3
+never migrates, assigns, or deletes a v2 index automatically. V3 is opt-in and
+requires explicit caller integration; it is not itself a user interface.
