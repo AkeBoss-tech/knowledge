@@ -21,6 +21,44 @@ from krail.provider.v1 import (
 )
 
 
+def _excerpt_window(line: str, terms: set[str], limit: int, *, matched_span: tuple[int, int] | None = None) -> tuple[str, int, int]:
+    """Return an exact UTF-8 byte slice around the earliest casefolded match."""
+    if type(limit) is not int or not 1 <= limit <= MAX_EVIDENCE_ITEM_BYTES:
+        raise ValueError('invalid excerpt window size')
+    if matched_span is None:
+        folded = line.casefold()
+        candidates = [(folded.find(term), term) for term in terms if term and folded.find(term) >= 0]
+        if not candidates:
+            raise ValueError('matched line lacks query term')
+        offset, term = min(candidates, key=lambda item: (item[0], -len(item[1]), item[1]))
+        stop = offset + len(term)
+        fold_offset = 0
+        first = last = None
+        for pos, char in enumerate(line):
+            next_offset = fold_offset + len(char.casefold())
+            if first is None and next_offset > offset: first = pos
+            if last is None and next_offset >= stop: last = pos + 1; break
+            fold_offset = next_offset
+        if first is None or last is None:
+            raise ValueError('invalid casefold mapping')
+    else:
+        first, last = matched_span
+        if type(first) is not int or type(last) is not int or not 0 <= first < last <= len(line):
+            raise ValueError('invalid matched span')
+    raw = line.encode('utf-8')
+    match_start = len(line[:first].encode('utf-8'))
+    match_end = len(line[:last].encode('utf-8'))
+    if match_end - match_start > limit:
+        raise ValueError('matched term exceeds excerpt window')
+    start = max(0, match_start - (limit - (match_end - match_start)) // 2)
+    while start < len(raw) and raw[start] & 0xc0 == 0x80: start += 1
+    end = min(len(raw), start + limit)
+    while end < len(raw) and raw[end] & 0xc0 == 0x80: end -= 1
+    if start > match_start or end < match_end:
+        raise ValueError('matched term exceeds excerpt window')
+    return raw[start:end].decode('utf-8'), start, end
+
+
 def _open_canonical_root(path: Path) -> int:
     """Open each absolute path component without following symbolic links."""
     fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -327,7 +365,9 @@ class LocalProjectSources:
         self.revalidate_snapshot(token)
         return tuple(items)
 
-    def _find(self, query: str) -> list[tuple[ResourceRef, str, int, float]]:
+    def _find(self, query: str, *, excerpt_window_bytes: int | None = None) -> list[tuple[ResourceRef, str, int, float, tuple[int, int] | None]]:
+        if excerpt_window_bytes is not None and (type(excerpt_window_bytes) is not int or not 1 <= excerpt_window_bytes <= MAX_EVIDENCE_ITEM_BYTES):
+            raise ValueError('invalid excerpt window size')
         terms = set(re.findall(r'\w+', query.casefold()))
         if not terms:
             return []
@@ -349,8 +389,13 @@ class LocalProjectSources:
             lines = text.splitlines()
             best = max(range(len(lines)), key=lambda n: sum(term in lines[n].casefold() for term in terms)) if lines else 0
             excerpt = lines[best] if lines else ''
-            excerpt = excerpt.encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8', errors='ignore')
-            matches.append((self._ref(path, data), excerpt, best + 1, score))
+            if excerpt_window_bytes is None:
+                excerpt = excerpt.encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8', errors='ignore')
+                offsets = None
+            else:
+                excerpt, start, end = _excerpt_window(excerpt, terms, excerpt_window_bytes)
+                offsets = (start, end)
+            matches.append((self._ref(path, data), excerpt, best + 1, score, offsets))
         # Detect changes/removals/appearances during the scan; avoid releasing a
         # mixed result set. Changes after this final check remain possible.
         for path, previous in seen.items():
@@ -370,14 +415,20 @@ class LocalProjectSources:
             return SearchResult(hits=[])
         found = self._find(request.query)
         hits = [SearchHit(ref=ref, title=ref.resource_id[:1024], preview=line.encode('utf-8')[:4096].decode('utf-8', errors='ignore'), score=score)
-                for ref, line, _, score in found[:request.limit]]
+                for ref, line, _, score, _ in found[:request.limit]]
         return SearchResult(hits=hits, truncated=len(found) > request.limit)
 
-    def evidence(self, query: str, *, limit: int = 20) -> tuple[EvidenceItem, ...]:
+    def evidence(self, query: str, *, limit: int = 20, excerpt_window_bytes: int | None = None) -> tuple[EvidenceItem, ...]:
         """Return exact source refs with one-based line locators and excerpts."""
         if not isinstance(limit, int) or not 1 <= limit <= 32:
             raise ValueError('evidence limit must be 1..32')
         if not query.strip() or len(query) > 8192:
             raise ValueError('query must contain 1..8192 characters')
-        return tuple(EvidenceItem(source=ref, locator=f'{quote(ref.resource_id, safe="/")}#L{line}', excerpt=excerpt,
-                                  relevance=score) for ref, excerpt, line, score in self._find(query)[:limit] if excerpt)
+        return tuple(EvidenceItem(source=ref, locator=f'{quote(ref.resource_id, safe="/")}#L{line}' + (f'@B{offsets[0]}-{offsets[1]}' if offsets is not None else ''), excerpt=excerpt,
+                                  relevance=score) for ref, excerpt, line, score, offsets in self._find(query, excerpt_window_bytes=excerpt_window_bytes)[:limit] if excerpt)
+
+    def evidence_offset(self, query: str, *, limit: int, excerpt_window_bytes: int) -> tuple[EvidenceItem, ...]:
+        """Explicitly request UTF-8 byte-offset evidence; legacy evidence is unchanged."""
+        if type(excerpt_window_bytes) is not int or not 1 <= excerpt_window_bytes <= MAX_EVIDENCE_ITEM_BYTES:
+            raise ValueError('invalid excerpt window size')
+        return self.evidence(query, limit=limit, excerpt_window_bytes=excerpt_window_bytes)

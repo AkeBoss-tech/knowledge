@@ -21,7 +21,8 @@ from typing import Protocol
 from urllib.parse import quote
 
 from krail.provider.v1 import EvidenceItem, MAX_EVIDENCE_ITEM_BYTES, ResourceRef
-from rail.vector_store import tokenize
+from rail.vector_store import _TOKEN_RE, tokenize
+from rail.local_project_sources import _excerpt_window
 
 _APP_ID = 0x4B524149
 _MARKER = 'krail.selected-source-index.v2'
@@ -35,6 +36,7 @@ class SelectedReader(Protocol):
     def revalidate_snapshot(self, token: str) -> None: ...
     def read_selected(self) -> tuple[tuple[str, bytes], ...]: ...
     def evidence(self, query: str, *, limit: int = 20) -> tuple[EvidenceItem, ...]: ...
+    def evidence_offset(self, query: str, *, limit: int, excerpt_window_bytes: int) -> tuple[EvidenceItem, ...]: ...
     def get_resource(self, request): ...
 
 
@@ -58,6 +60,23 @@ def _source_path(value: str) -> str:
 def _term_hash(salt: bytes, term: str) -> str:
     # Salted hashes avoid retaining source words but are dictionary-guessable.
     return sha256(salt + b'\0' + term.encode('utf-8')).hexdigest()
+
+
+def _indexed_match_span(line: str, terms: set[str]) -> tuple[int, int]:
+    """Locate a term using the exact token and split rules used by postings."""
+    candidates = []
+    for match in _TOKEN_RE.finditer(line):
+        raw = match.group()
+        valid = set(tokenize(raw))
+        if raw.lower() in terms and raw.lower() in valid:
+            candidates.append((match.start(), match.end()))
+        for part in re.finditer(r'[^_.-]+', raw):
+            token = part.group().lower()
+            if token in terms and token in valid:
+                candidates.append((match.start()+part.start(), match.start()+part.end()))
+    if not candidates:
+        raise ValueError('indexed match token unavailable')
+    return min(candidates, key=lambda span: (span[0], -(span[1]-span[0])))
 
 
 class SelectedSourceIndex:
@@ -207,9 +226,11 @@ class SelectedSourceIndex:
         checksum = SelectedSourceIndex._checksum(connection)
         connection.execute("UPDATE metadata SET value=? WHERE key='checksum'", (checksum,))
 
-    def search(self, query: str, *, limit: int = 12) -> tuple[EvidenceItem, ...]:
+    def search(self, query: str, *, limit: int = 12, excerpt_window_bytes: int | None = None) -> tuple[EvidenceItem, ...]:
         if not isinstance(query,str) or not query.strip() or len(query)>2000 or type(limit) is not int or not 1<=limit<=32:
             raise ValueError('invalid query')
+        if excerpt_window_bytes is not None and (type(excerpt_window_bytes) is not int or not 1 <= excerpt_window_bytes <= MAX_EVIDENCE_ITEM_BYTES):
+            raise ValueError('invalid excerpt window size')
         token, rows = self._capture()
         connection = self._db()
         try:
@@ -248,7 +269,13 @@ class SelectedSourceIndex:
             # authorized reader for Unicode queries without changing the index
             # format or trusting old excerpts. Its lexical matching semantics
             # (casefolded substrings) differ from the ASCII index.
-            items = self.reader.evidence(query, limit=limit)
+            if excerpt_window_bytes is None:
+                items = self.reader.evidence(query, limit=limit)
+            else:
+                offset_evidence = getattr(self.reader, 'evidence_offset', None)
+                if not callable(offset_evidence):
+                    raise ValueError('offset evidence is unavailable')
+                items = offset_evidence(query, limit=limit, excerpt_window_bytes=excerpt_window_bytes)
             if not isinstance(items, tuple) or len(items) > limit:
                 raise ValueError('invalid live evidence')
             for item in items:
@@ -273,19 +300,25 @@ class SelectedSourceIndex:
             raw = source_map[path]
             lines = raw.decode('utf-8').splitlines()
             if not 1 <= line <= len(lines): raise ValueError('index line mismatch')
-            excerpt = lines[line-1].encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8',errors='ignore')
+            if excerpt_window_bytes is None:
+                excerpt = lines[line-1].encode('utf-8')[:MAX_EVIDENCE_ITEM_BYTES].decode('utf-8',errors='ignore')
+                suffix = ''
+            else:
+                excerpt, start, end = _excerpt_window(lines[line-1], set(terms), excerpt_window_bytes,
+                                                       matched_span=_indexed_match_span(lines[line-1], set(terms)))
+                suffix = f'@B{start}-{end}'
             if not excerpt: continue
             digest = 'sha256:'+sha256(raw).hexdigest()
             ref = ResourceRef(authority=self.authority,resource_type='local.file',resource_id=path,version=digest,digest=digest)
-            items.append(EvidenceItem(source=ref,locator=f'{quote(path,safe="/")}#L{line}',excerpt=excerpt,relevance=count/max(len(terms),1)))
+            items.append(EvidenceItem(source=ref,locator=f'{quote(path,safe="/")}#L{line}{suffix}',excerpt=excerpt,relevance=count/max(len(terms),1)))
         self.reader.revalidate_snapshot(token)
         if tuple(sorted(self.discover())) != tuple(sorted(source_map)):
             raise PermissionError('selected folder changed')
         self.authorize()
         return tuple(items)
 
-    def evidence(self, query: str, *, limit: int = 20) -> tuple[EvidenceItem, ...]:
-        return self.search(query, limit=limit)
+    def evidence(self, query: str, *, limit: int = 20, excerpt_window_bytes: int | None = None) -> tuple[EvidenceItem, ...]:
+        return self.search(query, limit=limit, excerpt_window_bytes=excerpt_window_bytes)
 
     def snapshot_token(self) -> str:
         token, rows = self._capture()
@@ -303,3 +336,9 @@ class SelectedSourceIndex:
         result = self.reader.get_resource(request)
         self.revalidate_snapshot(token)
         return result
+
+    def evidence_offset(self, query: str, *, limit: int, excerpt_window_bytes: int) -> tuple[EvidenceItem, ...]:
+        """Explicitly request UTF-8 byte-offset evidence; legacy evidence is unchanged."""
+        if type(excerpt_window_bytes) is not int or not 1 <= excerpt_window_bytes <= MAX_EVIDENCE_ITEM_BYTES:
+            raise ValueError('invalid excerpt window size')
+        return self.search(query, limit=limit, excerpt_window_bytes=excerpt_window_bytes)

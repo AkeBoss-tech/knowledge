@@ -33,6 +33,14 @@ selected files again before returning, and an exact ref cannot retrieve changed
 or removed content. A change after the final check is still possible, so a
 consumer must recheck citations when using them later.
 
+For a match deep within a line, a trusted consumer can explicitly call
+`evidence_offset` with a byte-window limit. Its locator appends
+`@B<start>-<end>` to the line locator, identifying an exact UTF-8 byte slice of
+that line; consumers must verify the slice and source digest before use. The
+ordinary `evidence` method retains its legacy prefix locators by default.
+Offset citations require explicit support throughout the consumer path; they
+do not prove that a generated claim is entailed by the cited text.
+
 `discover_text_files` returns a bounded, deterministic proposal of supported
 text paths, excluding symlinks and hard links, hidden and generated directories, and common
 secret-like names. Name filtering cannot detect all secrets inside otherwise
@@ -71,7 +79,9 @@ checks remain sequential and do not prevent mutation after return.
 
 `rail.selected_source_index.SelectedSourceIndex` is an opt-in local cache for
 an explicitly selected source set. Its terms use the existing ASCII-oriented
-KRAIL tokenizer; this is lexical retrieval, not multilingual semantic search. A caller supplies a private owner-only state
+KRAIL tokenizer; non-ASCII queries fall back to the authorized live reader's
+case-folded substring search. This is lexical retrieval, not multilingual
+semantic search, and Unicode normalization is not guaranteed. A caller supplies a private owner-only state
 directory outside the selected source tree, a selection-bound reader, current
 discovery, and live authorization callbacks. The SQLite cache stores relative
 paths, content digests, line numbers and salted hashes of lexical terms, not
@@ -90,6 +100,9 @@ checks as observations rather than an atomic filesystem snapshot. There is no
 remote embedding provider, semantic search, automatic file watcher or UI in this
 component. `packages/rail-py/tests/test_selected_source_index.py` covers restart,
 update, removal, addition, revoked authority, corruption and interrupted writes.
+Use a separate state directory per selection: the v2 cache is not bound to a
+source root. An empty-folder CLI search returns no stale matches but can leave
+the previous paths and hashed terms in the cache until refresh or removal.
 
 The current selected-source index uses the v2 marker, with line splitting aligned
 to the live reader for CRLF, bare CR and Unicode separators. A v1 prototype cache

@@ -195,3 +195,42 @@ def test_unicode_live_fallback_fails_closed_on_revocation_and_midread_change(tmp
     with pytest.raises(PermissionError): index.evidence('日本語')
     allowed['yes']=False
     with pytest.raises(PermissionError): index.evidence('日本語')
+
+
+def test_offset_window_binds_utf8_exact_bytes_for_index_and_unicode_fallback(tmp_path):
+    import re
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'long file.md'
+    source.write_text('header\r\n'+('é日本 ' * 5000)+'Straße and needle result\n')
+    index=make_index(root,state)
+    for reader,query in ((index,'needle'),(index,'STRAẞE'),(index.reader,'STRASSE')):
+        item=reader.evidence_offset(query,limit=2,excerpt_window_bytes=128)[0]
+        match=re.fullmatch(r'long%20file\.md#L2@B([0-9]+)-([0-9]+)',item.locator)
+        assert match is not None
+        start,end=map(int,match.groups()); raw=source.read_text().splitlines()[1].encode('utf-8')
+        assert start>16384 and end-start<=128
+        assert raw[start:end].decode('utf-8')==item.excerpt
+        assert ('needle' if query=='needle' else 'Straße') in item.excerpt
+        assert item.source.verifies(source.read_bytes())
+    legacy=index.evidence('needle')[0]
+    assert legacy.locator=='long%20file.md#L2' and 'needle' not in legacy.excerpt
+    with pytest.raises(ValueError): index.evidence_offset('needle',limit=2,excerpt_window_bytes=2)
+    before=index.snapshot_token();source.write_text('needle changed')
+    with pytest.raises(PermissionError): index.revalidate_snapshot(before)
+    assert index.evidence_offset('needle',limit=2,excerpt_window_bytes=16)[0].excerpt=='needle changed'
+
+
+def test_index_offset_anchors_exact_token_not_earlier_substring(tmp_path):
+    root=tmp_path/'project';root.mkdir();state=tmp_path/'state';state.mkdir(mode=0o700)
+    source=root/'long.md';source.write_text('needleword '+('x '*10000)+'needle actual result\n')
+    index=make_index(root,state)
+    evidence=index.evidence_offset('needle',limit=1,excerpt_window_bytes=128)[0]
+    assert 'needle actual result' in evidence.excerpt and 'needleword' not in evidence.excerpt
+    import re
+    match=re.fullmatch(r'long\.md#L1@B([0-9]+)-([0-9]+)',evidence.locator)
+    assert match
+    start,end=map(int,match.groups())
+    assert source.read_bytes().splitlines()[0][start:end].decode() == evidence.excerpt
+    # A hyphen-delimited component is also an actual indexed term.
+    source.write_text('needleword '+('x '*10000)+'pre-needle-post\n')
+    assert 'pre-needle-post' in index.evidence_offset('needle',limit=1,excerpt_window_bytes=128)[0].excerpt
